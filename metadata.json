@@ -1,0 +1,7 @@
+{
+  "name": "RentikPro - Professional Rental Management",
+  "description": "A file-based property management desktop application built with React and SQLite.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
