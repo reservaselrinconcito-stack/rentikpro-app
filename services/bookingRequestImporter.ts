@@ -4,7 +4,7 @@ import { BookingRequestSchema, Booking, Traveler, BookingPriceSnapshot } from '.
 import { pricingEngine } from './pricingEngine';
 
 export class BookingRequestImporter {
-  
+
   async import(jsonContent: string): Promise<{ success: boolean; message: string; bookingId?: string }> {
     const store = projectManager.getStore();
     let request: BookingRequestSchema;
@@ -62,90 +62,88 @@ export class BookingRequestImporter {
       };
       await store.saveTraveler(newTraveler);
     }
-    
+
     let warningMessage = "";
     let conflictDetected = false;
 
     // 5. Re-quote and validate price & availability
     try {
-        const liveQuote = await pricingEngine.quote(
-            request.stay.unitId,
-            request.stay.from,
-            request.stay.to,
-            request.stay.guests,
-            request.stay.ratePlanId
-        );
+      const liveQuote = await pricingEngine.quote(
+        request.stay.unitId,
+        request.stay.from,
+        request.stay.to,
+        request.stay.guests,
+        request.stay.ratePlanId
+      );
 
-        // A. Price validation
-        if (liveQuote.grandTotal !== request.priceQuote.grandTotal) {
-            conflictDetected = true;
-            warningMessage += `Discrepancia de precio: Cliente vio ${request.priceQuote.grandTotal/100}€, sistema calcula ${liveQuote.grandTotal/100}€.`;
-        }
+      // A. Price validation
+      if (liveQuote.grandTotal !== request.priceQuote.grandTotal) {
+        conflictDetected = true;
+        warningMessage += `Discrepancia de precio: Cliente vio ${request.priceQuote.grandTotal / 100}€, sistema calcula ${liveQuote.grandTotal / 100}€.`;
+      }
 
-        // B. Availability check from quote engine's restrictions
-        if (liveQuote.restrictions.violation) {
-            conflictDetected = true;
-            warningMessage += ` Conflicto de disponibilidad/restricción: ${liveQuote.restrictions.violation}`;
-        }
-        
-        // C. Legacy availability check (belt and braces)
-        const overlaps = existingBookings.filter(b => 
-            b.apartment_id === apartment.id &&
-            b.status !== 'cancelled' &&
-            b.check_in < request.stay.to &&
-            b.check_out > request.stay.from
-        );
-        if (overlaps.length > 0) {
-            conflictDetected = true;
-            warningMessage += ` Las fechas ya están ocupadas.`;
-        }
+      // B. Availability check from quote engine's restrictions
+      if (liveQuote.restrictions.violation) {
+        conflictDetected = true;
+        warningMessage += ` Conflicto de disponibilidad/restricción: ${liveQuote.restrictions.violation}`;
+      }
 
-        // 6. Create Booking
-        const newBooking: Booking = {
-          id: crypto.randomUUID(),
-          property_id: apartment.property_id,
-          apartment_id: apartment.id,
-          traveler_id: travelerId,
-          check_in: request.stay.from,
-          check_out: request.stay.to,
-          guests: request.stay.guests,
-          total_price: request.priceQuote.grandTotal, // Use the price the client saw
-          status: 'pending', // Always pending for review
-          source: 'WEBSITE_IMPORT',
-          external_ref: request.idempotencyKey,
-          conflict_detected: conflictDetected,
-          rate_plan_id: request.stay.ratePlanId,
-          created_at: new Date(request.createdAt).getTime() || Date.now()
-        };
-    
-        await store.saveBooking(newBooking);
+      // C. Legacy availability check (belt and braces)
+      const overlaps = existingBookings.filter(b =>
+        b.apartment_id === apartment.id &&
+        b.status !== 'cancelled' &&
+        b.check_in < request.stay.to &&
+        b.check_out > request.stay.from
+      );
+      if (overlaps.length > 0) {
+        conflictDetected = true;
+        warningMessage += ` Las fechas ya están ocupadas.`;
+      }
 
-        // 7. Save Price Snapshot (always, for audit)
-        const snapshot: BookingPriceSnapshot = {
-            bookingId: newBooking.id,
-            snapshotJson: JSON.stringify({
-                request: request.priceQuote,
-                liveQuote: liveQuote,
-                warning: warningMessage
-            }),
-            createdAt: Date.now()
-        };
-        await store.saveBookingPriceSnapshot(snapshot);
+      // 6. Create Booking
+      const newBooking: Booking = {
+        id: crypto.randomUUID(),
+        property_id: apartment.property_id,
+        apartment_id: apartment.id,
+        traveler_id: travelerId,
+        check_in: request.stay.from,
+        check_out: request.stay.to,
+        guests: request.stay.guests,
+        total_price: request.priceQuote.grandTotal, // Use the price the client saw
+        status: 'pending', // Always pending for review
+        source: 'WEBSITE_IMPORT',
+        external_ref: request.idempotencyKey,
+        conflict_detected: conflictDetected,
+        rate_plan_id: request.stay.ratePlanId,
+        created_at: new Date(request.createdAt).getTime() || Date.now()
+      };
 
-        if (request.guest.message) {
-           console.log("Guest Message:", request.guest.message);
-        }
+      await store.saveBooking(newBooking);
 
-        return { 
-          success: true, 
-          message: conflictDetected 
-            ? `Importado con ADVERTENCIAS. Revisar manualmente. ${warningMessage}` 
-            : `Solicitud importada correctamente. Requiere confirmación manual.`,
-          bookingId: newBooking.id
-        };
+      // 7. Save Price Snapshot (always, for audit)
+      const snapshot: BookingPriceSnapshot = {
+        bookingId: newBooking.id,
+        snapshotJson: JSON.stringify({
+          request: request.priceQuote,
+          liveQuote: liveQuote,
+          warning: warningMessage
+        }),
+        createdAt: Date.now()
+      };
+      await store.saveBookingPriceSnapshot(snapshot);
+
+      // Guest message removed from logging for privacy/security
+
+      return {
+        success: true,
+        message: conflictDetected
+          ? `Importado con ADVERTENCIAS. Revisar manualmente. ${warningMessage}`
+          : `Solicitud importada correctamente. Requiere confirmación manual.`,
+        bookingId: newBooking.id
+      };
 
     } catch (e: any) {
-        return { success: false, message: `Error al recalcular el precio: ${e.message}` };
+      return { success: false, message: `Error al recalcular el precio: ${e.message}` };
     }
   }
 }

@@ -1,4 +1,5 @@
 
+import { logger } from './logger';
 export class NetworkMonitor {
   private static instance: NetworkMonitor;
   private online: boolean = navigator.onLine;
@@ -32,7 +33,7 @@ export class NetworkMonitor {
     if (this.online !== isOnline) {
       this.online = isOnline;
       this.listeners.forEach(l => l(isOnline));
-      console.log(`Network Status: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+      logger.log(`Network Status: ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
     }
   }
 }

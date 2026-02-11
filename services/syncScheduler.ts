@@ -3,6 +3,7 @@ import { projectManager } from './projectManager';
 import { syncEngine } from './syncEngine';
 import { notifyDataChanged } from './dataRefresher';
 import { networkMonitor } from './networkMonitor';
+import { logger } from './logger';
 
 export type SyncInterval = 15 | 30 | 60 | 'MANUAL';
 
@@ -16,14 +17,14 @@ export class SyncScheduler {
     // Load preference
     const stored = localStorage.getItem('rentikpro_sync_interval');
     if (stored) this.intervalMinutes = stored === 'MANUAL' ? 'MANUAL' : parseInt(stored) as SyncInterval;
-    
+
     // Listen to network changes to auto-resume
     networkMonitor.subscribe((isOnline) => {
-        if (isOnline && this.intervalMinutes !== 'MANUAL') {
-            this.start();
-        } else {
-            this.stop();
-        }
+      if (isOnline && this.intervalMinutes !== 'MANUAL') {
+        this.start();
+      } else {
+        this.stop();
+      }
     });
   }
 
@@ -39,7 +40,7 @@ export class SyncScheduler {
     localStorage.setItem('rentikpro_sync_interval', minutes.toString());
     this.stop();
     if (minutes !== 'MANUAL') {
-        this.start();
+      this.start();
     }
   }
 
@@ -49,22 +50,22 @@ export class SyncScheduler {
 
   public start() {
     if (this.isRunning || this.intervalMinutes === 'MANUAL') return;
-    
+
     // Immediate check
     this.processQueue();
 
     this.timerId = window.setInterval(() => {
-        this.processQueue();
+      this.processQueue();
     }, (this.intervalMinutes as number) * 60 * 1000);
-    
+
     this.isRunning = true;
-    console.log(`Sync Scheduler Started: Every ${this.intervalMinutes} min`);
+    logger.log(`Sync Scheduler Started: Every ${this.intervalMinutes} min`);
   }
 
   public stop() {
     if (this.timerId) {
-        clearInterval(this.timerId);
-        this.timerId = null;
+      clearInterval(this.timerId);
+      this.timerId = null;
     }
     this.isRunning = false;
   }
@@ -76,31 +77,31 @@ export class SyncScheduler {
   // --- QUEUE PROCESSOR ---
   private async processQueue() {
     if (!networkMonitor.isOnline()) {
-        console.log("Sync Skipped: Offline");
-        return;
+      logger.log("Sync Skipped: Offline");
+      return;
     }
 
     // CRITICAL FIX: Ensure project is loaded before attempting database access
     if (!projectManager.isProjectLoaded()) {
-        // console.debug("Sync Skipped: No project loaded");
-        return;
+      // console.debug("Sync Skipped: No project loaded");
+      return;
     }
 
     const store = projectManager.getStore();
     const apartments = await store.getAllApartments();
-    
-    console.log("Starting Auto-Sync Cycle...");
-    
+
+    logger.log("Starting Auto-Sync Cycle...");
+
     // Sequential processing to avoid flooding
     for (const apt of apartments) {
-        try {
-            await syncEngine.syncApartment(apt.id);
-        } catch (e) {
-            console.error(`Auto-Sync Error Apt ${apt.id}:`, e);
-        }
+      try {
+        await syncEngine.syncApartment(apt.id);
+      } catch (e) {
+        logger.error(`Auto-Sync Error Apt ${apt.id}:`, e);
+      }
     }
-    
-    console.log("Auto-Sync Cycle Completed");
+
+    logger.log("Auto-Sync Cycle Completed");
     notifyDataChanged('all');
   }
 }

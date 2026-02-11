@@ -1,14 +1,15 @@
 
-import { 
-  IDataStore, Property, Apartment, Traveler, Stay, AccountingMovement, 
-  Booking, FiscalProfile, DataOnlyBackup, StructureOnlyBackup, 
+import {
+  IDataStore, Property, Apartment, Traveler, Stay, AccountingMovement,
+  Booking, FiscalProfile, DataOnlyBackup, StructureOnlyBackup,
   MarketingTemplate, MarketingLog, MarketingCampaign, Coupon,
   RegistryUnit, RegistryPresentation, WebSite,
   CommunicationAccount, Conversation, Message, MessageAttachment, ConversationStatus,
   AiPersona, AiKnowledgeFact, AiAuditLog, ChannelConnection, CalendarEvent,
   PricingRuleSet, PricingRule, BookingPriceSnapshot,
-  CancellationPolicy, RatePlan, PricingModifier, Fee
+  CancellationPolicy, RatePlan, PricingModifier, Fee, UserSettings
 } from '../types';
+import { logger } from './logger';
 
 declare const initSqlJs: any;
 
@@ -31,6 +32,26 @@ export class SQLiteStore implements IDataStore {
     await this.runMigrations();
   }
 
+  /**
+   * Helper function for SQL migrations with intelligent error handling
+   * Silences "duplicate column" errors but logs actual problems
+   */
+  private async safeMigration(sql: string, description: string = ''): Promise<void> {
+    try {
+      await this.execute(sql);
+    } catch (e: any) {
+      const errorMsg = e?.message?.toLowerCase() || '';
+      // Only ignore expected "column already exists" errors
+      if (errorMsg.includes('duplicate column') || errorMsg.includes('already exists')) {
+        // Silently ignore - migration already applied
+        return;
+      }
+      // Log actual errors
+      logger.error(`Migration failed: ${description || sql.substring(0, 50)}...`, e);
+      throw e; // Re-throw critical errors
+    }
+  }
+
   async runMigrations() {
     await this.execute("CREATE TABLE IF NOT EXISTS properties (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at INTEGER);");
     await this.execute("CREATE TABLE IF NOT EXISTS apartments (id TEXT PRIMARY KEY, property_id TEXT, name TEXT, color TEXT, created_at INTEGER);");
@@ -38,16 +59,16 @@ export class SQLiteStore implements IDataStore {
     await this.execute("CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, property_id TEXT, apartment_id TEXT, traveler_id TEXT, check_in TEXT, check_out TEXT, status TEXT, total_price REAL, guests INTEGER DEFAULT 1, source TEXT, external_ref TEXT, created_at INTEGER);");
     await this.execute("CREATE TABLE IF NOT EXISTS stays (id TEXT PRIMARY KEY, traveler_id TEXT, apartment_id TEXT, check_in TEXT, check_out TEXT, source TEXT, import_batch_id TEXT, created_at INTEGER);");
     await this.execute("CREATE TABLE IF NOT EXISTS accounting_movements (id TEXT PRIMARY KEY, date TEXT, type TEXT, category TEXT, concept TEXT, apartment_id TEXT, reservation_id TEXT, traveler_id TEXT, platform TEXT, supplier TEXT, amount_gross REAL, commission REAL, vat REAL, amount_net REAL, payment_method TEXT, accounting_bucket TEXT, import_hash TEXT, import_batch_id TEXT, created_at INTEGER, updated_at INTEGER);");
-    
+
     // Updates for Block 2 (Soft Delete & Features)
-    try { await this.execute("ALTER TABLE properties ADD COLUMN is_active INTEGER DEFAULT 1"); } catch (e) {}
-    try { await this.execute("ALTER TABLE apartments ADD COLUMN is_active INTEGER DEFAULT 1"); } catch (e) {}
-    try { await this.execute("ALTER TABLE accounting_movements ADD COLUMN receipt_blob TEXT"); } catch (e) {}
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN is_active INTEGER DEFAULT 1", "Add is_active to properties");
+    await this.safeMigration("ALTER TABLE apartments ADD COLUMN is_active INTEGER DEFAULT 1", "Add is_active to apartments");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN receipt_blob TEXT", "Add receipt_blob to accounting");
 
     // Updates for Block 11-A (Multi-property fields)
-    try { await this.execute("ALTER TABLE properties ADD COLUMN timezone TEXT DEFAULT 'Europe/Madrid'"); } catch (e) {}
-    try { await this.execute("ALTER TABLE properties ADD COLUMN currency TEXT DEFAULT 'EUR'"); } catch (e) {}
-    try { await this.execute("ALTER TABLE properties ADD COLUMN updated_at INTEGER"); } catch (e) {}
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN timezone TEXT DEFAULT 'Europe/Madrid'", "Add timezone to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN currency TEXT DEFAULT 'EUR'", "Add currency to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN updated_at INTEGER", "Add updated_at to properties");
 
     await this.execute(`CREATE TABLE IF NOT EXISTS fiscal_profile (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -60,6 +81,26 @@ export class SQLiteStore implements IDataStore {
       telefono TEXT,
       regimen_iva TEXT,
       iva_defecto REAL
+    );`);
+
+    await this.execute(`CREATE TABLE IF NOT EXISTS user_settings (
+      id TEXT PRIMARY KEY DEFAULT 'default',
+      business_name TEXT,
+      business_description TEXT,
+      fiscal_name TEXT,
+      fiscal_id TEXT,
+      fiscal_address TEXT,
+      fiscal_city TEXT,
+      fiscal_postal_code TEXT,
+      fiscal_country TEXT DEFAULT 'España',
+      contact_email TEXT,
+      contact_phone TEXT,
+      contact_website TEXT,
+      default_currency TEXT DEFAULT 'EUR',
+      default_timezone TEXT DEFAULT 'Europe/Madrid',
+      date_format TEXT DEFAULT 'DD/MM/YYYY',
+      created_at INTEGER,
+      updated_at INTEGER
     );`);
 
     await this.execute(`CREATE TABLE IF NOT EXISTS marketing_templates (id TEXT PRIMARY KEY, name TEXT, subject TEXT, body TEXT, created_at INTEGER);`);
@@ -142,7 +183,7 @@ export class SQLiteStore implements IDataStore {
       updated_at INTEGER,
       FOREIGN KEY(traveler_id) REFERENCES travelers(id) ON DELETE CASCADE
     );`);
-    try { await this.execute("ALTER TABLE conversations ADD COLUMN last_message_direction TEXT"); } catch (e) {}
+    try { await this.execute("ALTER TABLE conversations ADD COLUMN last_message_direction TEXT"); } catch (e) { }
     await this.execute(`CREATE INDEX IF NOT EXISTS idx_conversations_last_msg ON conversations(last_message_at DESC);`);
 
     await this.execute(`CREATE TABLE IF NOT EXISTS messages (
@@ -163,8 +204,8 @@ export class SQLiteStore implements IDataStore {
       read_at INTEGER,
       FOREIGN KEY(conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );`);
-    try { await this.execute("ALTER TABLE messages ADD COLUMN retry_count INTEGER DEFAULT 0"); } catch (e) {}
-    try { await this.execute("ALTER TABLE messages ADD COLUMN last_attempt_at INTEGER DEFAULT 0"); } catch (e) {}
+    try { await this.execute("ALTER TABLE messages ADD COLUMN retry_count INTEGER DEFAULT 0"); } catch (e) { }
+    try { await this.execute("ALTER TABLE messages ADD COLUMN last_attempt_at INTEGER DEFAULT 0"); } catch (e) { }
     await this.execute(`CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);`);
     await this.execute(`CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);`);
 
@@ -179,13 +220,13 @@ export class SQLiteStore implements IDataStore {
       FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE CASCADE
     );`);
 
-    try { await this.execute("ALTER TABLE bookings ADD COLUMN guests INTEGER DEFAULT 1"); } catch (e) {}
-    try { await this.execute("ALTER TABLE bookings ADD COLUMN conflict_detected INTEGER DEFAULT 0"); } catch (e) {}
-    try { await this.execute("ALTER TABLE bookings ADD COLUMN linked_event_id TEXT"); } catch (e) {}
-    try { await this.execute("ALTER TABLE bookings ADD COLUMN rate_plan_id TEXT"); } catch (e) {}
+    try { await this.execute("ALTER TABLE bookings ADD COLUMN guests INTEGER DEFAULT 1"); } catch (e) { }
+    try { await this.execute("ALTER TABLE bookings ADD COLUMN conflict_detected INTEGER DEFAULT 0"); } catch (e) { }
+    try { await this.execute("ALTER TABLE bookings ADD COLUMN linked_event_id TEXT"); } catch (e) { }
+    try { await this.execute("ALTER TABLE bookings ADD COLUMN rate_plan_id TEXT"); } catch (e) { }
 
     // --- AI ASSISTANT TABLES ---
-    
+
     // 1. Personas (System Instructions)
     await this.execute(`CREATE TABLE IF NOT EXISTS ai_personas (
       id TEXT PRIMARY KEY,
@@ -207,9 +248,9 @@ export class SQLiteStore implements IDataStore {
       updated_at INTEGER,
       FOREIGN KEY(property_id) REFERENCES properties(id) ON DELETE CASCADE
     );`);
-    
-    try { await this.execute("ALTER TABLE ai_facts ADD COLUMN apartment_id TEXT"); } catch (e) {}
-    try { await this.execute("ALTER TABLE ai_facts ADD COLUMN is_internal INTEGER DEFAULT 0"); } catch (e) {}
+
+    try { await this.execute("ALTER TABLE ai_facts ADD COLUMN apartment_id TEXT"); } catch (e) { }
+    try { await this.execute("ALTER TABLE ai_facts ADD COLUMN is_internal INTEGER DEFAULT 0"); } catch (e) { }
 
     await this.execute(`CREATE INDEX IF NOT EXISTS idx_ai_facts_prop ON ai_facts(property_id);`);
     await this.execute(`CREATE INDEX IF NOT EXISTS idx_ai_facts_apt ON ai_facts(apartment_id);`);
@@ -240,15 +281,15 @@ export class SQLiteStore implements IDataStore {
       FOREIGN KEY(apartment_id) REFERENCES apartments(id) ON DELETE CASCADE
     );`);
 
-    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN connection_type TEXT DEFAULT 'ICAL'"); } catch (e) {}
-    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN priority INTEGER DEFAULT 0"); } catch (e) {}
-    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN content_hash TEXT"); } catch (e) {}
-    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN enabled INTEGER DEFAULT 1"); } catch (e) {}
-    
+    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN connection_type TEXT DEFAULT 'ICAL'"); } catch (e) { }
+    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN priority INTEGER DEFAULT 0"); } catch (e) { }
+    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN content_hash TEXT"); } catch (e) { }
+    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN enabled INTEGER DEFAULT 1"); } catch (e) { }
+
     // Block 4: HTTP Caching & PROXY
-    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN http_etag TEXT"); } catch (e) {}
-    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN http_last_modified TEXT"); } catch (e) {}
-    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN force_direct INTEGER DEFAULT 0"); } catch (e) {}
+    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN http_etag TEXT"); } catch (e) { }
+    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN http_last_modified TEXT"); } catch (e) { }
+    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN force_direct INTEGER DEFAULT 0"); } catch (e) { }
 
     // NEW TABLE: CALENDAR EVENTS
     await this.execute(`CREATE TABLE IF NOT EXISTS calendar_events (
@@ -282,7 +323,7 @@ export class SQLiteStore implements IDataStore {
       FOREIGN KEY(unit_id) REFERENCES apartments(id) ON DELETE CASCADE
     );`);
     // Block 23: Add rate_plan_id to RuleSets
-    try { await this.execute("ALTER TABLE pricing_rule_sets ADD COLUMN rate_plan_id TEXT"); } catch (e) {}
+    try { await this.execute("ALTER TABLE pricing_rule_sets ADD COLUMN rate_plan_id TEXT"); } catch (e) { }
     await this.execute(`CREATE INDEX IF NOT EXISTS idx_pricing_sets_unit_status ON pricing_rule_sets(unit_id, status);`);
 
     await this.execute(`CREATE TABLE IF NOT EXISTS pricing_rules (
@@ -373,7 +414,7 @@ export class SQLiteStore implements IDataStore {
 
   async getAccounts(): Promise<CommunicationAccount[]> {
     const res = await this.query("SELECT * FROM communication_accounts WHERE is_active = 1");
-    return res.map(row => ({...row, is_active: !!row.is_active}));
+    return res.map(row => ({ ...row, is_active: !!row.is_active }));
   }
 
   async saveAccount(acc: CommunicationAccount): Promise<void> {
@@ -442,7 +483,7 @@ export class SQLiteStore implements IDataStore {
 
   async getAiPersonas(): Promise<AiPersona[]> {
     const res = await this.query("SELECT * FROM ai_personas");
-    return res.map(p => ({...p, is_active: !!p.is_active}));
+    return res.map(p => ({ ...p, is_active: !!p.is_active }));
   }
 
   async saveAiPersona(p: AiPersona): Promise<void> {
@@ -454,18 +495,18 @@ export class SQLiteStore implements IDataStore {
 
   async getAiFacts(propertyId: string): Promise<AiKnowledgeFact[]> {
     const res = await this.query("SELECT * FROM ai_facts WHERE property_id = ?", [propertyId]);
-    return res.map(f => ({...f, is_internal: !!f.is_internal}));
+    return res.map(f => ({ ...f, is_internal: !!f.is_internal }));
   }
 
   async getAiFactsForContext(propertyId: string, apartmentId?: string | null): Promise<Record<string, string>> {
     const rows = await this.query("SELECT * FROM ai_facts WHERE property_id = ?", [propertyId]);
     const context: Record<string, string> = {};
     rows.filter(r => !r.apartment_id).forEach(r => {
-       context[r.key] = r.value; 
+      context[r.key] = r.value;
     });
     if (apartmentId) {
       rows.filter(r => r.apartment_id === apartmentId).forEach(r => {
-         context[r.key] = r.value;
+        context[r.key] = r.value;
       });
     }
     return context;
@@ -494,16 +535,16 @@ export class SQLiteStore implements IDataStore {
     let sql = "SELECT * FROM channel_connections";
     if (apartmentId) sql += " WHERE apartment_id = ?";
     const res = await this.query(sql, apartmentId ? [apartmentId] : []);
-    return res.map(c => ({...c, enabled: c.enabled !== 0, force_direct: c.force_direct === 1}));
+    return res.map(c => ({ ...c, enabled: c.enabled !== 0, force_direct: c.force_direct === 1 }));
   }
 
   async saveChannelConnection(conn: ChannelConnection): Promise<void> {
     await this.executeWithParams(
       "INSERT OR REPLACE INTO channel_connections VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [
-        conn.id, conn.apartment_id, conn.channel_name, conn.alias || null, 
-        conn.ical_url, conn.last_sync || 0, conn.last_status || 'PENDING', 
-        conn.sync_log || '', conn.created_at, conn.connection_type || 'ICAL', 
+        conn.id, conn.apartment_id, conn.channel_name, conn.alias || null,
+        conn.ical_url, conn.last_sync || 0, conn.last_status || 'PENDING',
+        conn.sync_log || '', conn.created_at, conn.connection_type || 'ICAL',
         conn.priority || 0, conn.content_hash || null, conn.enabled ? 1 : 0,
         conn.http_etag || null, conn.http_last_modified || null,
         conn.force_direct ? 1 : 0
@@ -537,14 +578,14 @@ export class SQLiteStore implements IDataStore {
   async getPricingRuleSets(unitId: string, ratePlanId?: string): Promise<PricingRuleSet[]> {
     let sql = "SELECT * FROM pricing_rule_sets WHERE unit_id = ?";
     const params: any[] = [unitId];
-    
+
     if (ratePlanId) {
       sql += " AND rate_plan_id = ?";
       params.push(ratePlanId);
     } else {
       sql += " AND (rate_plan_id IS NULL OR rate_plan_id = '')";
     }
-    
+
     sql += " ORDER BY version DESC";
     const res = await this.query(sql, params);
     return res.map(row => ({
@@ -574,14 +615,14 @@ export class SQLiteStore implements IDataStore {
     if (set.status === 'active') {
       let archiveSql = "UPDATE pricing_rule_sets SET status = 'archived' WHERE unit_id = ? AND status = 'active' AND id != ?";
       const archiveParams: any[] = [set.unitId, set.id];
-      
+
       if (set.ratePlanId) {
         archiveSql += " AND rate_plan_id = ?";
         archiveParams.push(set.ratePlanId);
       } else {
         archiveSql += " AND (rate_plan_id IS NULL OR rate_plan_id = '')";
       }
-      
+
       await this.executeWithParams(archiveSql, archiveParams);
     }
 
@@ -593,7 +634,7 @@ export class SQLiteStore implements IDataStore {
 
   async getPricingRules(ruleSetId: string): Promise<PricingRule[]> {
     const res = await this.query("SELECT * FROM pricing_rules WHERE rule_set_id = ? ORDER BY priority DESC", [ruleSetId]);
-    return res.map(r => ({...r, enabled: !!r.enabled})) as PricingRule[];
+    return res.map(r => ({ ...r, enabled: !!r.enabled })) as PricingRule[];
   }
 
   async savePricingRule(rule: PricingRule): Promise<void> {
@@ -620,7 +661,7 @@ export class SQLiteStore implements IDataStore {
     return res.map(row => ({
       ...row,
       theme_config: JSON.parse(row.theme_config || '{}'),
-      sections_json: row.sections_json || '[]', 
+      sections_json: row.sections_json || '[]',
       booking_config: JSON.parse(row.booking_config || '{}'),
       property_ids_json: row.property_ids_json || '[]'
     }));
@@ -629,7 +670,7 @@ export class SQLiteStore implements IDataStore {
   async saveWebsite(ws: WebSite): Promise<void> {
     const row = [
       ws.id, ws.name, ws.subdomain, ws.custom_domain || null, ws.status,
-      JSON.stringify(ws.theme_config), ws.seo_title, ws.seo_description, 
+      JSON.stringify(ws.theme_config), ws.seo_title, ws.seo_description,
       ws.sections_json, JSON.stringify(ws.booking_config), ws.property_ids_json,
       ws.created_at, ws.updated_at
     ];
@@ -652,10 +693,10 @@ export class SQLiteStore implements IDataStore {
 
   async saveRegistryUnit(ru: RegistryUnit): Promise<void> {
     const row = [
-      ru.id, ru.apartment_id, ru.referencia_catastral || '', ru.licencia_turistica || '', 
-      ru.identificador_registral || '', ru.direccion_completa || '', ru.municipio || '', 
+      ru.id, ru.apartment_id, ru.referencia_catastral || '', ru.licencia_turistica || '',
+      ru.identificador_registral || '', ru.direccion_completa || '', ru.municipio || '',
       ru.provincia || '', ru.codigo_postal || '', ru.titularidad || 'explotacion',
-      ru.estado_tramitacion || 'pendiente', ru.numero_registro_oficial || '', 
+      ru.estado_tramitacion || 'pendiente', ru.numero_registro_oficial || '',
       ru.fecha_solicitud || null, ru.fecha_resolucion || null, ru.notas_internas || '',
       ru.updated_at || Date.now()
     ];
@@ -716,11 +757,11 @@ export class SQLiteStore implements IDataStore {
   // --- CAMPAIGNS & COUPONS ---
   async getCampaigns(): Promise<MarketingCampaign[]> {
     const res = await this.query("SELECT * FROM marketing_campaigns");
-    return res.map(c => ({...c, enabled: !!c.enabled}));
+    return res.map(c => ({ ...c, enabled: !!c.enabled }));
   }
 
   async saveCampaign(c: MarketingCampaign): Promise<void> {
-    await this.executeWithParams("INSERT OR REPLACE INTO marketing_campaigns VALUES (?,?,?,?,?,?,?,?)", 
+    await this.executeWithParams("INSERT OR REPLACE INTO marketing_campaigns VALUES (?,?,?,?,?,?,?,?)",
       [c.id, c.type, c.name, c.automation_level, c.template_id || null, c.enabled ? 1 : 0, c.config_json || null, c.created_at]
     );
   }
@@ -730,7 +771,7 @@ export class SQLiteStore implements IDataStore {
   }
 
   async saveCoupon(c: Coupon): Promise<void> {
-    await this.executeWithParams("INSERT OR REPLACE INTO coupons VALUES (?,?,?,?,?,?,?)", 
+    await this.executeWithParams("INSERT OR REPLACE INTO coupons VALUES (?,?,?,?,?,?,?)",
       [c.id, c.code, c.discount_type, c.discount_value, c.expiration_date || null, c.status, c.created_at]
     );
   }
@@ -756,7 +797,7 @@ export class SQLiteStore implements IDataStore {
       AND strftime('%Y', m.date) = ? ${bucket !== 'ALL' ? 'AND m.accounting_bucket = ?' : ''}
       ${propId ? 'WHERE a.property_id = ?' : ''} 
       GROUP BY a.id`;
-    
+
     const params: string[] = [year.toString()];
     if (bucket !== 'ALL') params.push(bucket);
     if (propId) params.push(propId);
@@ -787,9 +828,9 @@ export class SQLiteStore implements IDataStore {
       sql += ' AND m.apartment_id = ?';
       params.push(apartmentId);
     }
-    
+
     sql += ' GROUP BY month ORDER BY month ASC';
-    
+
     return await this.query(sql, params);
   }
 
@@ -804,10 +845,54 @@ export class SQLiteStore implements IDataStore {
     await this.executeWithParams(sql, [p.tipo_fiscal, p.nombre_razon_social, p.nif_cif, p.domicilio_fiscal, p.provincia, p.email, p.telefono, p.regimen_iva || null, p.iva_defecto || 0]);
   }
 
+  async getSettings(): Promise<UserSettings> {
+    const rows = await this.query(`SELECT * FROM user_settings WHERE id = 'default' LIMIT 1`);
+    if (rows.length > 0) {
+      return rows[0] as UserSettings;
+    }
+    // Return default settings if none exist
+    const defaultSettings: UserSettings = {
+      id: 'default',
+      fiscal_country: 'España',
+      default_currency: 'EUR',
+      default_timezone: 'Europe/Madrid',
+      date_format: 'DD/MM/YYYY',
+      created_at: Date.now(),
+      updated_at: Date.now()
+    };
+    return defaultSettings;
+  }
+
+  async saveSettings(s: UserSettings): Promise<void> {
+    const updated = { ...s, updated_at: Date.now() };
+    await this.executeWithParams(
+      `INSERT OR REPLACE INTO user_settings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        updated.id || 'default',
+        updated.business_name,
+        updated.business_description,
+        updated.fiscal_name,
+        updated.fiscal_id,
+        updated.fiscal_address,
+        updated.fiscal_city,
+        updated.fiscal_postal_code,
+        updated.fiscal_country,
+        updated.contact_email,
+        updated.contact_phone,
+        updated.contact_website,
+        updated.default_currency,
+        updated.default_timezone,
+        updated.date_format,
+        updated.created_at || Date.now(),
+        updated.updated_at
+      ]
+    );
+  }
+
   // --- BLOCK 22: CANCELLATION POLICIES & RATE PLANS ---
   async getCancellationPolicies(propertyId: string): Promise<CancellationPolicy[]> {
     if (propertyId === 'ALL_LEGACY') {
-       return await this.query("SELECT * FROM cancellation_policies");
+      return await this.query("SELECT * FROM cancellation_policies");
     }
     return await this.query("SELECT * FROM cancellation_policies WHERE property_id = ?", [propertyId]);
   }
@@ -825,22 +910,22 @@ export class SQLiteStore implements IDataStore {
 
   async getRatePlans(unitId: string): Promise<RatePlan[]> {
     const res = await this.query("SELECT * FROM rate_plans WHERE apartment_id = ?", [unitId]);
-    return res.map(row => ({...row, is_active: !!row.is_active}));
+    return res.map(row => ({ ...row, is_active: !!row.is_active }));
   }
 
   async getRatePlanById(id: string): Promise<RatePlan | null> {
     const res = await this.query("SELECT * FROM rate_plans WHERE id = ?", [id]);
     if (!res[0]) return null;
     const row = res[0];
-    return {...row, is_active: !!row.is_active} as RatePlan;
+    return { ...row, is_active: !!row.is_active } as RatePlan;
   }
 
   async saveRatePlan(plan: RatePlan): Promise<void> {
     await this.executeWithParams(
       "INSERT OR REPLACE INTO rate_plans VALUES (?,?,?,?,?,?,?,?,?)",
       [
-        plan.id, plan.apartment_id, plan.cancellation_policy_id, 
-        plan.name, plan.is_active ? 1 : 0, plan.price_modifier_type, 
+        plan.id, plan.apartment_id, plan.cancellation_policy_id,
+        plan.name, plan.is_active ? 1 : 0, plan.price_modifier_type,
         plan.price_modifier_value, plan.created_at, plan.updated_at
       ]
     );
@@ -849,7 +934,7 @@ export class SQLiteStore implements IDataStore {
   async deleteRatePlan(id: string): Promise<void> {
     await this.executeWithParams("DELETE FROM rate_plans WHERE id = ?", [id]);
   }
-  
+
   // --- BLOCK 25: BOOKING WINDOW MODIFIERS ---
   async getPricingModifiers(propertyId: string): Promise<PricingModifier[]> {
     const res = await this.query("SELECT * FROM pricing_modifiers WHERE property_id = ? AND enabled = 1", [propertyId]);
@@ -870,7 +955,7 @@ export class SQLiteStore implements IDataStore {
   // --- BLOCK 26: FEES & TAXES ---
   async getFees(propertyId: string): Promise<Fee[]> {
     const res = await this.query("SELECT * FROM fees WHERE property_id = ? AND enabled = 1", [propertyId]);
-    return res.map(row => ({...row, enabled: !!row.enabled}));
+    return res.map(row => ({ ...row, enabled: !!row.enabled }));
   }
 
   async saveFee(f: Fee): Promise<void> {
@@ -898,9 +983,9 @@ export class SQLiteStore implements IDataStore {
       this.query("SELECT * FROM pricing_modifiers"),
       this.query("SELECT * FROM fees")
     ]);
-    return { 
-      travelers, stays, bookings, movements, registry_units, registry_presentations, websites, 
-      communication_accounts: accounts, conversations, messages, ai_personas: personas, ai_facts: facts, 
+    return {
+      travelers, stays, bookings, movements, registry_units, registry_presentations, websites,
+      communication_accounts: accounts, conversations, messages, ai_personas: personas, ai_facts: facts,
       channel_connections: channels, calendar_events: calendarEvents,
       pricing_rule_sets: pricingSets, pricing_rules: pricingRules,
       cancellation_policies: cancelPolicies, rate_plans: ratePlans,
@@ -940,45 +1025,45 @@ export class SQLiteStore implements IDataStore {
     if (data.pricing_modifiers) for (const m of data.pricing_modifiers) await this.savePricingModifier(m);
     if (data.fees) for (const f of data.fees) await this.saveFee(f);
 
-    return { 
-      travelers: data.travelers?.length || 0, 
-      stays: data.stays?.length || 0, 
-      bookings: data.bookings?.length || 0, 
-      movements: data.movements?.length || 0 
+    return {
+      travelers: data.travelers?.length || 0,
+      stays: data.stays?.length || 0,
+      bookings: data.bookings?.length || 0,
+      movements: data.movements?.length || 0
     };
   }
   async importStructureOnly(data: StructureOnlyBackup) {
     if (!data.properties && !data.apartments) throw new Error("El archivo no contiene una estructura válida.");
     if (data.properties) for (const p of data.properties) await this.saveProperty(p);
     if (data.apartments) for (const a of data.apartments) await this.saveApartment(a);
-    return { 
-      properties: data.properties?.length || 0, 
-      apartments: data.apartments?.length || 0 
+    return {
+      properties: data.properties?.length || 0,
+      apartments: data.apartments?.length || 0
     };
   }
 
   // --- BASE HELPERS ---
-  private async execute(sql: string) { 
+  private async execute(sql: string) {
     if (!this.db) {
-        console.warn("DB not initialized during execute:", sql);
-        return;
+      console.warn("DB not initialized during execute:", sql);
+      return;
     }
-    this.db.run(sql); 
+    this.db.run(sql);
   }
-  private async executeWithParams(sql: string, params: any[]) { 
+  private async executeWithParams(sql: string, params: any[]) {
     if (!this.db) {
-        console.warn("DB not initialized during executeWithParams:", sql);
-        return;
+      console.warn("DB not initialized during executeWithParams:", sql);
+      return;
     }
     const sanitized = this.sanitizeParams(params);
-    this.db.run(sql, sanitized); 
+    this.db.run(sql, sanitized);
   }
   private async query(sql: string, params: any[] = []): Promise<any[]> {
     if (!this.db) {
-        return [];
+      return [];
     }
     const sanitized = this.sanitizeParams(params);
-    
+
     const res = this.db?.exec(sql, sanitized);
     if (!res || res.length === 0) return [];
     const columns = res[0].columns;
@@ -992,19 +1077,19 @@ export class SQLiteStore implements IDataStore {
   // --- CRUD BLINDADOS ---
   async findPropertyByName(name: string) { const r = await this.query("SELECT * FROM properties WHERE name LIKE ?", [`%${name}%`]); return r[0] || null; }
   async findApartmentByName(name: string) { const r = await this.query("SELECT * FROM apartments WHERE name LIKE ?", [`%${name}%`]); return r[0] || null; }
-  
-  async getProperties() { 
+
+  async getProperties() {
     const res = await this.query("SELECT * FROM properties");
-    return res.map(p => ({...p, is_active: p.is_active !== 0})); // Convert sqlite int to bool
+    return res.map(p => ({ ...p, is_active: p.is_active !== 0 })); // Convert sqlite int to bool
   }
-  async saveProperty(p: Property) { 
+  async saveProperty(p: Property) {
     await this.executeWithParams(
       "INSERT OR REPLACE INTO properties (id, name, description, created_at, is_active, timezone, currency, updated_at) VALUES (?,?,?,?,?,?,?,?)",
       [
-        p.id, 
-        p.name || 'Sin nombre', 
-        p.description || null, 
-        p.created_at || Date.now(), 
+        p.id,
+        p.name || 'Sin nombre',
+        p.description || null,
+        p.created_at || Date.now(),
         p.is_active !== false ? 1 : 0,
         p.timezone || 'Europe/Madrid',
         p.currency || 'EUR',
@@ -1013,45 +1098,45 @@ export class SQLiteStore implements IDataStore {
     );
   }
   async deleteProperty(id: string) { await this.executeWithParams("DELETE FROM properties WHERE id=?", [id]); }
-  
-  async getAllApartments() { 
-    const res = await this.query("SELECT * FROM apartments"); 
-    return res.map(a => ({...a, is_active: a.is_active !== 0}));
+
+  async getAllApartments() {
+    const res = await this.query("SELECT * FROM apartments");
+    return res.map(a => ({ ...a, is_active: a.is_active !== 0 }));
   }
-  async getApartments(pid: string) { 
-    const res = await this.query("SELECT * FROM apartments WHERE property_id=?", [pid]); 
-    return res.map(a => ({...a, is_active: a.is_active !== 0}));
+  async getApartments(pid: string) {
+    const res = await this.query("SELECT * FROM apartments WHERE property_id=?", [pid]);
+    return res.map(a => ({ ...a, is_active: a.is_active !== 0 }));
   }
-  async saveApartment(a: Apartment) { 
-    await this.executeWithParams("INSERT OR REPLACE INTO apartments VALUES (?,?,?,?,?,?)", [a.id, a.property_id, a.name || 'Unidad', a.color || '#4F46E5', a.created_at || Date.now(), a.is_active !== false ? 1 : 0]); 
+  async saveApartment(a: Apartment) {
+    await this.executeWithParams("INSERT OR REPLACE INTO apartments VALUES (?,?,?,?,?,?)", [a.id, a.property_id, a.name || 'Unidad', a.color || '#4F46E5', a.created_at || Date.now(), a.is_active !== false ? 1 : 0]);
   }
   async deleteApartment(id: string) { await this.executeWithParams("DELETE FROM apartments WHERE id=?", [id]); }
-  
+
   async getTravelers() { return await this.query("SELECT * FROM travelers"); }
   async getTravelerById(id: string) { const r = await this.query("SELECT * FROM travelers WHERE id=?", [id]); return r[0] || null; }
-  async saveTraveler(t: Traveler) { 
+  async saveTraveler(t: Traveler) {
     const row = [t.id, t.nombre || 'Huésped', t.apellidos || '', t.tipo_documento || 'DNI', t.documento || 'PENDIENTE', t.fecha_nacimiento || '', t.telefono || '', t.email || '', t.nacionalidad || '', t.created_at || Date.now(), t.updated_at || Date.now()];
-    await this.executeWithParams("INSERT OR REPLACE INTO travelers VALUES (?,?,?,?,?,?,?,?,?,?,?)", row); 
+    await this.executeWithParams("INSERT OR REPLACE INTO travelers VALUES (?,?,?,?,?,?,?,?,?,?,?)", row);
   }
   async deleteTraveler(id: string) { await this.executeWithParams("DELETE FROM travelers WHERE id=?", [id]); }
   async getStays() { return await this.query("SELECT * FROM stays"); }
   async getStaysByTravelerId(tid: string) { return await this.query("SELECT * FROM stays WHERE traveler_id=?", [tid]); }
-  async saveStay(s: Stay) { 
+  async saveStay(s: Stay) {
     const row = [s.id, s.traveler_id, s.apartment_id || null, s.check_in, s.check_out, s.source || 'Manual', s.import_batch_id || null, s.created_at || Date.now()];
-    await this.executeWithParams("INSERT OR REPLACE INTO stays VALUES (?,?,?,?,?,?,?,?)", row); 
+    await this.executeWithParams("INSERT OR REPLACE INTO stays VALUES (?,?,?,?,?,?,?,?)", row);
   }
   async getBookings() { return await this.query("SELECT * FROM bookings"); }
-  async saveBooking(b: Booking) { 
+  async saveBooking(b: Booking) {
     const row = [b.id, b.property_id, b.apartment_id, b.traveler_id, b.check_in, b.check_out, b.status || 'confirmed', b.total_price || 0, b.guests || 1, b.source || 'Manual', b.external_ref || null, b.created_at || Date.now(), b.conflict_detected ? 1 : 0, b.linked_event_id || null, b.rate_plan_id || null];
-    await this.executeWithParams("INSERT OR REPLACE INTO bookings VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row); 
+    await this.executeWithParams("INSERT OR REPLACE INTO bookings VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row);
   }
   async deleteBooking(id: string) { await this.executeWithParams("DELETE FROM bookings WHERE id=?", [id]); }
-  async getMovements(bucket: string = 'ALL') { 
+  async getMovements(bucket: string = 'ALL') {
     let sql = "SELECT * FROM accounting_movements";
     if (bucket !== 'ALL') sql += ` WHERE accounting_bucket='${bucket}'`;
-    return await this.query(sql + " ORDER BY date DESC"); 
+    return await this.query(sql + " ORDER BY date DESC");
   }
-  async saveMovement(m: AccountingMovement) { 
+  async saveMovement(m: AccountingMovement) {
     const row = [
       m.id, m.date, m.type || 'income', m.category || null, m.concept || 'Movimiento',
       m.apartment_id || null, m.reservation_id || null, m.traveler_id || null,
@@ -1059,19 +1144,19 @@ export class SQLiteStore implements IDataStore {
       m.vat ?? 0, m.amount_net ?? 0, m.payment_method || 'Manual', m.accounting_bucket || 'A',
       m.import_hash || null, m.import_batch_id || null, m.receipt_blob || null, m.created_at || Date.now(), m.updated_at || Date.now()
     ];
-    await this.executeWithParams("INSERT OR REPLACE INTO accounting_movements VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row); 
+    await this.executeWithParams("INSERT OR REPLACE INTO accounting_movements VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row);
   }
   async deleteMovement(id: string) { await this.executeWithParams("DELETE FROM accounting_movements WHERE id=?", [id]); }
-  async getCounts() { 
+  async getCounts() {
     const r = await this.query("SELECT (SELECT COUNT(*) FROM travelers) as travelers, (SELECT COUNT(*) FROM stays) as stays, (SELECT COUNT(*) FROM properties) as properties, (SELECT COUNT(*) FROM bookings) as bookings, (SELECT COUNT(*) FROM accounting_movements) as movements");
     return r[0] || { travelers: 0, stays: 0, properties: 0, bookings: 0, movements: 0 };
   }
-  export(): Uint8Array { 
-      if (!this.db) { console.warn("DB not initialized during export"); return new Uint8Array(); }
-      return this.db.export(); 
+  export(): Uint8Array {
+    if (!this.db) { console.warn("DB not initialized during export"); return new Uint8Array(); }
+    return this.db.export();
   }
-  async load(data: Uint8Array) { 
-    this.db = new this.SQL.Database(data); 
+  async load(data: Uint8Array) {
+    this.db = new this.SQL.Database(data);
   }
-  async close() { if(this.db) this.db.close(); }
+  async close() { if (this.db) this.db.close(); }
 }

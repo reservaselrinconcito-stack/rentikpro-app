@@ -100,6 +100,36 @@ export interface FiscalProfile {
   iva_defecto?: number;
 }
 
+export interface UserSettings {
+  id: string; // Always 'default'
+
+  // Business Data
+  business_name?: string;
+  business_description?: string;
+
+  // Fiscal Information
+  fiscal_name?: string; // Legal name
+  fiscal_id?: string; // NIF/CIF
+  fiscal_address?: string;
+  fiscal_city?: string;
+  fiscal_postal_code?: string;
+  fiscal_country?: string;
+
+  // Contact (Marketing & Communications)
+  contact_email?: string; // Primary email for marketing
+  contact_phone?: string; // Phone for WhatsApp/SMS
+  contact_website?: string;
+
+  // Preferences
+  default_currency?: string; // EUR, USD, etc.
+  default_timezone?: string; // Europe/Madrid
+  date_format?: 'DD/MM/YYYY' | 'MM/DD/YYYY' | 'YYYY-MM-DD';
+
+  // Metadata
+  created_at: number;
+  updated_at: number;
+}
+
 // Marketing
 export interface MarketingTemplate {
   id: string;
@@ -427,11 +457,11 @@ export interface FeeBreakdownItem {
   feeId: string;
   name: string;
   amount: number; // in cents
-  details: string; 
+  details: string;
 }
 
 export interface TaxBreakdownItem {
-  name: string; 
+  name: string;
   amount: number; // in cents
   sourceFeeId?: string;
 }
@@ -473,7 +503,7 @@ export interface IDataStore {
   export(): Uint8Array;
   load(data: Uint8Array): Promise<void>;
   close(): Promise<void>;
-  
+
   // Backups
   exportDataOnly(): Promise<DataOnlyBackup>;
   exportStructureOnly(): Promise<StructureOnlyBackup>;
@@ -484,35 +514,39 @@ export interface IDataStore {
   getProperties(): Promise<Property[]>;
   saveProperty(p: Property): Promise<void>;
   deleteProperty(id: string): Promise<void>;
-  
+
   getAllApartments(): Promise<Apartment[]>;
   getApartments(propId: string): Promise<Apartment[]>;
   saveApartment(a: Apartment): Promise<void>;
   deleteApartment(id: string): Promise<void>;
-  
+
   getTravelers(): Promise<Traveler[]>;
   getTravelerById(id: string): Promise<Traveler | null>;
   saveTraveler(t: Traveler): Promise<void>;
   deleteTraveler(id: string): Promise<void>;
-  
+
   getStays(): Promise<Stay[]>;
   getStaysByTravelerId(tid: string): Promise<Stay[]>;
   saveStay(s: Stay): Promise<void>;
-  
+
   getBookings(): Promise<Booking[]>;
   saveBooking(b: Booking): Promise<void>;
   deleteBooking(id: string): Promise<void>;
-  
+
   getMovements(bucket?: string): Promise<AccountingMovement[]>;
   saveMovement(m: AccountingMovement): Promise<void>;
   deleteMovement(id: string): Promise<void>;
-  
+
   getCounts(): Promise<any>;
 
   // Fiscal
   getFiscalProfile(): Promise<FiscalProfile | null>;
   saveFiscalProfile(p: FiscalProfile): Promise<void>;
-  
+
+  // Settings
+  getSettings(): Promise<UserSettings>;
+  saveSettings(s: UserSettings): Promise<void>;
+
   // Marketing
   getTravelersMarketingData(): Promise<any[]>;
   getMarketingTemplates(): Promise<MarketingTemplate[]>;
@@ -522,18 +556,18 @@ export interface IDataStore {
   getCoupons(): Promise<Coupon[]>;
   saveCoupon(c: Coupon): Promise<void>;
   deleteCoupon(id: string): Promise<void>;
-  
+
   // Registry
   getRegistryUnit(apartmentId: string): Promise<RegistryUnit | null>;
   saveRegistryUnit(ru: RegistryUnit): Promise<void>;
   getPresentations(): Promise<RegistryPresentation[]>;
   savePresentation(p: RegistryPresentation): Promise<void>;
-  
+
   // Websites
   getWebsites(): Promise<WebSite[]>;
   saveWebsite(ws: WebSite): Promise<void>;
   deleteWebsite(id: string): Promise<void>;
-  
+
   // Accounting Aggregates
   getAccountingSummaryByApartment(year: number, bucket: string, propId?: string): Promise<any[]>;
   getAccountingTimeSeries(year: number, bucket: string, propId?: string, apartmentId?: string): Promise<any[]>;
@@ -542,18 +576,18 @@ export interface IDataStore {
   getAccounts(): Promise<CommunicationAccount[]>;
   saveAccount(acc: CommunicationAccount): Promise<void>;
   deleteAccount(id: string): Promise<void>;
-  
+
   getConversations(status?: ConversationStatus | 'ALL'): Promise<Conversation[]>;
   getConversationById(id: string): Promise<Conversation | null>;
   getConversationByTravelerId(travelerId: string): Promise<Conversation | null>;
   saveConversation(c: Conversation): Promise<void>;
-  
+
   getMessages(conversationId: string): Promise<Message[]>;
   getPendingMessages(): Promise<Message[]>;
   saveMessage(m: Message): Promise<void>;
   getAttachments(messageId: string): Promise<MessageAttachment[]>;
   saveAttachment(a: MessageAttachment): Promise<void>;
-  
+
   // AI
   getAiPersonas(): Promise<AiPersona[]>;
   saveAiPersona(p: AiPersona): Promise<void>;
