@@ -224,6 +224,8 @@ export class SQLiteStore implements IDataStore {
     try { await this.execute("ALTER TABLE bookings ADD COLUMN conflict_detected INTEGER DEFAULT 0"); } catch (e) { }
     try { await this.execute("ALTER TABLE bookings ADD COLUMN linked_event_id TEXT"); } catch (e) { }
     try { await this.execute("ALTER TABLE bookings ADD COLUMN rate_plan_id TEXT"); } catch (e) { }
+    try { await this.execute("ALTER TABLE bookings ADD COLUMN summary TEXT"); } catch (e) { }
+    try { await this.execute("ALTER TABLE bookings ADD COLUMN guest_name TEXT"); } catch (e) { }
 
     // --- AI ASSISTANT TABLES ---
 
@@ -971,7 +973,7 @@ export class SQLiteStore implements IDataStore {
 
   // --- BACKUP / EXPORT ---
   async exportDataOnly(): Promise<DataOnlyBackup> {
-    const [travelers, stays, bookings, movements, registry_units, registry_presentations, websites, accounts, conversations, messages, personas, facts, channels, calendarEvents, pricingSets, pricingRules, cancelPolicies, ratePlans, pricingModifiers, fees] = await Promise.all([
+    const [travelers, stays, bookings, movements, registry_units, registry_presentations, websites, accounts, conversations, messages, personas, facts, channels, calendarEvents, pricingSets, pricingRules, cancelPolicies, ratePlans, pricingModifiers, fees, settings] = await Promise.all([
       this.getTravelers(), this.getStays(), this.getBookings(), this.getMovements('ALL'),
       this.query("SELECT * FROM registry_units"), this.query("SELECT * FROM registry_presentations"),
       this.getWebsites(),
@@ -981,7 +983,8 @@ export class SQLiteStore implements IDataStore {
       this.query("SELECT * FROM pricing_rule_sets"), this.query("SELECT * FROM pricing_rules"),
       this.query("SELECT * FROM cancellation_policies"), this.query("SELECT * FROM rate_plans"),
       this.query("SELECT * FROM pricing_modifiers"),
-      this.query("SELECT * FROM fees")
+      this.query("SELECT * FROM fees"),
+      this.getSettings()
     ]);
     return {
       travelers, stays, bookings, movements, registry_units, registry_presentations, websites,
@@ -990,7 +993,8 @@ export class SQLiteStore implements IDataStore {
       pricing_rule_sets: pricingSets, pricing_rules: pricingRules,
       cancellation_policies: cancelPolicies, rate_plans: ratePlans,
       pricing_modifiers: pricingModifiers,
-      fees
+      fees,
+      user_settings: settings
     };
   }
   async exportStructureOnly(): Promise<StructureOnlyBackup> {
@@ -1024,6 +1028,8 @@ export class SQLiteStore implements IDataStore {
     if (data.rate_plans) for (const rp of data.rate_plans) await this.saveRatePlan(rp);
     if (data.pricing_modifiers) for (const m of data.pricing_modifiers) await this.savePricingModifier(m);
     if (data.fees) for (const f of data.fees) await this.saveFee(f);
+    // Settings Import
+    if (data.user_settings) await this.saveSettings(data.user_settings);
 
     return {
       travelers: data.travelers?.length || 0,
@@ -1127,8 +1133,8 @@ export class SQLiteStore implements IDataStore {
   }
   async getBookings() { return await this.query("SELECT * FROM bookings"); }
   async saveBooking(b: Booking) {
-    const row = [b.id, b.property_id, b.apartment_id, b.traveler_id, b.check_in, b.check_out, b.status || 'confirmed', b.total_price || 0, b.guests || 1, b.source || 'Manual', b.external_ref || null, b.created_at || Date.now(), b.conflict_detected ? 1 : 0, b.linked_event_id || null, b.rate_plan_id || null];
-    await this.executeWithParams("INSERT OR REPLACE INTO bookings VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row);
+    const row = [b.id, b.property_id, b.apartment_id, b.traveler_id, b.check_in, b.check_out, b.status || 'confirmed', b.total_price || 0, b.guests || 1, b.source || 'Manual', b.external_ref || null, b.created_at || Date.now(), b.conflict_detected ? 1 : 0, b.linked_event_id || null, b.rate_plan_id || null, b.summary || null, b.guest_name || null];
+    await this.executeWithParams("INSERT OR REPLACE INTO bookings VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row);
   }
   async deleteBooking(id: string) { await this.executeWithParams("DELETE FROM bookings WHERE id=?", [id]); }
   async getMovements(bucket: string = 'ALL') {

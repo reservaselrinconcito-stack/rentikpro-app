@@ -51,6 +51,8 @@ export interface Booking {
   conflict_detected?: boolean;
   linked_event_id?: string;
   rate_plan_id?: string; // Block 24
+  summary?: string; // Block 4: Added for conflict details
+  guest_name?: string; // Block 5: Added for conflict details
 }
 
 export interface Stay {
@@ -489,6 +491,7 @@ export interface DataOnlyBackup {
   rate_plans?: RatePlan[];
   pricing_modifiers?: PricingModifier[];
   fees?: Fee[];
+  user_settings?: UserSettings;
 }
 
 export interface StructureOnlyBackup {
