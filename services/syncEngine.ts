@@ -69,6 +69,57 @@ const extractBookingDetails = (summary: string = '', description: string = '') =
   return { guestName, price };
 };
 
+// HELPER: Merge Event Data into Booking protecting MANUAL fields
+const mergeEventToBooking = (booking: Booking, evt: CalendarEvent, details: any, source: string, currentKind: 'BOOKING' | 'BLOCK') => {
+  let fieldSources: Record<string, string> = {};
+  if (booking.field_sources) {
+    try {
+      fieldSources = JSON.parse(booking.field_sources);
+    } catch (e) { }
+  }
+
+  const protect = (field: string, newValue: any) => {
+    if (fieldSources[field] === 'MANUAL') {
+      console.log(`[SyncEngine] Protected MANUAL field: ${field} for booking ${booking.id}`);
+      return (booking as any)[field];
+    }
+    return newValue;
+  };
+
+  booking.check_in = protect('check_in', evt.start_date);
+  booking.check_out = protect('check_out', evt.end_date);
+  booking.guest_name = protect('guest_name', details.guestName || booking.guest_name);
+
+  if (fieldSources['total_price'] !== 'MANUAL') {
+    if (details.price > 0) booking.total_price = details.price;
+  }
+
+  if (fieldSources['status'] !== 'MANUAL') {
+    booking.status = currentKind === 'BLOCK' ? 'blocked' : 'confirmed';
+    booking.event_kind = currentKind;
+  }
+
+  // Other potentially manual fields
+  booking.guests = protect('guests', booking.guests);
+  booking.payments = protect('payments', booking.payments);
+  booking.payment_status = protect('payment_status', booking.payment_status);
+  booking.payment_notes = protect('payment_notes', booking.payment_notes);
+
+  booking.summary = protect('summary', evt.summary);
+  booking.source = protect('source', source);
+
+  // Technical fields
+  booking.external_ref = evt.external_uid;
+  booking.linked_event_id = evt.id;
+  booking.connection_id = evt.connection_id;
+  booking.ical_uid = evt.ical_uid || evt.external_uid;
+  booking.raw_summary = evt.summary;
+  booking.raw_description = evt.description;
+  booking.event_origin = 'ical';
+  booking.event_state = 'confirmed';
+  booking.updated_at = Date.now();
+};
+
 export class SyncEngine {
 
   /**
@@ -435,31 +486,7 @@ export class SyncEngine {
         } else {
           // PROMOTE or UPDATE existing
           booking.conflict_detected = isConflict;
-          if (booking.status === 'cancelled' || booking.status === 'blocked') booking.status = currentKind === 'BLOCK' ? 'blocked' : 'confirmed';
-
-          // --- ANTI-OVERWRITE LOGIC ---
-          let sources: Record<string, string> = {};
-          try {
-            sources = booking.field_sources ? JSON.parse(booking.field_sources) : {};
-          } catch (e) { }
-
-          if (sources['check_in'] !== 'MANUAL') booking.check_in = evt.start_date;
-          if (sources['check_out'] !== 'MANUAL') booking.check_out = evt.end_date;
-          if (sources['guest_name'] !== 'MANUAL') booking.guest_name = details.guestName || undefined;
-          if (sources['total_price'] !== 'MANUAL') booking.total_price = details.price > 0 ? details.price : booking.total_price;
-          // --- END ANTI-OVERWRITE ---
-
-          booking.summary = evt.summary;
-          booking.source = displaySource;
-          booking.event_kind = currentKind;
-          booking.event_origin = 'ical';
-          booking.event_state = 'confirmed';
-          booking.external_ref = evt.external_uid;
-          booking.linked_event_id = evt.id;
-          booking.connection_id = evt.connection_id;
-          booking.ical_uid = evt.ical_uid || evt.external_uid;
-          booking.raw_summary = evt.summary;
-          booking.raw_description = evt.description;
+          mergeEventToBooking(booking, evt, details, displaySource, currentKind);
         }
 
         await store.saveBooking(booking);
@@ -480,28 +507,8 @@ export class SyncEngine {
 
       // WON PRIORITY (No collision with higher/equal)
       if (booking) {
-        if (booking.status === 'cancelled' || booking.status === 'blocked') booking.status = currentKind === 'BLOCK' ? 'blocked' : 'confirmed';
-
-        // --- ANTI-OVERWRITE LOGIC ---
-        let sources: Record<string, string> = {};
-        try {
-          sources = booking.field_sources ? JSON.parse(booking.field_sources) : {};
-        } catch (e) { }
-
-        if (sources['check_in'] !== 'MANUAL') booking.check_in = evt.start_date;
-        if (sources['check_out'] !== 'MANUAL') booking.check_out = evt.end_date;
-        if (sources['guest_name'] !== 'MANUAL') booking.guest_name = details.guestName || undefined;
-        if (sources['total_price'] !== 'MANUAL') booking.total_price = details.price > 0 ? details.price : booking.total_price;
-        // --- END ANTI-OVERWRITE ---
-
-        booking.summary = evt.summary; // Update summary
-        booking.source = displaySource;
         booking.conflict_detected = false;
-        booking.event_kind = currentKind;
-        booking.event_origin = 'ical';
-        booking.event_state = 'confirmed';
-        booking.external_ref = evt.external_uid;
-        booking.linked_event_id = evt.id;
+        mergeEventToBooking(booking, evt, details, displaySource, currentKind);
       } else {
         booking = {
           id: crypto.randomUUID(),
