@@ -19,6 +19,7 @@ import { APP_VERSION, SCHEMA_VERSION } from '../src/version';
 import { notifyDataChanged } from './dataRefresher';
 import { guestService } from './guestService';
 import { isProvisionalBlock, isProvisionalBooking } from '../utils/bookingClassification';
+import { ensureValidStay } from '../utils/dateLogic';
 
 const DEFAULT_POLICY: BookingPolicy = {
   id: 'default_policy',
@@ -1036,6 +1037,10 @@ export class SQLiteStore implements IDataStore {
       'external_ref', 'created_at', 'conflict_detected', 'linked_event_id', 'rate_plan_id', 'summary', 'guest_name',
       'booking_key', 'project_id'
     ];
+    // --- GUARDRAIL: Ensure check_out > check_in ---
+    const { checkOut: validCheckOut } = ensureValidStay(b.check_in, b.check_out);
+    b.check_out = validCheckOut;
+
     const values: any[] = [
       b.id, b.property_id, b.apartment_id, b.traveler_id, b.check_in, b.check_out, b.status, b.total_price, b.guests, b.source,
       b.external_ref || null, b.created_at, b.conflict_detected ? 1 : 0, b.linked_event_id || null, b.rate_plan_id || null, b.summary || null, b.guest_name || null,
@@ -1079,6 +1084,8 @@ export class SQLiteStore implements IDataStore {
       platform: b.source || 'manual',
       amount_gross: b.total_price || 0,
       amount_net: b.total_price || 0,
+      commission: 0,
+      vat: 0,
       payment_method: 'Manual',
       accounting_bucket: 'A',
       project_id: b.project_id || undefined,
@@ -1855,6 +1862,12 @@ export class SQLiteStore implements IDataStore {
       'accounting_bucket', 'import_hash', 'import_batch_id', 'receipt_blob', 'created_at', 'updated_at', 'movement_key', 'project_id',
       'property_id', 'check_in', 'check_out', 'guests', 'pax_adults', 'pax_children', 'source_event_type', 'event_state', 'ical_uid', 'connection_id', 'raw_summary', 'raw_description'
     ];
+    // --- GUARDRAIL: Ensure stay movements have valid durations ---
+    if (m.source_event_type === 'STAY_RESERVATION' && m.check_in && m.check_out) {
+      const { checkOut: validCO } = ensureValidStay(m.check_in, m.check_out);
+      m.check_out = validCO;
+    }
+
     const vals = [
       m.id, m.date, m.type, m.category || null, m.concept, m.apartment_id || null, m.reservation_id || null, m.traveler_id || null,
       m.platform || null, m.supplier || null, m.amount_gross, m.commission || 0, m.vat || 0, m.amount_net, m.payment_method || 'Unknown',

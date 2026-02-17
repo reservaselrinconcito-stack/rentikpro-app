@@ -6,6 +6,7 @@ import { notifyDataChanged } from './dataRefresher';
 import { networkMonitor } from './networkMonitor';
 import { getAdapter } from './channelAdapters/factory';
 import { isConfirmedBooking, isProvisionalBlock } from '../utils/bookingClassification';
+import { ensureValidStay } from '../utils/dateLogic';
 
 // PROXY ROTATION LOGIC
 const OFFICIAL_WORKER = "https://rentikpro-cm-proxy.reservas-elrinconcito.workers.dev/cm-proxy";
@@ -167,10 +168,12 @@ export class SyncEngine {
 
       processedUids.add(partialEvt.external_uid);
 
-      // --- CANONICAL RULE: Save to Accounting first ---
+      // --- GUARDRAIL: Ensure stay dates are valid before saving to accounting ---
+      const { checkIn: validCI, checkOut: validCO } = ensureValidStay(partialEvt.start_date || '', partialEvt.end_date || '');
+
       const movement: AccountingMovement = {
         id: crypto.randomUUID(),
-        date: partialEvt.start_date || '',
+        date: validCI,
         type: 'income',
         category: 'Alojamiento',
         concept: partialEvt.summary || 'Reserva iCal',
@@ -179,12 +182,14 @@ export class SyncEngine {
         platform: conn.channel_name,
         amount_gross: 0,
         amount_net: 0,
+        commission: 0,
+        vat: 0,
         payment_method: 'iCal',
         accounting_bucket: 'A',
         project_id: projectManager.getCurrentProjectId() || undefined,
         property_id: propertyId,
-        check_in: partialEvt.start_date,
-        check_out: partialEvt.end_date,
+        check_in: validCI,
+        check_out: validCO,
         guests: 1,
         source_event_type: 'STAY_RESERVATION',
         event_state: partialEvt.status === 'confirmed' ? 'confirmed' : 'provisional',

@@ -88,6 +88,10 @@ export const ProvisionalDetailModal: React.FC<Props> = ({
     if (!isOpen) return null;
 
     const handleSaveEdit = async () => {
+        if (formData.start_date && formData.end_date && formData.end_date <= formData.start_date) {
+            if (!confirm("La fecha de salida debe ser posterior a la de entrada. ¿Deseas ajustarla automáticamente?")) return;
+        }
+
         const store = projectManager.getStore();
         const updatedPb: ProvisionalBooking = {
             ...provisional,
@@ -99,6 +103,10 @@ export const ProvisionalDetailModal: React.FC<Props> = ({
     };
 
     const handleConvert = async () => {
+        if (formData.start_date && formData.end_date && formData.end_date <= formData.start_date) {
+            if (!confirm("La fecha de salida debe ser posterior a la de entrada. ¿Deseas ajustarla automáticamente?")) return;
+        }
+
         const store = projectManager.getStore();
         const updatedPb: ProvisionalBooking = {
             ...provisional,

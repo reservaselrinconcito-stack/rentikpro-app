@@ -356,6 +356,15 @@ export const Bookings: React.FC = () => {
     if (isSaving) return;
 
     const store = projectManager.getStore();
+
+    // GUARDRAIL: Validar fechas
+    if (form.check_in && form.check_out && form.check_out <= form.check_in) {
+      if (!confirm("La fecha de salida debe ser posterior a la de entrada. ¿Deseas que el sistema la ajuste automáticamente a 1 noche?")) {
+        setIsSaving(false);
+        return;
+      }
+    }
+
     setIsSaving(true);
 
     try {
