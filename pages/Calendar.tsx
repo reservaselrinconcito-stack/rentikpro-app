@@ -174,7 +174,7 @@ const CalendarContent: React.FC = () => {
     const dStr = toDateStr(date);
     return displayBookings.filter(b => {
       if (selectedPropertyId !== 'all' && b.property_id !== selectedPropertyId) return false;
-      // CAMBIO CLAVE: Incluimos el día de check_out en la visualización (<=)
+      // REGLA CANÓNICA: El día de salida se incluye en la visualización
       return dStr >= b.check_in && dStr <= b.check_out;
     });
   };

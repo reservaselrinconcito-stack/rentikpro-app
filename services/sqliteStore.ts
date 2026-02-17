@@ -1899,11 +1899,12 @@ export class SQLiteStore implements IDataStore {
     const projectId = localStorage.getItem('active_project_id');
 
     // Query for movements that represent a stay or have a reservation link
+    // We sort such that STAY_RESERVATION (primary data) comes first per group
     const rows = await this.query(
       `SELECT * FROM accounting_movements 
        WHERE (project_id = ? OR project_id IS NULL) 
        AND (reservation_id IS NOT NULL OR source_event_type = 'STAY_RESERVATION')
-       ORDER BY check_in DESC, date DESC`,
+       ORDER BY reservation_id ASC, source_event_type DESC, created_at ASC`,
       [projectId]
     );
 
@@ -1920,7 +1921,7 @@ export class SQLiteStore implements IDataStore {
           traveler_id: r.traveler_id || '',
           check_in: r.check_in || r.date,
           check_out: r.check_out || r.date,
-          status: 'confirmed', // will refine
+          status: 'confirmed',
           total_price: 0,
           guests: r.guests || 1,
           source: r.platform || 'manual',
@@ -1928,45 +1929,48 @@ export class SQLiteStore implements IDataStore {
           guest_name: r.concept,
           event_state: (r.event_state as any) || 'confirmed',
           event_kind: 'BOOKING',
-          payments: []
+          payments: [],
+          ical_uid: r.ical_uid || undefined
         });
       }
 
       const b = bookingsMap.get(b_id)!;
 
-      // Aggregation logic
+      // Aggregation logic: Only add gross amount for income movements
       if (r.type === 'income') {
-        b.total_price += r.amount_gross;
+        b.total_price += Number(r.amount_gross) || 0;
       }
 
-      // Metadata enrichment from the primary reservation record
-      if (r.source_event_type === 'STAY_RESERVATION' || (!b.check_in && r.check_in)) {
-        b.check_in = r.check_in || b.check_in;
-        b.check_out = r.check_out || b.check_out;
+      // Metadata enrichment: Prioritize movement with specific stay dates
+      if (r.check_in && r.check_out) {
+        b.check_in = r.check_in;
+        b.check_out = r.check_out;
         b.guests = r.guests || b.guests;
-        b.guest_name = r.concept || b.guest_name;
-        b.property_id = r.property_id || b.property_id;
-        b.event_state = (r.event_state as any) || b.event_state;
-        b.ical_uid = r.ical_uid || b.ical_uid;
-        b.connection_id = r.connection_id || b.connection_id;
+        if (r.source_event_type === 'STAY_RESERVATION') {
+          b.guest_name = r.concept || b.guest_name;
+          b.event_state = (r.event_state as any) || b.event_state;
+        }
       }
 
-      // Collect payments
-      if (r.payment_id || r.reservation_id) {
+      if (r.property_id) b.property_id = r.property_id;
+      if (r.ical_uid) b.ical_uid = r.ical_uid;
+      if (r.traveler_id) b.traveler_id = r.traveler_id;
+      if (r.connection_id) b.connection_id = r.connection_id;
+
+      // Collect payments (if movement represents a specific payment)
+      if (r.type === 'income' || r.type === 'expense') {
         b.payments!.push({
           id: r.id,
-          type: 'extra', // could be refined
-          amount: r.amount_gross,
+          type: 'installment',
+          amount: Number(r.amount_gross) || 0,
           date: r.date,
-          method: r.payment_method,
+          method: r.payment_method || 'Unknown',
           status: 'pagado',
           note: r.concept
         });
       }
     }
 
-    // Secondary pass: Final status derivation if needed
-    // Actually the user says Booking is just a VIEW. 
     return Array.from(bookingsMap.values());
   }
 
