@@ -642,6 +642,7 @@ export class SyncEngine {
 
     // 4. Re-conciliar (Esto limpiará las bookings asociadas a esos eventos borrados)
     await this.reconcileBookings(apartmentId);
+    await projectManager.saveProject();
 
     // 5. Notificar
     notifyDataChanged('all');

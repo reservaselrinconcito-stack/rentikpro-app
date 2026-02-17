@@ -8,6 +8,7 @@ import {
   Calendar, Users, CheckCircle2, FileText, X, MapPin, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import { APP_VERSION, SCHEMA_VERSION } from '../src/version';
+import { addDays } from '../utils/dateLogic';
 
 type Tab = 'ACCOUNTING' | 'TRAVELERS' | 'BACKUP' | 'HEALTH';
 
@@ -500,8 +501,8 @@ export const Importers = () => {
           if (!matchedReservationId && finalType === 'income' && !bookingKey.startsWith('unlinked_') && !bookingWasCreated) {
             const guestName = getVal('guest');
             const arrival = normalizeDateToISO(getVal('arrival') || getVal('date'));
-            const nights = parseInt(getVal('nights')) || 1;
-            const departure = normalizeDateToISO(getVal('departure')) || (arrival ? new Date(new Date(arrival).getTime() + (nights * 24 * 60 * 60 * 1000)).toISOString().split('T')[0] : null);
+            const nights = Math.max(1, parseInt(getVal('nights')) || 1);
+            const departure = normalizeDateToISO(getVal('departure')) || (arrival ? addDays(arrival, nights) : null);
 
             if (arrival && departure && apartmentId) {
               const pId = projectManager.getCurrentProjectId() || 'default';

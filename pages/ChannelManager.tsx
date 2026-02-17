@@ -160,6 +160,7 @@ export const ChannelManager: React.FC = () => {
       } as ChannelConnection;
 
       await projectManager.getStore().saveChannelConnection(conn);
+      await projectManager.saveProject();
       setIsConnModalOpen(false);
       setConnForm({ channel_name: 'AIRBNB', ical_url: '', alias: '', priority: 50, enabled: true, force_direct: false });
       loadData();

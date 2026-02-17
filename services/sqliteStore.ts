@@ -979,9 +979,10 @@ export class SQLiteStore implements IDataStore {
   }
 
   async saveStay(s: Stay): Promise<void> {
+    const projectId = localStorage.getItem('active_project_id');
     await this.executeWithParams(
-      "INSERT OR REPLACE INTO stays (id, traveler_id, apartment_id, check_in, check_out, source, import_batch_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
-      [s.id, s.traveler_id, s.apartment_id, s.check_in, s.check_out, s.source, s.import_batch_id || null, s.created_at]
+      "INSERT OR REPLACE INTO stays (id, traveler_id, apartment_id, check_in, check_out, source, import_batch_id, created_at, project_id) VALUES (?,?,?,?,?,?,?,?,?)",
+      [s.id, s.traveler_id, s.apartment_id, s.check_in, s.check_out, s.source, s.import_batch_id || null, s.created_at, projectId]
     );
   }
 
@@ -1055,7 +1056,7 @@ export class SQLiteStore implements IDataStore {
     const values: any[] = [
       b.id, b.property_id, b.apartment_id, b.traveler_id, b.check_in, b.check_out, b.status, b.total_price, b.guests, b.source,
       b.external_ref || null, b.created_at, b.conflict_detected ? 1 : 0, b.linked_event_id || null, b.rate_plan_id || null, b.summary || null, b.guest_name || null,
-      b.booking_key || null, b.project_id || null
+      b.booking_key || null, b.project_id || localStorage.getItem('active_project_id')
     ];
 
     if (this.schemaFlags.bookings_provisional_id) {
@@ -2001,7 +2002,7 @@ export class SQLiteStore implements IDataStore {
     const vals = [
       m.id, m.date, m.type, m.category || null, m.concept, m.apartment_id || null, m.reservation_id || null, m.traveler_id || null,
       m.platform || null, m.supplier || null, m.amount_gross, m.commission || 0, m.vat || 0, m.amount_net, m.payment_method || 'Unknown',
-      m.accounting_bucket, m.import_hash || null, m.import_batch_id || null, m.receipt_blob || null, m.created_at, m.updated_at, m.movement_key || null, m.project_id || null,
+      m.accounting_bucket, m.import_hash || null, m.import_batch_id || null, m.receipt_blob || null, m.created_at, m.updated_at, m.movement_key || null, m.project_id || localStorage.getItem('active_project_id'),
       m.property_id || null, m.check_in || null, m.check_out || null, m.guests || null, m.pax_adults || null, m.pax_children || null, m.source_event_type || null, m.event_state || null, m.ical_uid || null, m.connection_id || null, m.raw_summary || null, m.raw_description || null
     ];
 

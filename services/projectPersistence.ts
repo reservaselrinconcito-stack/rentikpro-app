@@ -16,9 +16,25 @@ const STORE_NAME = 'projects';
 
 export class ProjectPersistence {
     private dbPromise: Promise<IDBDatabase> | null = null;
+    private isBusy = false;
 
     constructor() {
         this.initDB();
+    }
+
+    private async getDB(): Promise<IDBDatabase> {
+        if (this.dbPromise) {
+            const db = await this.dbPromise;
+            // Check if connection is actually open
+            try {
+                db.transaction([STORE_NAME], 'readonly');
+                return db;
+            } catch (e) {
+                logger.warn("[ProjectPersistence] IDB connection closed or invalid. Reopening...");
+                this.dbPromise = null;
+            }
+        }
+        return this.initDB();
     }
 
     private initDB(): Promise<IDBDatabase> {
@@ -29,11 +45,18 @@ export class ProjectPersistence {
 
             request.onerror = (event) => {
                 logger.error("IndexedDB error:", (event.target as any).error);
+                this.dbPromise = null;
                 reject((event.target as any).error);
             };
 
             request.onsuccess = (event) => {
-                resolve((event.target as IDBOpenDBRequest).result);
+                const db = (event.target as IDBOpenDBRequest).result;
+                // Handle unexpected closure
+                db.onclose = () => {
+                    logger.warn("[ProjectPersistence] IDB connection closed unexpectedly.");
+                    this.dbPromise = null;
+                };
+                resolve(db);
             };
 
             request.onupgradeneeded = (event) => {
@@ -48,31 +71,41 @@ export class ProjectPersistence {
     }
 
     async saveProject(id: string, name: string, data: Uint8Array, mode: 'real' | 'demo', bookingsCount?: number, accountingCount?: number): Promise<void> {
-        const db = await this.initDB();
-        return new Promise((resolve, reject) => {
-            const transaction = db.transaction([STORE_NAME], 'readwrite');
-            const store = transaction.objectStore(STORE_NAME);
+        if (this.isBusy) {
+            await new Promise(r => setTimeout(r, 100));
+            return this.saveProject(id, name, data, mode, bookingsCount, accountingCount);
+        }
 
-            const record = {
-                id,
-                name,
-                data, // Blob/Uint8Array
-                mode,
-                lastModified: Date.now(),
-                sizeBytes: data.byteLength,
-                bookingsCount,
-                accountingCount
-            };
+        const db = await this.getDB();
+        this.isBusy = true;
 
-            const request = store.put(record);
+        try {
+            await new Promise<void>((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
 
-            request.onsuccess = () => resolve();
-            request.onerror = (e) => reject((e.target as any).error);
-        });
+                const record = {
+                    id,
+                    name,
+                    data,
+                    mode,
+                    lastModified: Date.now(),
+                    sizeBytes: data.byteLength,
+                    bookingsCount,
+                    accountingCount
+                };
+
+                const request = store.put(record);
+                request.onsuccess = () => resolve();
+                request.onerror = (e) => reject((e.target as any).error);
+            });
+        } finally {
+            this.isBusy = false;
+        }
     }
 
     async loadProject(id: string): Promise<{ id: string, name: string, data: Uint8Array, mode: 'real' | 'demo' } | null> {
-        const db = await this.initDB();
+        const db = await this.getDB();
         return new Promise((resolve, reject) => {
             const transaction = db.transaction([STORE_NAME], 'readonly');
             const store = transaction.objectStore(STORE_NAME);
@@ -86,7 +119,7 @@ export class ProjectPersistence {
     }
 
     async listProjects(): Promise<ProjectMetadata[]> {
-        const db = await this.initDB();
+        const db = await this.getDB();
         return new Promise((resolve, reject) => {
             const transaction = db.transaction([STORE_NAME], 'readonly');
             const store = transaction.objectStore(STORE_NAME);
@@ -115,7 +148,7 @@ export class ProjectPersistence {
     }
 
     async deleteProject(id: string): Promise<void> {
-        const db = await this.initDB();
+        const db = await this.getDB();
         return new Promise((resolve, reject) => {
             const transaction = db.transaction([STORE_NAME], 'readwrite');
             const store = transaction.objectStore(STORE_NAME);

@@ -384,7 +384,8 @@ export const Bookings: React.FC = () => {
         payments: form.payments || [],
         created_at: editingBookingId ? (bookings.find(bo => bo.id === editingBookingId)?.created_at || Date.now()) : Date.now(),
         // Preserve external ref if editing
-        external_ref: editingBookingId ? bookings.find(bo => bo.id === editingBookingId)?.external_ref : undefined
+        external_ref: editingBookingId ? bookings.find(bo => bo.id === editingBookingId)?.external_ref : undefined,
+        project_id: projectManager.getCurrentProjectId() || undefined
       };
 
       // Refined Rule: No Guest and No Amount => classify as Block

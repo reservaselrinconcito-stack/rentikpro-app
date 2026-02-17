@@ -681,6 +681,7 @@ export const Accounting: React.FC = () => {
       telefono: formData.get('telefono') as string,
     };
     await projectManager.getStore().saveFiscalProfile(profile);
+    await projectManager.saveProject();
     setFiscalProfile(profile);
     alert("Perfil fiscal guardado correctamente.");
   };
