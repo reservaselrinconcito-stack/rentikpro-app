@@ -72,12 +72,15 @@ export class ProjectPersistence {
 
     async saveProject(id: string, name: string, data: Uint8Array, mode: 'real' | 'demo', bookingsCount?: number, accountingCount?: number): Promise<void> {
         if (this.isBusy) {
+            console.log("[SAVE:IDB] skipped_busy");
             await new Promise(r => setTimeout(r, 100));
             return this.saveProject(id, name, data, mode, bookingsCount, accountingCount);
         }
 
         const db = await this.getDB();
         this.isBusy = true;
+
+        console.log("[SAVE:IDB] write_begin", { key: id });
 
         try {
             await new Promise<void>((resolve, reject) => {
@@ -96,9 +99,19 @@ export class ProjectPersistence {
                 };
 
                 const request = store.put(record);
-                request.onsuccess = () => resolve();
-                request.onerror = (e) => reject((e.target as any).error);
+                request.onsuccess = () => {
+                    console.log("[SAVE:IDB] write_success", { key: id });
+                    resolve();
+                };
+                request.onerror = (e) => {
+                    const err = (e.target as any).error;
+                    console.error("[SAVE:IDB] write_failed", err);
+                    reject(err);
+                };
             });
+        } catch (err: any) {
+            console.error("[SAVE:IDB] write_failed", err);
+            throw err;
         } finally {
             this.isBusy = false;
         }

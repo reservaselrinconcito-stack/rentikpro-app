@@ -396,17 +396,22 @@ export const Bookings: React.FC = () => {
         }
       }
 
+      console.log("[SAVE:UI] start", { bookingId: b.id, projectId: b.project_id });
       if (editingBookingId) {
         await store.updateReservation(editingBookingId, b, 'MANUAL');
       } else {
         await store.saveBooking(b);
       }
 
+      console.log("[SAVE:UI] sqlite_written");
+
       // The store now handles accounting sync automatically (or we call it here if we prefer)
       // Since I will make syncAccountingMovementsFromBooking public and call it from saveBooking/updateReservation,
       // we don't need any of the code below.
 
+      console.log("[SAVE:UI] calling saveProject");
       await projectManager.saveProject();
+      console.log("[SAVE:UI] saveProject_done");
       notifyDataChanged();
       await loadData();
 

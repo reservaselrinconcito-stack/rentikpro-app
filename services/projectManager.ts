@@ -174,6 +174,7 @@ export class ProjectManager {
   // --- PERSISTENCE ---
 
   async saveProject(): Promise<void> {
+    console.log("[SAVE:PM] begin", { projectId: this.currentProjectId });
     if (!this.store || !this.currentProjectId) return;
     const name = this.currentProjectMode === 'demo' ? 'DEMO RentikPro' : `Proyecto ${new Date().toLocaleDateString()}`; // Simplify name logic
     await this.persistCurrentProject(name);
@@ -188,6 +189,7 @@ export class ProjectManager {
     const counts = await this.store.getCounts();
     this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
 
+    console.log("[SAVE:PM] exporting_sqlite_bytes", { byteLength: data.byteLength });
     await projectPersistence.saveProject(
       this.currentProjectId,
       name,
@@ -196,6 +198,7 @@ export class ProjectManager {
       this.currentCounts.bookings,
       this.currentCounts.accounting
     );
+    console.log("[SAVE:PM] persisted_ok");
   }
 
   getProjectStats() {
