@@ -1,0 +1,186 @@
+/* Base Styles */
+:root {
+    --primary-color: #4F46E5;
+    --font-family: 'Inter', sans-serif;
+    --border-radius: 1rem;
+    --bg-color: #F8FAFC;
+    --text-color: #1E293B;
+}
+
+body {
+    font-family: var(--font-family);
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    line-height: 1.6;
+}
+
+h1,
+h2,
+h3 {
+    font-weight: 900;
+    line-height: 1.1;
+    margin-bottom: 1rem;
+}
+
+p {
+    margin-bottom: 1rem;
+    opacity: 0.8;
+}
+
+/* Components */
+.btn-primary {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    font-weight: bold;
+    text-decoration: none;
+    display: inline-block;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.1s;
+}
+
+.btn-primary:active {
+    transform: scale(0.95);
+}
+
+.section {
+    padding: 4rem 2rem;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+/* Sections */
+.hero-section {
+    height: 60vh;
+    background-size: cover;
+    background-position: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: white;
+    position: relative;
+}
+
+.hero-overlay {
+    background: rgba(0, 0, 0, 0.4);
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+}
+
+.hero-content {
+    position: relative;
+    z-index: 2;
+    padding: 2rem;
+}
+
+.hero-title {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+}
+
+.properties-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 2rem;
+}
+
+.property-card {
+    background: white;
+    border-radius: var(--border-radius);
+    overflow: hidden;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+.property-img {
+    height: 200px;
+    background-color: #eee;
+    background-size: cover;
+}
+
+.property-body {
+    padding: 1.5rem;
+}
+
+.booking-cta-section {
+    background-color: #EEF2FF;
+    /* Indigo-50 fallback */
+    text-align: center;
+    border-top: 1px solid #E0E7FF;
+    border-bottom: 1px solid #E0E7FF;
+}
+
+.booking-benefits {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    margin: 2rem 0;
+    flex-wrap: wrap;
+}
+
+.benefit-item {
+    font-size: 0.875rem;
+    font-weight: bold;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.contact-section {
+    background-color: #0F172A;
+    color: white;
+    text-align: center;
+}
+
+/* Booking Widget (Reservar Page) */
+.booking-widget {
+    background: white;
+    padding: 2rem;
+    border-radius: var(--border-radius);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    max-width: 500px;
+    margin: 2rem auto;
+}
+
+.form-group {
+    margin-bottom: 1.5rem;
+}
+
+.form-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+}
+
+.form-input,
+.form-select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #E2E8F0;
+    border-radius: 0.5rem;
+    font-family: inherit;
+    box-sizing: border-box;
+}
+
+.summary-box {
+    background: #F1F5F9;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-top: 1rem;
+}
+
+.total-price {
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: var(--primary-color);
+    text-align: right;
+}

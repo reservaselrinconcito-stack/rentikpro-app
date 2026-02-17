@@ -87,6 +87,11 @@ export class SyncScheduler {
       return;
     }
 
+    if (projectManager.getCurrentMode() === 'demo') {
+      logger.log("Sync Skipped: Demo Mode Active");
+      return;
+    }
+
     const store = projectManager.getStore();
     const apartments = await store.getAllApartments();
 
@@ -95,7 +100,7 @@ export class SyncScheduler {
     // Sequential processing to avoid flooding
     for (const apt of apartments) {
       try {
-        await syncEngine.syncApartment(apt.id);
+        await syncEngine.syncApartment(apt.id, { isAutomated: true });
       } catch (e) {
         logger.error(`Auto-Sync Error Apt ${apt.id}:`, e);
       }

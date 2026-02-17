@@ -11,6 +11,7 @@ export type EntityType =
   | 'bookings'
   | 'accounting'
   | 'marketing'
+  | 'marketing_templates'
   | 'all';
 
 export interface DataChangedDetail {
@@ -36,17 +37,17 @@ export const useDataRefresh = (callback: () => void, entities?: EntityType[]) =>
     const handler = (event: Event) => {
       const custom = event as CustomEvent<DataChangedDetail>;
       const target = custom.detail?.entity ?? 'all';
-      
+
       if (!entities || entities.length === 0) {
         callback();
         return;
       }
-      
+
       if (entities.includes('all') || target === 'all' || entities.includes(target)) {
         callback();
       }
     };
-    
+
     window.addEventListener(DATA_CHANGED_EVENT, handler as EventListener);
     return () => window.removeEventListener(DATA_CHANGED_EVENT, handler as EventListener);
   }, [callback, entities && entities.join(',')]);

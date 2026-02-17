@@ -1,0 +1,218 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { Archive, Download, Upload, ShieldCheck, AlertCircle, RefreshCw, FileArchive, ArrowLeft, Terminal } from 'lucide-react';
+import { projectManager } from '../services/projectManager';
+import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+
+export const BackupVault = () => {
+    const navigate = useNavigate();
+    const [lastBackup, setLastBackup] = useState<string | null>(null);
+    const [lastRestore, setLastRestore] = useState<string | null>(null);
+    const [isExporting, setIsExporting] = useState(false);
+    const [isImporting, setIsImporting] = useState(false);
+    const [logs, setLogs] = useState<string[]>([]);
+    const logsEndRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const backupDate = localStorage.getItem('rentik_last_backup_date');
+        if (backupDate) setLastBackup(new Date(backupDate).toLocaleString());
+
+        const restoreDate = localStorage.getItem('rentik_last_restore_date');
+        if (restoreDate) setLastRestore(new Date(restoreDate).toLocaleString());
+    }, []);
+
+    useEffect(() => {
+        logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [logs]);
+
+    const addLog = (msg: string) => {
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+    };
+
+    const handleExport = async () => {
+        try {
+            setIsExporting(true);
+            setLogs([]); // Clear previous logs
+            addLog("Iniciando exportación de backup...");
+            addLog("Generando archivo ZIP...");
+            await projectManager.exportFullBackupZip();
+            addLog("Descarga iniciada.");
+            toast.success("Backup creado y descargado correctamente");
+            setLastBackup(new Date().toLocaleString());
+        } catch (e) {
+            console.error(e);
+            addLog(`ERROR: ${e}`);
+            toast.error("Error al crear el backup");
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!confirm("ADVERTENCIA: Restaurar un backup SOBREESCRIBIRÁ todos los datos actuales. ¿Estás seguro?")) {
+            e.target.value = '';
+            return;
+        }
+
+        try {
+            setIsImporting(true);
+            setLogs([]); // Clear logs
+            addLog(`Archivo seleccionado: ${file.name}`);
+
+            if (file.name.endsWith('.zip')) {
+                await projectManager.importFullBackupZip(file, (msg) => addLog(msg));
+            } else if (file.name.endsWith('.sqlite')) {
+                addLog("Detectado formato legacy .sqlite");
+                await projectManager.importProjectFromFile(file);
+                addLog("Restauración completada.");
+            } else {
+                throw new Error("Formato no soportado. Usa .zip o .sqlite");
+            }
+
+            toast.success("Restauración completada");
+            setLastRestore(new Date().toLocaleString());
+
+            // Delay navigation slightly so user sees success message
+            setTimeout(() => {
+                navigate('/');
+            }, 1500);
+
+        } catch (e: any) {
+            console.error(e);
+            addLog(`ERROR FATAL: ${e.message}`);
+            toast.error("Error al restaurar: " + e.message);
+        } finally {
+            setIsImporting(false);
+            e.target.value = '';
+        }
+    };
+
+    return (
+        <div className="p-6 max-w-4xl mx-auto animate-in fade-in duration-500">
+            <div className="flex items-center gap-4 mb-8">
+                <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
+                    <ArrowLeft size={24} className="text-slate-600" />
+                </button>
+                <div>
+                    <h1 className="text-3xl font-black text-slate-900 flex items-center gap-3">
+                        <ShieldCheck size={32} className="text-indigo-600" />
+                        Backup Vault
+                    </h1>
+                    <p className="text-slate-500 mt-1">Gestión segura de copias de seguridad locales.</p>
+                </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-6 mb-8">
+                {/* EXPORT CARD */}
+                <div className="bg-white rounded-3xl p-8 shadow-xl border border-indigo-100 flex flex-col items-center text-center hover:shadow-2xl transition-all group overflow-hidden relative">
+                    <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-indigo-500 to-purple-500"></div>
+                    <div className="bg-indigo-50 p-6 rounded-full mb-6 group-hover:scale-110 transition-transform duration-300">
+                        <Download size={48} className="text-indigo-600" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-slate-800 mb-2">Crear Backup Completo</h2>
+                    <p className="text-slate-500 mb-8 max-w-xs">
+                        Descarga un archivo ZIP encriptado con toda tu base de datos, configuraciones y sitios web.
+                    </p>
+
+                    <button
+                        onClick={handleExport}
+                        disabled={isExporting || isImporting}
+                        className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isExporting ? <RefreshCw className="animate-spin" /> : <FileArchive />}
+                        {isExporting ? "Generando..." : "Descargar Backup"}
+                    </button>
+
+                    <div className="mt-6 flex flex-col gap-1 text-xs text-slate-400">
+                        {lastBackup ? (
+                            <span className="bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
+                                Último backup: <span className="font-mono text-slate-600 font-bold">{lastBackup}</span>
+                            </span>
+                        ) : (
+                            <span className="italic opacity-60">Aún no hay backups recientes</span>
+                        )}
+                    </div>
+                </div>
+
+                {/* IMPORT CARD */}
+                <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-200 flex flex-col items-center text-center hover:shadow-2xl transition-all group overflow-hidden relative">
+                    <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-500 to-teal-500"></div>
+                    <div className="bg-emerald-50 p-6 rounded-full mb-6 group-hover:scale-110 transition-transform duration-300">
+                        <Upload size={48} className="text-emerald-600" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-slate-800 mb-2">Restaurar Backup</h2>
+                    <p className="text-slate-500 mb-8 max-w-xs">
+                        Recupera tus datos subiendo un archivo de backup previo (.zip).
+                        <br /><span className="text-red-500 font-bold text-xs mt-2 block">⚠️ Sobreescribirá los datos actuales</span>
+                    </p>
+
+                    <div className="relative w-full">
+                        <button
+                            disabled={isImporting || isExporting}
+                            className="w-full py-4 bg-white border-2 border-emerald-500 text-emerald-600 hover:bg-emerald-50 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {isImporting ? <RefreshCw className="animate-spin" /> : <Upload />}
+                            {isImporting ? "Restaurando..." : "Seleccionar Archivo"}
+                        </button>
+                        <input
+                            type="file"
+                            accept=".zip,.sqlite"
+                            onChange={handleImport}
+                            disabled={isImporting || isExporting}
+                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        />
+                    </div>
+
+                    <div className="mt-6 flex flex-col gap-1 text-xs text-slate-400">
+                        {lastRestore ? (
+                            <span className="bg-slate-50 px-3 py-1 rounded-full border border-slate-100">
+                                Última restauración: <span className="font-mono text-emerald-600 font-bold">{lastRestore}</span>
+                            </span>
+                        ) : (
+                            <span className="italic opacity-60">Sin restauraciones recientes</span>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* LOG BOX */}
+            <div className="bg-slate-900 rounded-2xl p-6 border border-slate-800 shadow-inner font-mono text-sm overflow-hidden">
+                <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-2">
+                    <h3 className="text-slate-400 font-bold flex items-center gap-2">
+                        <Terminal size={16} /> Activity Log
+                    </h3>
+                    {logs.length > 0 && (
+                        <button onClick={() => setLogs([])} className="text-xs text-slate-500 hover:text-white transition-colors">
+                            Clear
+                        </button>
+                    )}
+                </div>
+                <div className="h-48 overflow-y-auto custom-scrollbar flex flex-col gap-1 pr-2">
+                    {logs.length === 0 ? (
+                        <div className="text-slate-600 italic py-8 text-center">Esperando acciones...</div>
+                    ) : (
+                        logs.map((log, i) => (
+                            <div key={i} className="text-slate-300 border-l-2 border-slate-700 pl-3 py-0.5 animate-in fade-in slide-in-from-left-2 duration-300">
+                                {log}
+                            </div>
+                        ))
+                    )}
+                    <div ref={logsEndRef} />
+                </div>
+            </div>
+
+            <div className="mt-8 bg-slate-50 rounded-2xl p-6 border border-slate-200">
+                <h3 className="font-bold text-slate-700 mb-2 flex items-center gap-2">
+                    <ShieldCheck size={16} /> Nota de Seguridad
+                </h3>
+                <p className="text-sm text-slate-500">
+                    Los backups se generan localmente en tu navegador. Tus datos nunca se envían a ningún servidor externo.
+                    Guarda el archivo descargado en un lugar seguro.
+                </p>
+            </div>
+        </div>
+    );
+};

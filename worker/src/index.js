@@ -1,118 +1,173 @@
-
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
+    const origin = request.headers.get("Origin");
 
-    // Endpoint único
-    if (path !== "/cm-proxy") {
-      return new Response("Not Found", { status: 404 });
-    }
+    // Helper para CORS
+    function addCors(resp, originHeader) {
+      const allowedOrigins = [
+        "https://rentikpro2.pages.dev",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+      ];
+      const h = new Headers(resp.headers);
 
-    // CORS: permite llamadas desde tu PWA
-    const corsHeaders = {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET,HEAD,OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, If-None-Match",
-      "Access-Control-Expose-Headers": "ETag, Content-Length",
-      "Vary": "Origin"
-    };
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
-    }
-
-    // Permitir GET y HEAD
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
-    }
-
-    const target = url.searchParams.get("url");
-    if (!target) {
-      return new Response("Missing url", { status: 400, headers: corsHeaders });
-    }
-
-    let targetUrl;
-    try {
-      targetUrl = new URL(target);
-    } catch {
-      return new Response("Invalid url", { status: 400, headers: corsHeaders });
-    }
-
-    // Seguridad básica: solo http/https
-    if (!/^https?:$/.test(targetUrl.protocol)) {
-      return new Response("Invalid protocol", { status: 400, headers: corsHeaders });
-    }
-
-    // Allowlist de dominios
-    const host = targetUrl.hostname.toLowerCase();
-    const allowed = [
-      "airbnb.com",
-      "booking.com",
-      "ical.booking.com",
-      "admin.booking.com",
-      "calendar.google.com",
-      "outlook.office.com",
-      "vrbo.com",
-      "homeaway.com"
-    ];
-    // Simple check: endsWith allows subdomains
-    const isAllowed = allowed.some(d => host === d || host.endsWith("." + d));
-    
-    // Si quieres cerrar el proxy solo a estos dominios, descomenta:
-    // if (!isAllowed) return new Response("Host not allowed: " + host, { status: 403, headers: corsHeaders });
-
-    // Cache edge (5 min) para evitar machacar al origen
-    const cacheKey = new Request("https://cm-proxy.local/cache?url=" + encodeURIComponent(targetUrl.toString()), {
-      method: "GET"
-    });
-    const cache = caches.default;
-
-    let cached = await cache.match(cacheKey);
-    if (cached) {
-      const h = new Headers(cached.headers);
-      for (const [k,v] of Object.entries(corsHeaders)) h.set(k, v);
-      // Si es HEAD, devolvemos el cached response (el body se ignora en cliente pero headers ok)
-      return new Response(request.method === "HEAD" ? null : cached.body, { status: cached.status, headers: h });
-    }
-
-    // Fetch upstream
-    const upstreamReq = new Request(targetUrl.toString(), {
-      method: "GET",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; RentikProCM/1.0)",
-        "Accept": "text/calendar,text/plain,*/*"
+      // Si el origin está en allowlist o es nulo (OTA/GET directo), permitimos
+      if (!originHeader || allowedOrigins.includes(originHeader.replace(/\/$/, ""))) {
+        h.set("Access-Control-Allow-Origin", originHeader || "*");
       }
-    });
 
-    let resp;
-    try {
-      resp = await fetch(upstreamReq, { redirect: "follow" });
-    } catch (e) {
-      return new Response("Upstream fetch failed", { status: 502, headers: corsHeaders });
+      h.set("Vary", "Origin");
+      h.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD");
+      h.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Key, If-None-Match");
+      h.set("Access-Control-Expose-Headers", "ETag, Content-Length");
+      h.set("Access-Control-Max-Age", "86400");
+
+      return new Response(resp.body, {
+        status: resp.status,
+        statusText: resp.statusText,
+        headers: h
+      });
     }
 
-    const ct = resp.headers.get("content-type") || "text/plain; charset=utf-8";
-    const body = await resp.text();
-
-    const outHeaders = new Headers({
-      "Content-Type": ct.includes("text/calendar") ? ct : "text/calendar; charset=utf-8",
-      "Cache-Control": "public, max-age=300",
-      "ETag": resp.headers.get("ETag") || `W/"${body.length}"`,
-      ...corsHeaders
-    });
-
-    const out = new Response(body, { status: resp.status, headers: outHeaders });
-
-    // Guarda en cache si fue OK
-    if (resp.status >= 200 && resp.status < 300 && body && body.length > 50) {
-      ctx.waitUntil(cache.put(cacheKey, out.clone()));
+    // Preflight
+    if (request.method === "OPTIONS") {
+      return addCors(new Response(null, { status: 204 }), origin);
     }
 
-    if (request.method === "HEAD") {
-      return new Response(null, { status: resp.status, headers: outHeaders });
+    // --- ENPOINTS NUEVOS (ICAL OUTBOUND) ---
+
+    // POST /ical/publish -> Guarda ICS en KV
+    if (path === "/ical/publish" && request.method === "POST") {
+      const adminKey = request.headers.get("X-Admin-Key");
+      if (adminKey !== env.ADMIN_KEY) {
+        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }), origin);
+      }
+
+      try {
+        const data = await request.json();
+        const { project_id, unit_id, icsText } = data;
+        let { token } = data;
+
+        if (!project_id || !unit_id || !icsText) {
+          return addCors(new Response(JSON.stringify({ error: "Missing data" }), { status: 400 }), origin);
+        }
+
+        // Generar token si no viene uno
+        if (!token) {
+          const rawToken = crypto.getRandomValues(new Uint8Array(24));
+          token = btoa(String.fromCharCode(...rawToken))
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+        }
+
+        // Guardar en KV: RENTIKPRO_FEEDS
+        await env.RENTIKPRO_FEEDS.put(token, icsText, {
+          metadata: { project_id, unit_id, updated: Date.now() }
+        });
+
+        const publicUrl = `${url.origin}/ical/${token}.ics`;
+        return addCors(new Response(JSON.stringify({ token, publicUrl }), { status: 200 }), origin);
+      } catch (err) {
+        return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
+      }
     }
 
-    return out;
+    // GET /ical/:token.ics -> Devuelve ICS desde KV
+    const icalMatch = path.match(/^\/ical\/(.+)\.ics$/);
+    if (icalMatch && request.method === "GET") {
+      const token = icalMatch[1];
+      const ics = await env.RENTIKPRO_FEEDS.get(token);
+
+      if (!ics) {
+        return addCors(new Response("Feed not found", { status: 404 }), origin);
+      }
+
+      return addCors(new Response(ics, {
+        status: 200,
+        headers: { "Content-Type": "text/calendar; charset=utf-8" }
+      }), origin);
+    }
+
+
+    // --- ENPOINT EXISTENTE (PROXY) ---
+
+    if (path === "/cm-proxy") {
+      const target = url.searchParams.get("url");
+      if (!target) {
+        return addCors(new Response("Missing url", { status: 400 }), origin);
+      }
+
+      let targetUrl;
+      try {
+        targetUrl = new URL(target);
+      } catch {
+        return addCors(new Response("Invalid url", { status: 400 }), origin);
+      }
+
+      if (!/^https?:$/.test(targetUrl.protocol)) {
+        return addCors(new Response("Invalid protocol", { status: 400 }), origin);
+      }
+
+      const host = targetUrl.hostname.toLowerCase();
+      const allowed = [
+        "airbnb.com", "booking.com", "ical.booking.com", "admin.booking.com",
+        "calendar.google.com", "outlook.office.com", "vrbo.com", "homeaway.com",
+        "escapadarural.com", "static.escapadarural.com"
+      ];
+      const isAllowed = allowed.some(d => host === d || host.endsWith("." + d));
+
+      if (!isAllowed) {
+        return addCors(new Response(JSON.stringify({
+          code: "DOMAIN_NOT_ALLOWED",
+          message: "Host not allowed: " + host,
+          host: host
+        }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" }
+        }), origin);
+      }
+
+      const cacheKey = new Request("https://cm-proxy.local/cache?url=" + encodeURIComponent(targetUrl.toString()), { method: "GET" });
+      const cache = caches.default;
+      let cached = await cache.match(cacheKey);
+
+      if (cached && request.method !== "HEAD") {
+        return addCors(cached, origin);
+      }
+
+      try {
+        const upstreamReq = new Request(targetUrl.toString(), {
+          method: "GET",
+          headers: {
+            "User-Agent": "Mozilla/5.0 (compatible; RentikProCM/1.0)",
+            "Accept": "text/calendar,text/plain,*/*"
+          }
+        });
+        const resp = await fetch(upstreamReq, { redirect: "follow" });
+
+        const ct = resp.headers.get("content-type") || "text/plain; charset=utf-8";
+        const body = await resp.text();
+
+        const outHeaders = {
+          "Content-Type": ct.includes("text/calendar") ? ct : "text/calendar; charset=utf-8",
+          "Cache-Control": "public, max-age=300",
+          "ETag": resp.headers.get("ETag") || `W/"${body.length}"`,
+        };
+
+        const out = new Response(body, { status: resp.status, headers: outHeaders });
+        if (resp.status >= 200 && resp.status < 300 && body && body.length > 50) {
+          ctx.waitUntil(cache.put(cacheKey, out.clone()));
+        }
+
+        return addCors(request.method === "HEAD" ? new Response(null, { status: resp.status, headers: outHeaders }) : out, origin);
+      } catch (e) {
+        return addCors(new Response("Upstream fetch failed", { status: 502 }), origin);
+      }
+    }
+
+    return new Response("Not Found", { status: 404 });
   }
 };

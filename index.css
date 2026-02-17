@@ -1,9 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* RentikPro - Estilos globales */
 
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+}
+
+:root {
+  --ui-scale: 1.0;
 }
 
 html,
@@ -15,15 +23,28 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  overflow: hidden;
-  /* Prevent body scroll on iOS */
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* UI Zoom SOLO Móvil/Tablet */
+@media (max-width: 1024px) {
+  html {
+    font-size: calc(16px * var(--ui-scale));
+  }
+}
+
+/* Desktop mantiene base 16px */
+@media (min-width: 1025px) {
+  html {
+    font-size: 16px;
+  }
 }
 
 #root {
-  height: 100%;
+  min-height: 100%;
   width: 100%;
-  overflow: hidden;
-  /* Ensure root doesn't scroll */
 }
 
 code {
@@ -55,10 +76,35 @@ code {
   background-color: #94a3b8;
 }
 
-/* iOS Safari specific fixes */
-@supports (-webkit-touch-callout: none) {
-  body {
-    /* Prevent pull-to-refresh and bounce on iOS */
-    overscroll-behavior: none;
-  }
+/* Custom transitions */
+.page-transition-enter {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.page-transition-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
+}
+
+/* Glassmorphism Utilities */
+.glass {
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.glass-dark {
+  background: rgba(15, 23, 42, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+
+.clay-shadow {
+  box-shadow:
+    8px 8px 16px rgba(0, 0, 0, 0.05),
+    -8px -8px 16px rgba(255, 255, 255, 0.8),
+    inset 2px 2px 4px rgba(255, 255, 255, 0.4),
+    inset -2px -2px 4px rgba(0, 0, 0, 0.05);
 }

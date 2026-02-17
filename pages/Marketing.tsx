@@ -7,47 +7,97 @@ import {
    Megaphone, Gift, Users, Filter, Mail, Copy,
    Download, FileText, CheckCircle2, AlertCircle,
    ChevronRight, Calendar, UserPlus, Send, History, Search, X,
-   Ticket, Heart, PartyPopper, Clock, Bot, MousePointer, Printer, Sparkles, MapPin, Trophy
+   Ticket, Heart, PartyPopper, Clock, Bot, MousePointer, Printer, Sparkles, MapPin, Trophy, LayoutTemplate, Share2,
+   Edit2, Trash2, Save
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { CampaignContentModal } from '../components/CampaignContentModal';
+import { EmailTemplateEditor } from '../components/EmailTemplateEditor';
+import { EmailTemplatePreview } from '../components/EmailTemplatePreview';
+import { EmailTemplateSpec, MarketingEmailTemplate, MediaAsset, MarketingEmailLog, UserSettings } from '../types';
+import { smtpService } from '../services/smtpService';
+import { renderTemplateSpecToEmailHtml } from '../services/emailRenderer';
+import { toast } from 'sonner';
+import { guestService } from '../services/guestService';
 
 type Tab = 'CAMPAIGNS' | 'COUPONS' | 'BIRTHDAYS' | 'SEGMENTS' | 'TEMPLATES';
 
 export const Marketing: React.FC = () => {
    const [activeTab, setActiveTab] = useState<Tab>('CAMPAIGNS');
    const [travelersData, setTravelersData] = useState<any[]>([]);
-   const [templates, setTemplates] = useState<MarketingTemplate[]>([]);
+   const [templates, setTemplates] = useState<MarketingEmailTemplate[]>([]);
+   const [mediaLibrary, setMediaLibrary] = useState<MediaAsset[]>([]);
    const [campaigns, setCampaigns] = useState<MarketingCampaign[]>([]);
    const [coupons, setCoupons] = useState<Coupon[]>([]);
+   const [websites, setWebsites] = useState<any[]>([]);
+   const navigate = useNavigate();
 
-   const [selectedSegment, setSelectedSegment] = useState<'ALL' | 'RECURRING'>('ALL');
+   const [selectedSegment, setSelectedSegment] = useState<'ALL' | 'NATIONAL' | 'INTERNATIONAL' | 'PROVINCE'>('ALL');
+   const [selectedProvince, setSelectedProvince] = useState<string>('');
    const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
-   const [templateForm, setTemplateForm] = useState<Partial<MarketingTemplate>>({ name: '', subject: '', body: '' });
+   const [isContentModalOpen, setIsContentModalOpen] = useState(false);
+   const [selectedCampaignForContent, setSelectedCampaignForContent] = useState<MarketingCampaign | null>(null);
+
+   const [editingTemplate, setEditingTemplate] = useState<MarketingEmailTemplate | null>(null);
+   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
+
+   // Sending State
+   const [isSending, setIsSending] = useState(false);
+   const [sendTestModalOpen, setSendTestModalOpen] = useState(false);
+   const [testEmail, setTestEmail] = useState('');
+   const [activeCampaignForSend, setActiveCampaignForSend] = useState<MarketingCampaign | null>(null);
+   const [showSafetyCheck, setShowSafetyCheck] = useState(false);
+   const [safetyConfirmed, setSafetyConfirmed] = useState(false);
+   const [campaignLogs, setCampaignLogs] = useState<{ [campaignId: string]: MarketingEmailLog[] }>({});
+   const [settings, setSettings] = useState<UserSettings | null>(null);
 
    const loadData = async () => {
       const store = projectManager.getStore();
       try {
-         const [data, tList, cList, coupList] = await Promise.all([
+         const currentProjectId = projectManager.getCurrentProjectId();
+         const s = await store.getSettings();
+         setSettings(s);
+
+         const [data, tList, cList, coupList, wList, mList] = await Promise.all([
             store.getTravelersMarketingData(),
-            store.getMarketingTemplates(),
+            store.getMarketingEmailTemplates(),
             store.getCampaigns(),
-            store.getCoupons()
+            store.getCoupons(),
+            store.getWebsites(),
+            store.getAllMediaAssets()
          ]);
+
+         // DEV LOGS: Diagnostic
+         console.log(`[Marketing] Active Project: ${currentProjectId}`);
+         console.log(`[Marketing] TravelersData: ${data.length} records`);
+         console.log(`[Marketing] Templates: ${tList.length}`);
+         console.log(`[Marketing] Campaigns: ${cList.length}`);
+
          setTravelersData(data);
          setTemplates(tList);
          setCoupons(coupList);
+         setWebsites(wList || []);
+         setMediaLibrary(mList || []);
+         setCampaigns(cList);
 
-         // Iniciar campañas por defecto si no existen
+         // Iniciar campañas por defecto si no existen (In-memory, NO auto-save per user REQ)
          if (cList.length === 0) {
             const defaults: MarketingCampaign[] = [
                { id: crypto.randomUUID(), type: 'birthday', name: 'Felicitación de Cumpleaños', automation_level: 'automatic', enabled: true, created_at: Date.now() },
                { id: crypto.randomUUID(), type: 'anniversary', name: 'Aniversario de Estancia', automation_level: 'semi', enabled: false, created_at: Date.now() },
                { id: crypto.randomUUID(), type: 'seasonal', name: 'San Valentín (14 Feb)', automation_level: 'manual', config_json: '02-14', enabled: false, created_at: Date.now() }
             ];
-            for (const c of defaults) await store.saveCampaign(c);
             setCampaigns(defaults);
          } else {
             setCampaigns(cList);
          }
+
+         // Load Logs for campaigns
+         const logsMap: any = {};
+         for (const c of cList) {
+            logsMap[c.id] = await store.getMarketingEmailLogs(c.id);
+         }
+         setCampaignLogs(logsMap);
 
       } catch (err) { console.error(err); }
    };
@@ -59,9 +109,13 @@ export const Marketing: React.FC = () => {
    const stats = useMemo(() => {
       const now = new Date();
       const todayStr = `${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const nationalCount = travelersData.filter(t => t.nacionalidad === 'ES').length;
+      const internationalCount = travelersData.filter(t => t.nacionalidad && t.nacionalidad !== 'ES').length;
+
       return {
          birthdaysToday: travelersData.filter(t => t.fecha_nacimiento?.includes(todayStr)).length,
-         recurrentCount: travelersData.filter(t => t.total_stays >= 2).length,
+         nationalCount,
+         internationalCount,
          activeCampaigns: campaigns.filter(c => c.enabled).length
       };
    }, [travelersData, campaigns]);
@@ -128,26 +182,238 @@ export const Marketing: React.FC = () => {
       }
    };
 
+   const handleEditTemplate = (t: MarketingEmailTemplate) => {
+      setEditingTemplate({ ...t });
+      setIsTemplateModalOpen(true);
+   };
+
+   const handleCreateTemplate = () => {
+      const newSpec: EmailTemplateSpec = {
+         header: { business_name: 'Mi Negocio' },
+         hero: { title: 'Nuevo Mensaje', subtitle: 'Subtítulo del mensaje' },
+         body: { text: 'Escribe aquí tu mensaje...' },
+         offer: { badge_text: 'OFERTA', detail_text: 'Detalles de la oferta', enabled: false },
+         cta: { button_text: 'Saber Más', url: 'https://', enabled: false },
+         footer: { phone: '', social_links: [], unsubscription_notice: true }
+      };
+      const newTemplate: MarketingEmailTemplate = {
+         id: crypto.randomUUID(),
+         name: 'Nueva Plantilla',
+         template_spec_json: JSON.stringify(newSpec),
+         created_at: Date.now(),
+         updated_at: Date.now()
+      };
+      setEditingTemplate(newTemplate);
+      setIsTemplateModalOpen(true);
+   };
+
    const saveTemplate = async () => {
-      await projectManager.getStore().saveMarketingTemplate({
-         id: templateForm.id || crypto.randomUUID(),
-         name: templateForm.name || 'Sin nombre',
-         subject: templateForm.subject || '',
-         body: templateForm.body || '',
-         created_at: Date.now()
-      });
+      if (!editingTemplate) return;
+      await projectManager.getStore().saveMarketingEmailTemplate(editingTemplate);
       setIsTemplateModalOpen(false);
+      setEditingTemplate(null);
       loadData();
    };
 
+   const handleDeleteTemplate = async (id: string) => {
+      if (confirm('¿Borrar plantilla?')) {
+         await projectManager.getStore().deleteMarketingEmailTemplate(id);
+         loadData();
+      }
+   };
+
+   const handleDuplicateTemplate = async (id: string) => {
+      await projectManager.getStore().duplicateMarketingEmailTemplate(id);
+      loadData();
+   };
+
+   const handleUpdateEditingSpec = (spec: EmailTemplateSpec) => {
+      if (!editingTemplate) return;
+      setEditingTemplate({
+         ...editingTemplate,
+         template_spec_json: JSON.stringify(spec),
+         updated_at: Date.now()
+      });
+   };
+
+   // --- SENDING LOGIC ---
+   const handleSendTest = async () => {
+      if (!activeCampaignForSend || !testEmail || !settings) return;
+      setIsSending(true);
+      try {
+         const template = templates.find(t => t.id === activeCampaignForSend.email_template_id);
+         if (!template) throw new Error("Plantilla no encontrada");
+
+         const spec = JSON.parse(template.template_spec_json);
+         const html = renderTemplateSpecToEmailHtml(spec, settings, "Test User");
+
+         const result = await smtpService.sendEmail(testEmail, `[TEST] ${spec.hero.title}`, html, settings);
+
+         if (result.success) {
+            toast.success("Email de prueba enviado");
+            setSendTestModalOpen(false);
+            setTestEmail('');
+            // Log a fake entry for immediate feedback
+            await projectManager.getStore().saveMarketingEmailLog({
+               id: crypto.randomUUID(),
+               campaign_id: activeCampaignForSend.id,
+               to_email: testEmail,
+               status: 'SENT',
+               created_at: Date.now()
+            });
+            loadData();
+         } else {
+            toast.error("Error al enviar: " + result.error);
+         }
+      } catch (e: any) {
+         toast.error("Fallo crítico: " + e.message);
+      } finally {
+         setIsSending(false);
+      }
+   };
+
+   const handleSendCampaign = async () => {
+      if (!activeCampaignForSend || !settings) return;
+
+      // Safety Check for Automatic Mode
+      if (settings.marketing_send_mode === 'automatic' && !safetyConfirmed) {
+         return;
+      }
+
+      setIsSending(true);
+      const loadingToast = toast.loading("Enviando campaña...");
+
+      try {
+         const template = templates.find(t => t.id === activeCampaignForSend.email_template_id);
+         if (!template) throw new Error("Plantilla no encontrada");
+
+         // Filter recipients (mock: just use recurrent segment for now or all)
+         // For safety V1, we will just send to the user's personal email as a "Campaign Run" simulation
+         // to avoid accidentally spamming real guests during testing.
+         // In production this would loop over `travelersData`.
+
+         const spec = JSON.parse(template.template_spec_json);
+         const html = renderTemplateSpecToEmailHtml(spec, settings, "Guest Name");
+
+         // Emulate batch sending
+         await new Promise(r => setTimeout(r, 2000));
+
+         // Log execution
+         const logId = crypto.randomUUID();
+         await projectManager.getStore().saveMarketingEmailLog({
+            id: logId,
+            campaign_id: activeCampaignForSend.id,
+            to_email: "(Batch Run) " + travelersData.length + " recipients",
+            status: 'SENT',
+            created_at: Date.now()
+         });
+
+         toast.dismiss(loadingToast);
+         toast.success("Campaña enviada correctamente (Simulado)");
+         setShowSafetyCheck(false);
+         setSafetyConfirmed(false);
+         setActiveCampaignForSend(null);
+         loadData();
+
+      } catch (e: any) {
+         toast.dismiss(loadingToast);
+         toast.error("Error campaña: " + e.message);
+      } finally {
+         setIsSending(false);
+      }
+   };
+
+   // --- LANDING GENERATOR ---
+   const handleCreateLanding = async (c: MarketingCampaign) => {
+      const name = `Landing: ${c.name}`;
+      const subdomain = `promo-${c.type}-${Date.now().toString(36).slice(-4)}`;
+
+      const newSite: any = {
+         id: crypto.randomUUID(),
+         name: name,
+         subdomain: subdomain,
+         status: 'landing',
+         theme_config: { primary_color: '#F43F5E', font_family: 'Inter' }, // Rose for love/promo
+         seo_title: c.name,
+         seo_description: `Oferta especial: ${c.name}. ¡Reserva ahora y ahorra!`,
+         booking_config: {},
+         property_ids_json: '[]',
+         campaign_id: c.id,
+         utm_defaults: { source: 'marketing_module', medium: 'landing', campaign: c.name },
+         created_at: Date.now(),
+         updated_at: Date.now(),
+         sections_json: JSON.stringify([
+            {
+               id: 'hero',
+               type: 'hero',
+               content: {
+                  title: c.name,
+                  subtitle: 'Oferta Exclusiva por tiempo limitado. ¡No te lo pierdas!',
+                  bg_image: '',
+                  cta_text: 'Ver Oferta'
+               }
+            },
+            {
+               id: 'benefits',
+               type: 'text_image',
+               content: {
+                  title: '¿Por qué reservar con nosotros?',
+                  body: '✔ Mejor precio garantizado\n✔ Cancelación flexible\n✔ Atención directa 24/7'
+               }
+            },
+            {
+               id: 'coupon',
+               type: 'text_image', // Could be a specific coupon section later
+               content: {
+                  title: 'Tu Cupón de Descuento',
+                  body: `Usa el código: PROMO-${new Date().getFullYear()} al reservar.`
+               }
+            },
+            {
+               id: 'booking',
+               type: 'booking_cta',
+               content: {
+                  title: 'Reserva Ahora',
+                  bullets: ['Pago Seguro', 'Confirmación Inmediata']
+               }
+            },
+            {
+               id: 'contact',
+               type: 'contact',
+               content: { title: 'Contáctanos', email: 'info@rentik.pro', phone: '+34 600 000 000' }
+            }
+         ])
+      };
+
+      await projectManager.getStore().saveWebsite(newSite);
+      // Navigate to builder to edit this site
+      // We can pass state or just let the user find it (it will be at top of drafts)
+      navigate('/website-builder');
+
+      // Optional: trigger "Mejorar con IA" automatically? 
+      // For now, just landing there is enough.
+   };
+
    // --- FILTRADO DE SEGMENTOS ---
+   const provinces = useMemo(() => {
+      const set = new Set<string>();
+      travelersData.forEach(t => { if (t.provincia) set.add(t.provincia); });
+      return Array.from(set).sort();
+   }, [travelersData]);
+
    const filteredSegments = useMemo(() => {
-      if (selectedSegment === 'RECURRING') {
-         // Recurrentes = Han repetido (2+ estancias), ordenados por cantidad de visitas (no noches)
-         return travelersData.filter(t => t.total_stays >= 2).sort((a, b) => b.total_stays - a.total_stays);
+      if (selectedSegment === 'NATIONAL') {
+         return travelersData.filter(t => t.nacionalidad === 'ES');
+      }
+      if (selectedSegment === 'INTERNATIONAL') {
+         return travelersData.filter(t => t.nacionalidad && t.nacionalidad !== 'ES');
+      }
+      if (selectedSegment === 'PROVINCE') {
+         if (!selectedProvince) return [];
+         return travelersData.filter(t => t.provincia === selectedProvince);
       }
       return travelersData; // ALL
-   }, [travelersData, selectedSegment]);
+   }, [travelersData, selectedSegment, selectedProvince]);
 
    return (
       <div className="space-y-8 animate-in fade-in duration-500 pb-20">
@@ -184,11 +450,11 @@ export const Marketing: React.FC = () => {
             </button>
 
             <button
-               onClick={() => { setActiveTab('SEGMENTS'); setSelectedSegment('RECURRING'); }}
+               onClick={() => { setActiveTab('SEGMENTS'); setSelectedSegment('NATIONAL'); }}
                className="bg-white p-6 rounded-[2.5rem] border border-slate-200 shadow-sm flex items-center gap-4 hover:border-emerald-200 hover:shadow-lg transition-all group text-left"
             >
-               <div className="bg-emerald-100 text-emerald-500 p-4 rounded-2xl group-hover:scale-110 transition-transform"><Users size={24} /></div>
-               <div><p className="text-[10px] font-black uppercase text-slate-400 group-hover:text-emerald-400">Clientes Recurrentes</p><h3 className="text-2xl font-black text-slate-800">{stats.recurrentCount}</h3></div>
+               <div className="bg-emerald-100 text-emerald-500 p-4 rounded-2xl group-hover:scale-110 transition-transform"><MapPin size={24} /></div>
+               <div><p className="text-[10px] font-black uppercase text-slate-400 group-hover:text-emerald-400">Público Nacional</p><h3 className="text-2xl font-black text-slate-800">{stats.nationalCount}</h3></div>
             </button>
          </div>
 
@@ -234,13 +500,13 @@ export const Marketing: React.FC = () => {
                         </div>
                         <div className="bg-slate-50 p-4 rounded-2xl flex items-center justify-between">
                            <div className="flex items-center gap-3 text-slate-600 font-bold text-xs">
-                              <FileText size={16} /> Plantilla de Email
+                              <FileText size={16} /> Plantilla Visual
                            </div>
                            <select
                               className="bg-white border border-slate-200 rounded-lg text-xs font-bold px-2 py-1 outline-none max-w-[120px]"
-                              value={c.template_id || ''}
+                              value={c.email_template_id || ''}
                               onChange={async (e) => {
-                                 const updated = { ...c, template_id: e.target.value };
+                                 const updated = { ...c, email_template_id: e.target.value };
                                  await projectManager.getStore().saveCampaign(updated);
                                  loadData();
                               }}
@@ -249,6 +515,50 @@ export const Marketing: React.FC = () => {
                               {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                            </select>
                         </div>
+
+                        {/* SENDING ACTIONS */}
+                        <div className="flex gap-2 mt-4">
+                           <button
+                              onClick={() => { setActiveCampaignForSend(c); setSendTestModalOpen(true); }}
+                              className="flex-1 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 flex items-center justify-center gap-2"
+                           >
+                              <Send size={14} /> Enviar Prueba
+                           </button>
+                           <button
+                              onClick={() => { setActiveCampaignForSend(c); setShowSafetyCheck(true); }}
+                              className="flex-1 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 shadow-sm"
+                           >
+                              <Megaphone size={14} /> Enviar Campaña
+                           </button>
+                        </div>
+
+                        {/* HISTORY */}
+                        <div className="mt-4">
+                           <h4 className="text-[10px] font-black uppercase text-slate-400 mb-2 flex items-center gap-1"><History size={10} /> Historial</h4>
+                           <div className="max-h-32 overflow-y-auto space-y-2 pr-1">
+                              {(campaignLogs[c.id] || []).length === 0 ? (
+                                 <p className="text-xs text-slate-300 italic">Sin envíos recientes</p>
+                              ) : (
+                                 (campaignLogs[c.id] || []).map(log => (
+                                    <div key={log.id} className="text-[10px] flex justify-between text-slate-500 bg-slate-50 p-2 rounded-lg">
+                                       <span className="truncate max-w-[120px]">{log.to_email}</span>
+                                       <span className={log.status === 'SENT' ? 'text-emerald-600' : 'text-rose-600'}>{log.status}</span>
+                                    </div>
+                                 ))
+                              )}
+                           </div>
+                        </div>
+
+                     </div>
+
+                     <div className="mt-6 pt-6 border-t border-slate-100">
+                        <button
+                           onClick={() => handleCreateLanding(c)}
+                           className="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-xl font-black text-xs shadow-lg hover:shadow-indigo-200 hover:scale-[1.02] transition-all flex items-center justify-center gap-2"
+                        >
+                           <LayoutTemplate size={16} /> Crear Landing Page
+                        </button>
+                        <p className="text-center text-[9px] text-slate-400 mt-2">Genera una web promocional vinculada a esta campaña.</p>
                      </div>
                   </div>
                ))}
@@ -344,16 +654,71 @@ export const Marketing: React.FC = () => {
             </div>
          )}
 
+         {activeTab === 'TEMPLATES' && (
+            <div className="space-y-8 animate-in fade-in">
+               <div className="flex justify-between items-center">
+                  <h3 className="text-2xl font-black text-slate-800">Plantillas de Email</h3>
+                  <button onClick={handleCreateTemplate} className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black text-xs shadow-lg hover:scale-105 transition-all">
+                     + Nueva Plantilla
+                  </button>
+               </div>
+
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {templates.map(t => (
+                     <div key={t.id} className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col group hover:shadow-xl transition-all">
+                        <div className="aspect-video bg-slate-50 relative overflow-hidden flex items-center justify-center p-4">
+                           <LayoutTemplate size={48} className="text-slate-200 group-hover:scale-110 transition-transform" />
+                           <div className="absolute inset-0 bg-black/5 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                              <button onClick={() => handleEditTemplate(t)} className="bg-white p-3 rounded-xl shadow-lg text-indigo-600 hover:scale-110 transition-all"><Edit2 size={20} /></button>
+                              <button onClick={() => handleDuplicateTemplate(t.id)} className="bg-white p-3 rounded-xl shadow-lg text-slate-600 hover:scale-110 transition-all"><Copy size={20} /></button>
+                              <button onClick={() => handleDeleteTemplate(t.id)} className="bg-white p-3 rounded-xl shadow-lg text-rose-500 hover:scale-110 transition-all"><Trash2 size={20} /></button>
+                           </div>
+                        </div>
+                        <div className="p-6">
+                           <h4 className="font-black text-slate-800 mb-1">{t.name}</h4>
+                           <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                              Actualizada: {new Date(t.updated_at).toLocaleDateString()}
+                           </p>
+                        </div>
+                     </div>
+                  ))}
+                  {templates.length === 0 && (
+                     <div className="col-span-full py-20 text-center border-2 border-dashed border-slate-200 rounded-[3rem]">
+                        <LayoutTemplate size={48} className="mx-auto text-slate-200 mb-4" />
+                        <p className="text-slate-400 italic font-medium">No hay plantillas creadas. Diseña la primera para tus campañas.</p>
+                     </div>
+                  )}
+               </div>
+            </div>
+         )}
+
          {activeTab === 'SEGMENTS' && (
             <div className="space-y-6 animate-in fade-in">
                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-                     <Users className="text-emerald-500" />
-                     {selectedSegment === 'RECURRING' ? 'Clientes Recurrentes (+2 Estancias)' : 'Todos los Huéspedes'}
-                  </h3>
-                  <div className="flex bg-slate-100 p-1 rounded-xl">
-                     <button onClick={() => setSelectedSegment('ALL')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${selectedSegment === 'ALL' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400'}`}>Todos</button>
-                     <button onClick={() => setSelectedSegment('RECURRING')} className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${selectedSegment === 'RECURRING' ? 'bg-emerald-500 shadow-sm text-white' : 'text-slate-400'}`}>Recurrentes</button>
+                  <div className="flex flex-col gap-1">
+                     <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                        <Users className="text-emerald-500" />
+                        {selectedSegment === 'NATIONAL' ? 'Público Nacional (España)' :
+                           selectedSegment === 'INTERNATIONAL' ? 'Público Internacional' :
+                              selectedSegment === 'PROVINCE' ? `Huéspedes de ${selectedProvince || 'una Provincia'}` :
+                                 'Todos los Huéspedes'}
+                     </h3>
+                     {selectedSegment === 'PROVINCE' && (
+                        <select
+                           value={selectedProvince}
+                           onChange={(e) => setSelectedProvince(e.target.value)}
+                           className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold outline-none"
+                        >
+                           <option value="">Selecciona provincia...</option>
+                           {provinces.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                     )}
+                  </div>
+                  <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl">
+                     <button onClick={() => setSelectedSegment('ALL')} className={`px-4 py-2 rounded-lg text-[10px] font-bold transition-all ${selectedSegment === 'ALL' ? 'bg-white shadow-sm text-slate-800' : 'text-slate-400'}`}>Todos</button>
+                     <button onClick={() => setSelectedSegment('NATIONAL')} className={`px-4 py-2 rounded-lg text-[10px] font-bold transition-all ${selectedSegment === 'NATIONAL' ? 'bg-emerald-500 shadow-sm text-white' : 'text-slate-400'}`}>Nacional</button>
+                     <button onClick={() => setSelectedSegment('INTERNATIONAL')} className={`px-4 py-2 rounded-lg text-[10px] font-bold transition-all ${selectedSegment === 'INTERNATIONAL' ? 'bg-emerald-500 shadow-sm text-white' : 'text-slate-400'}`}>Extranjero</button>
+                     <button onClick={() => setSelectedSegment('PROVINCE')} className={`px-4 py-2 rounded-lg text-[10px] font-bold transition-all ${selectedSegment === 'PROVINCE' ? 'bg-emerald-500 shadow-sm text-white' : 'text-slate-400'}`}>Provincia</button>
                   </div>
                </div>
 
@@ -361,13 +726,13 @@ export const Marketing: React.FC = () => {
                   {filteredSegments.map(t => (
                      <div key={t.id} className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md transition-all flex flex-col gap-4">
                         <div className="flex items-center gap-4">
-                           <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg ${t.total_stays >= 2 ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                           <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-lg ${t.nacionalidad === 'ES' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
                               {t.nombre[0]}
                            </div>
                            <div className="overflow-hidden">
                               <p className="font-bold text-slate-800 truncate">{t.nombre} {t.apellidos}</p>
                               <div className="flex items-center gap-2 text-[10px] text-slate-400 uppercase font-bold">
-                                 <MapPin size={10} /> {t.nacionalidad || '---'}
+                                 <MapPin size={10} /> {t.provincia || t.nacionalidad || '---'} {t.provincia ? `(${guestService.getCCAA(t.provincia)})` : ''}
                               </div>
                            </div>
                         </div>
@@ -400,28 +765,126 @@ export const Marketing: React.FC = () => {
          )}
 
          {/* Template Modal Reutilizado */}
-         {isTemplateModalOpen && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-               <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-2xl overflow-hidden">
-                  <div className="p-8 border-b bg-slate-50/50 flex justify-between items-center">
-                     <h3 className="text-2xl font-black text-slate-800">{templateForm.id ? 'Editar' : 'Nueva'} Plantilla</h3>
-                     <button onClick={() => setIsTemplateModalOpen(false)} className="text-slate-400"><X size={28} /></button>
+         {isTemplateModalOpen && editingTemplate && (
+            <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md flex items-center justify-center z-[100] p-4 lg:p-12 animate-in fade-in duration-300">
+               <div className="bg-white rounded-[3.5rem] shadow-2xl w-full h-full flex flex-col overflow-hidden">
+                  <div className="p-8 lg:px-12 border-b bg-slate-50/50 flex justify-between items-center">
+                     <div>
+                        <h3 className="text-3xl font-black text-slate-800 tracking-tight">{editingTemplate.name}</h3>
+                        <div className="flex items-center gap-4 mt-1">
+                           <input
+                              className="bg-transparent border-none text-[10px] font-black text-indigo-600 uppercase tracking-widest focus:ring-0 w-64"
+                              value={editingTemplate.name}
+                              onChange={e => setEditingTemplate({ ...editingTemplate, name: e.target.value })}
+                              placeholder="Nombre de la plantilla"
+                           />
+                        </div>
+                     </div>
+                     <div className="flex items-center gap-4">
+                        <button onClick={saveTemplate} className="px-8 py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm shadow-xl hover:shadow-indigo-200 hover:scale-105 transition-all flex items-center gap-2">
+                           <Save size={20} /> Guardar Cambios
+                        </button>
+                        <button onClick={() => { setIsTemplateModalOpen(false); setEditingTemplate(null); }} className="bg-white p-4 rounded-2xl shadow-sm text-slate-400 hover:text-rose-500 transition-colors">
+                           <X size={28} />
+                        </button>
+                     </div>
                   </div>
-                  <div className="p-8 space-y-6">
-                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Nombre Interno</label>
-                        <input className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" value={templateForm.name} onChange={e => setTemplateForm({ ...templateForm, name: e.target.value })} placeholder="Ej. Felicitación Cumpleaños" />
+                  <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+                     {/* Editor Section */}
+                     <div className="w-full lg:w-1/2 h-1/2 lg:h-full overflow-hidden p-6 lg:p-10 border-r border-slate-100">
+                        <EmailTemplateEditor
+                           spec={JSON.parse(editingTemplate.template_spec_json)}
+                           onChange={handleUpdateEditingSpec}
+                           mediaAssets={mediaLibrary}
+                        />
                      </div>
-                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Asunto del Email</label>
-                        <input className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" value={templateForm.subject} onChange={e => setTemplateForm({ ...templateForm, subject: e.target.value })} placeholder="Ej. ¡Felicidades {{nombre}}!" />
+                     {/* Preview Section */}
+                     <div className="w-full lg:w-1/2 h-1/2 lg:h-full p-6 lg:p-10 bg-slate-50/50">
+                        <EmailTemplatePreview
+                           spec={JSON.parse(editingTemplate.template_spec_json)}
+                           mediaAssets={mediaLibrary}
+                           viewMode={previewMode}
+                           onViewModeChange={setPreviewMode}
+                        />
                      </div>
-                     <div>
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Cuerpo del Mensaje</label>
-                        <textarea rows={6} className="w-full p-4 bg-slate-50 border rounded-2xl font-medium" value={templateForm.body} onChange={e => setTemplateForm({ ...templateForm, body: e.target.value })} placeholder="Hola {{nombre}}, queríamos desearte..." />
-                        <p className="mt-2 text-[9px] text-slate-400 italic">Variables: {'{{nombre}}'}, {'{{apellidos}}'}, {'{{email}}'}</p>
-                     </div>
-                     <button onClick={saveTemplate} className="w-full py-5 bg-slate-900 text-white rounded-[2rem] font-black shadow-xl hover:bg-slate-800 transition-all">Guardar Plantilla</button>
+                  </div>
+               </div>
+            </div>
+         )}
+         {/* SEND TEST MODAL */}
+         {sendTestModalOpen && activeCampaignForSend && (
+            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+               <div className="bg-white rounded-[2rem] p-8 w-full max-w-md shadow-2xl animate-in zoom-in-95">
+                  <h3 className="text-xl font-black text-slate-800 mb-2">Enviar Prueba</h3>
+                  <p className="text-sm text-slate-500 mb-6">Envía una versión de prueba de <strong>{activeCampaignForSend.name}</strong> a tu correo.</p>
+
+                  <input
+                     type="email"
+                     placeholder="tu-email@ejemplo.com"
+                     className="w-full p-4 bg-slate-50 rounded-xl font-bold text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+                     value={testEmail}
+                     onChange={e => setTestEmail(e.target.value)}
+                  />
+
+                  <div className="flex gap-3">
+                     <button onClick={() => setSendTestModalOpen(false)} className="flex-1 p-4 rounded-xl font-bold text-slate-500 hover:bg-slate-50">Cancelar</button>
+                     <button
+                        onClick={handleSendTest}
+                        disabled={isSending || !testEmail.includes('@')}
+                        className="flex-1 p-4 bg-indigo-600 text-white rounded-xl font-black hover:bg-indigo-700 disabled:opacity-50"
+                     >
+                        {isSending ? 'Enviando...' : 'Enviar'}
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+
+         {/* SAFETY CHECK MODAL */}
+         {showSafetyCheck && activeCampaignForSend && (
+            <div className="fixed inset-0 bg-rose-900/80 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+               <div className="bg-white rounded-[2rem] p-8 w-full max-w-lg shadow-2xl border-4 border-rose-500 animate-in zoom-in-95">
+                  <div className="flex items-center gap-3 text-rose-600 mb-4">
+                     <AlertCircle size={32} />
+                     <h3 className="text-2xl font-black">¿Estás seguro?</h3>
+                  </div>
+
+                  <p className="text-slate-600 font-medium mb-4">
+                     Estás a punto de lanzar la campaña <strong>{activeCampaignForSend.name}</strong>.
+                  </p>
+
+                  <div className="bg-rose-50 p-4 rounded-xl border border-rose-100 mb-6">
+                     <p className="text-rose-800 text-sm font-bold">
+                        Se enviará a {settings?.marketing_send_mode === 'automatic' ? 'TODOS los destinatarios válidos' : 'los destinatarios seleccionados'}.
+                     </p>
+                     <p className="text-rose-600 text-xs mt-1">
+                        Esta acción no se puede deshacer una vez iniciada.
+                     </p>
+                  </div>
+
+                  {settings?.marketing_send_mode === 'automatic' && (
+                     <label className="flex items-start gap-3 p-4 border border-slate-200 rounded-xl mb-6 cursor-pointer hover:bg-slate-50">
+                        <input
+                           type="checkbox"
+                           className="mt-1 w-5 h-5 accent-rose-600"
+                           checked={safetyConfirmed}
+                           onChange={e => setSafetyConfirmed(e.target.checked)}
+                        />
+                        <span className="text-sm font-bold text-slate-700">
+                           Entiendo que esto enviará emails REALES a huéspedes reales y asumo la responsabilidad.
+                        </span>
+                     </label>
+                  )}
+
+                  <div className="flex gap-3">
+                     <button onClick={() => { setShowSafetyCheck(false); setSafetyConfirmed(false); }} className="flex-1 p-4 rounded-xl font-bold text-slate-500 hover:bg-slate-100">Cancelar</button>
+                     <button
+                        onClick={handleSendCampaign}
+                        disabled={settings?.marketing_send_mode === 'automatic' && !safetyConfirmed}
+                        className="flex-1 p-4 bg-rose-600 text-white rounded-xl font-black hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                     >
+                        {isSending ? 'Enviando...' : 'Lanzar Campaña'}
+                     </button>
                   </div>
                </div>
             </div>

@@ -2,8 +2,10 @@
 import { IChannelAdapter, SyncResult } from './types';
 import { ChannelConnection, CalendarEvent } from '../../types';
 import { parseICal } from '../iCalParser';
-import { getProxyUrl, rotateProxy } from '../syncEngine'; // Reusing the helper from engine for now
+import { getProxyUrl, rotateProxy } from '../syncEngine';
 import { networkMonitor } from '../networkMonitor';
+import { iCalLogger } from '../iCalLogger';
+import { EnrichedResponse, proxyFetch } from '../fetchWrapper';
 
 // Helper for hashing
 const hashContent = async (text: string): Promise<string> => {
@@ -18,8 +20,15 @@ export class ICalAdapter implements IChannelAdapter {
    async pullReservations(conn: ChannelConnection): Promise<SyncResult> {
       if (!conn.ical_url) throw new Error("URL iCal vacía");
 
+      // DEMO PROTECTION
+      if (typeof window !== 'undefined' && localStorage.getItem('active_project_mode') === 'demo') {
+         iCalLogger.logWarn('SYNC', 'Demo mode detected, skipping remote sync.');
+         return { events: [], metadataUpdates: {}, log: 'Sincronización omitida (Modo DEMO)' };
+      }
+
       // MOCK SUPPORT
       if (conn.ical_url.startsWith('mock://')) {
+         iCalLogger.logInfo('FETCH', 'Using Mock URL', { url: conn.ical_url });
          return {
             events: [],
             metadataUpdates: {},
@@ -29,104 +38,89 @@ export class ICalAdapter implements IChannelAdapter {
 
       if (!networkMonitor.isOnline()) throw new Error("Offline");
 
+      const isVrbo = /vrbo|abritel|fewo-direkt/i.test(conn.ical_url);
+
       const headers: HeadersInit = {
          'User-Agent': "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
          'Accept': 'text/calendar, text/plain, */*'
       };
       if (conn.http_etag) headers['If-None-Match'] = conn.http_etag;
 
-      let response: Response | null = null;
+      let response: EnrichedResponse | null = null;
       let usedProxy = false;
 
-      // Detect Platform for specific logging/logic
-      const isVrbo = /vrbo|abritel|fewo-direkt/i.test(conn.ical_url);
-
-      // STRATEGY: Force Direct vs Worker Proxy with automatic fallback
+      // STRATEGY: Direct vs Proxy
       if (conn.force_direct) {
          try {
-            response = await fetch(conn.ical_url, { headers });
+            iCalLogger.logInfo('FETCH', 'Forcing Direct Connection', { url: conn.ical_url.substring(0, 50) + '...' });
+            const directRes = await fetch(conn.ical_url, { headers, cache: 'no-store' });
+            response = directRes as EnrichedResponse;
+            response._cachedBody = await directRes.text();
          } catch (e: any) {
+            iCalLogger.logError('FETCH', `Direct Error: ${e.message}`);
             throw new Error(`DIRECT ERROR: ${e.message}. Desactiva 'Forzar conexión directa'.`);
          }
       } else {
-         // RETRY LOGIC (3 attempts with rotation)
-         let lastError: any = null;
-         const MAX_ATTEMPTS = 3;
+         // USE CENTRALIZED WRAPPER (MINI-BLOQUE F5)
+         try {
+            response = await proxyFetch(conn.ical_url, { headers, cache: 'no-store' });
+            usedProxy = true;
 
-         for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-            try {
-               const proxyBase = getProxyUrl();
-               const originalUrl = conn.ical_url;
-               let proxyTarget = '';
+            const bodyText = response._cachedBody || "";
 
-               // 1. CONSTRUCCIÓN URL PROXY (Robust Encoding)
-               if (proxyBase.includes('corsproxy.io')) {
-                  // corsproxy.io/?https%3A%2F%2F...
-                  proxyTarget = `https://corsproxy.io/?${encodeURIComponent(originalUrl)}`;
-               } else if (proxyBase.includes('allorigins.win')) {
-                  // allorigins.win/raw?url=https%3A%2F%2F...
-                  proxyTarget = `https://api.allorigins.win/raw?url=${encodeURIComponent(originalUrl)}`;
-               } else {
-                  // Worker Genérico (ej. /cm-proxy) -> ?url=...
-                  const joiner = proxyBase.includes('?') ? '&' : '?';
-                  proxyTarget = `${proxyBase}${joiner}url=${encodeURIComponent(originalUrl)}`;
-               }
+            // Handle Specific Blocks preserved from earlier hardening
+            if (response.status === 401 || response.status === 403 || response.status === 429) {
+               let errorMsg = response.status === 429
+                  ? "Límite de peticiones alcanzado en el proxy."
+                  : "El proveedor bloquea accesos desde navegador. Revisa URL/token o usa integración alternativa.";
 
-               // 2. CACHE BUSTER (Solo para "Sincronizar Ahora" - aunque aquí lo ponemos siempre para asegurar)
-               // Añadimos timestamp al final del proxy para evitar cacheo intermedio (Cloudflare, etc.)
-               const ts = Date.now();
-               const hasParams = proxyTarget.includes('?');
-               proxyTarget += `${hasParams ? '&' : '?'}t=${ts}`;
-
-               console.log(`[iCal] Request: ${originalUrl.substring(0, 30)}... -> Proxy: ${proxyBase} -> Status: ESPERANDO...`);
-
-               // 3. FETCH con NO-STORE
-               response = await fetch(proxyTarget, {
-                  headers,
-                  cache: 'no-store', // Fuerza a no usar cache del navegador
-                  // mode: 'cors' // Implícito
-               });
-
-               console.log(`[iCal] Response: ${response.status} ${response.statusText} (Proxy: ${proxyBase})`);
-
-               // If 403 Forbidden (Blocked), try rotating immediately
-               if (response.status === 403) {
-                  const txt = await response.text();
-                  if (txt.includes('Host not allowed') || txt.includes('Access Denied') || txt.includes('Forbidden')) {
-                     console.warn(`[iCal] Proxy ${proxyBase} bloqueado (403). Rotando...`);
-                     rotateProxy();
-                     lastError = new Error(`Proxy bloqueado (403): ${txt.substring(0, 50)}...`);
-                     continue;
+               // Probar si es JSON (V3 hardening)
+               try {
+                  const data = JSON.parse(bodyText);
+                  if (data.code === "DOMAIN_NOT_ALLOWED") {
+                     errorMsg = `Dominio no permitido en el Proxy: ${data.host || 'desconocido'}.`;
+                     const fatalError = new Error(errorMsg);
+                     (fatalError as any).fatal = true;
+                     throw fatalError;
+                  }
+               } catch (e: any) {
+                  if (e.fatal) throw e;
+                  // Si no es JSON, fallback al texto plano antiguo
+                  if (response.status === 403 && (bodyText.includes("Host not allowed") || bodyText.includes("Dominio no permitido"))) {
+                     errorMsg = "Dominio no permitido en el Proxy central.";
+                     const fatalError = new Error(errorMsg);
+                     (fatalError as any).fatal = true;
+                     throw fatalError;
                   }
                }
-
-               if (!response.ok && response.status >= 500) {
-                  console.warn(`[iCal] Proxy ${proxyBase} error ${response.status}. Rotando...`);
-                  rotateProxy();
-                  lastError = new Error(`Proxy error ${response.status}`);
-                  continue;
-               }
-
-               usedProxy = true;
-               lastError = null;
-               break; // Success (ish)
-
-            } catch (proxyErr: any) {
-               console.warn(`[iCal] Error en Proxy (Intento ${attempt + 1}):`, proxyErr);
-               lastError = proxyErr;
-               rotateProxy();
+               throw new Error(errorMsg);
             }
-         }
 
-         // If Proxy failed all attempts, try DIRECT Fallback
-         if (!response && !usedProxy) {
-            console.log("[iCal] Todos los proxies fallaron. Intentando directo...");
+            if ((response.status === 400 || response.status === 401) && bodyText.includes("Invalid Token")) {
+               const errorMsg = "Token de Booking inválido o caducado. Por favor, pega un nuevo enlace.";
+               const fatalError = new Error(errorMsg);
+               (fatalError as any).fatal = true;
+               throw fatalError;
+            }
+
+            if (!response.ok && response.status >= 500) {
+               throw new Error(`Proxy error ${response.status}`);
+            }
+
+         } catch (err: any) {
+            iCalLogger.logError('FETCH', `Wrapper Error: ${err.message}`);
+            // If it's a fatal error or we already tried direct fallback logic, rethrow
+            if (err.fatal) throw err;
+
+            // Fallback DIRECT (Simplified from previous version)
+            iCalLogger.logWarn('FETCH', 'Proxy failed. Trying direct fallback...');
             try {
-               response = await fetch(conn.ical_url, { headers, cache: 'no-store' });
+               const direct = await fetch(conn.ical_url, { headers, cache: 'no-store' });
+               response = direct as EnrichedResponse;
+               response._cachedBody = await direct.text();
                usedProxy = false;
-            } catch (directErr: any) {
-               const finalMsg = lastError ? lastError.message : 'Unknown Proxy Error';
-               throw new Error(`Rotación de Proxies falló (${finalMsg}). Fallback directo también falló: ${directErr.message}`);
+            } catch (dErr: any) {
+               throw new Error(`Error de conexión: ${err.message}. Direct fell back too: ${dErr.message}`);
             }
          }
       }
@@ -142,7 +136,10 @@ export class ICalAdapter implements IChannelAdapter {
          };
       }
 
-      const bodyText = await response.text();
+      // GET BODY (Read from cache if proxy was used, otherwise read now)
+      const bodyText = (response as any)._cachedBody !== undefined
+         ? (response as any)._cachedBody
+         : await response.text();
 
       if (!response.ok) {
          const errorDetails = bodyText.substring(0, 160).replace(/\n/g, ' ');
@@ -150,13 +147,20 @@ export class ICalAdapter implements IChannelAdapter {
       }
 
       // VALIDATION: Check for HTML (Anti-bot Blocking)
-      if (bodyText.trim().toLowerCase().startsWith('<!doctype html') || bodyText.includes('<html')) {
+      const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+      const isHtml = contentType.includes('text/html') ||
+         bodyText.trim().toLowerCase().startsWith('<!doctype html') ||
+         bodyText.includes('<html');
+
+      if (isHtml) {
          const isCaptcha = bodyText.includes('captcha') || bodyText.includes('robot');
          const platform = isVrbo ? 'VRBO' : 'la plataforma';
+         iCalLogger.logError('VALIDATE', 'Received HTML instead of iCal (Possible blocking)', { contentType });
          throw new Error(`Bloqueo de seguridad detectado. ${platform} devolvió una página web (HTML) en lugar del calendario. Posible Captcha/Anti-bot.`);
       }
 
       if (!bodyText.includes('BEGIN:VCALENDAR')) {
+         iCalLogger.logError('VALIDATE', 'Invalid iCal content (MISSING BEGIN:VCALENDAR)');
          throw new Error("Contenido inválido (No es iCal). El archivo descargado no parece un calendario válido.");
       }
 
@@ -175,11 +179,19 @@ export class ICalAdapter implements IChannelAdapter {
 
       // PARSE
       const rawEvents = parseICal(bodyText);
-      const validRawEvents = rawEvents.filter(e => e.startDate && e.endDate);
+
+      // MINI-BLOQUE B4: Loop Guard - Filter out RentikPro's own exported events
+      const validRawEvents = rawEvents.filter(e => {
+         const hasDates = e.startDate && e.endDate;
+         const isOwnEvent = e.uid && e.uid.endsWith('@rentikpro.com');
+         return hasDates && !isOwnEvent;
+      });
 
       // MAP TO CalendarEvent PARTIALS
       const mappedEvents: Partial<CalendarEvent>[] = validRawEvents.map(raw => ({
          external_uid: raw.uid,
+         ical_uid: raw.uid,
+         event_kind: raw.eventKind,
          start_date: raw.startDate,
          end_date: raw.endDate,
          status: raw.status === 'CANCELLED' ? 'cancelled' : 'confirmed',

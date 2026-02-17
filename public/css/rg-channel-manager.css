@@ -1,54 +1,150 @@
-
-/* RentikPro Channel Manager Styles */
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-.safe-top {
-    padding-top: env(safe-area-inset-top);
-}
-.safe-bottom {
-    padding-bottom: env(safe-area-inset-bottom);
-}
-
+/* rg-channel-manager.css */
 body {
-    font-family: 'Inter', sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    overscroll-behavior-y: none;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f8fafc;
+    color: #334155;
+    line-height: 1.5;
 }
 
-::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-}
-::-webkit-scrollbar-track {
-    background: transparent;
-}
-::-webkit-scrollbar-thumb {
-    background: #cbd5e1;
-    border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-    background: #94a3b8;
+.legacy-container {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
 }
 
-.custom-scrollbar::-webkit-scrollbar {
-    width: 5px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #e2e8f0;
-    border-radius: 10px;
-}
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #cbd5e1;
+.legacy-header {
+    text-align: center;
+    margin-bottom: 30px;
 }
 
-.animate-fade-in {
-    animation: fadeIn 0.4s ease-out forwards;
+h1 {
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 20px;
+    color: #1e293b;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+.legacy-alert {
+    background-color: #fffbeb;
+    border: 1px solid #fcd34d;
+    color: #92400e;
+    padding: 15px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.icon {
+    font-size: 20px;
+}
+
+.legacy-btn-primary {
+    display: block;
+    width: 100%;
+    background-color: #4f46e5;
+    color: white;
+    padding: 16px;
+    border-radius: 16px;
+    text-decoration: none;
+    font-weight: 700;
+    text-align: center;
+    font-size: 16px;
+    box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);
+    transition: transform 0.1s active, background-color 0.2s;
+    box-sizing: border-box;
+    /* Ensure padding doesn't overflow width */
+}
+
+.legacy-btn-primary:active {
+    transform: scale(0.98);
+}
+
+.legacy-content {
+    flex: 1;
+}
+
+.mock-data-section {
+    background: white;
+    border-radius: 20px;
+    padding: 20px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    margin-bottom: 20px;
+}
+
+h2 {
+    font-size: 18px;
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #475569;
+}
+
+.mock-files {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.mock-card {
+    border: 1px solid #e2e8f0;
+    padding: 15px;
+    border-radius: 12px;
+}
+
+.mock-card h3 {
+    margin: 0 0 5px 0;
+    font-size: 16px;
+    color: #334155;
+}
+
+.mock-card p {
+    font-size: 12px;
+    color: #64748b;
+    margin-bottom: 10px;
+}
+
+.legacy-btn-secondary {
+    display: inline-block;
+    padding: 8px 16px;
+    background-color: #f1f5f9;
+    color: #475569;
+    text-decoration: none;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.legacy-info {
+    padding: 20px;
+    background-color: #f8fafc;
+    border-radius: 20px;
+    border: 1px dashed #cbd5e1;
+}
+
+.legacy-info ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    font-size: 13px;
+    color: #64748b;
+}
+
+.legacy-info li {
+    margin-bottom: 5px;
+}
+
+.legacy-footer {
+    text-align: center;
+    font-size: 11px;
+    color: #94a3b8;
+    margin-top: 30px;
+    padding-bottom: 20px;
 }

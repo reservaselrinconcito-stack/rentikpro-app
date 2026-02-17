@@ -1,12 +1,17 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Component, ErrorInfo, ReactNode } from 'react';
+import { RefreshCw } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
 import { projectManager } from '../services/projectManager';
-import { Booking, Apartment, Property, Traveler } from '../types';
+import { Booking, Apartment, Property, Traveler, CalendarEvent } from '../types';
 import { notifyDataChanged, useDataRefresh } from '../services/dataRefresher';
 import { dateFormat } from '../services/dateFormat';
+import { mapCalendarEventToBooking, ensureGuestName, mergeBookingsAndEvents } from '../utils/bookingMapping';
 import {
   ChevronLeft, ChevronRight, Filter,
-  X, Trash2, CalendarDays, Clock, AlertTriangle
+  X, Trash2, CalendarDays, Clock, AlertTriangle, AlertCircle, ShieldCheck
 } from 'lucide-react';
+import { formatDateES, formatDateRangeES } from '../utils/dateFormat';
+import { isConfirmedBooking, isProvisionalBlock, isCovered } from '../utils/bookingClassification';
 
 type ViewMode = 'monthly' | 'weekly' | 'yearly';
 
@@ -17,10 +22,44 @@ const toDateStr = (date: Date) => {
   return `${y}-${m}-${d}`;
 };
 
-export const Calendar: React.FC = () => {
+// --- LOCAL ERROR BOUNDARY FOR CALENDAR ---
+interface EBProps { children: ReactNode; }
+interface EBState { hasError: boolean; error: Error | null; }
+class CalendarErrorBoundary extends Component<EBProps, EBState> {
+  state: EBState = { hasError: false, error: null };
+  static getDerivedStateFromError(error: Error) { return { hasError: true, error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error("Calendar Crash:", error, info); }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-12 text-center bg-white rounded-[2.5rem] border border-slate-100 shadow-sm">
+          <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mx-auto mb-4">
+            <AlertCircle size={32} />
+          </div>
+          <h2 className="text-xl font-black text-slate-800 mb-2">Calendario no disponible</h2>
+          <p className="text-slate-500 text-sm mb-6 max-w-sm mx-auto">
+            Se ha producido un error al renderizar la vista del calendario. {this.state.error?.message}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="inline-flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs"
+          >
+            <RefreshCw size={14} /> Reintentar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const CalendarContent: React.FC = () => {
+  const navigate = useNavigate();
+  const { id: routeId } = useParams<{ id: string }>();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('monthly');
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [dataSource, setDataSource] = useState<'ical' | 'internal'>('ical');
   const [apartments, setApartments] = useState<Apartment[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [travelers, setTravelers] = useState<Traveler[]>([]);
@@ -29,6 +68,7 @@ export const Calendar: React.FC = () => {
 
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [viewingBooking, setViewingBooking] = useState<Booking | null>(null);
+  const [showCovered, setShowCovered] = useState(false);
 
   // Init Date Format
   useEffect(() => {
@@ -39,27 +79,63 @@ export const Calendar: React.FC = () => {
 
   const loadData = async () => {
     const store = projectManager.getStore();
+    const activeProjectId = localStorage.getItem('active_project_id');
+
+    console.debug(`[Calendar] query_source=ACCOUNTING_TRUTH project_id=${activeProjectId} selected_prop=${selectedPropertyId}`);
+
     try {
-      const [bList, pList, tList, aList] = await Promise.all([
-        store.getBookings(),
+      const [accountingBookings, pList, tList, aList] = await Promise.all([
+        store.getBookingsFromAccounting(),
         store.getProperties(),
         store.getTravelers(),
         store.getAllApartments()
       ]);
-      setBookings(bList);
+
       setProperties(pList);
       setTravelers(tList);
       setApartments(aList);
-    } catch (err) { console.error("Error cargando calendario:", err); }
+
+      console.debug(`[Calendar] Source of Truth: ACCOUNTING. Result: ${accountingBookings.length} bookings.`);
+
+      setBookings(accountingBookings);
+      setDataSource('internal');
+    } catch (err) {
+      console.error("Error cargando calendario:", err);
+    }
   };
 
   useEffect(() => { loadData(); }, []);
+
+  // Handle routing for deep links (F1)
+  useEffect(() => {
+    if (routeId && bookings.length > 0) {
+      const b = bookings.find(x => x.id === routeId || x.linked_event_id === routeId);
+      if (b) {
+        setViewingBooking(b);
+        setIsViewModalOpen(true);
+      }
+    }
+  }, [routeId, bookings]);
+
   useDataRefresh(loadData);
+
+  const { confirmed, provisionalNotCovered, provisionalCovered } = useMemo(() => {
+    const cf = bookings.filter(b => b.status !== 'cancelled' && isConfirmedBooking(b));
+    const pr = bookings.filter(b => b.status !== 'cancelled' && isProvisionalBlock(b));
+    const prNotCovered = pr.filter(p => !isCovered(p, cf));
+    const prCovered = pr.filter(p => isCovered(p, cf));
+    return { confirmed: cf, provisionalNotCovered: prNotCovered, provisionalCovered: prCovered };
+  }, [bookings]);
+
+  const displayBookings = useMemo(() => {
+    if (showCovered) return [...confirmed, ...provisionalNotCovered, ...provisionalCovered];
+    return [...confirmed, ...provisionalNotCovered];
+  }, [confirmed, provisionalNotCovered, provisionalCovered, showCovered]);
 
   // --- ALGORITMO DE SLOTTING (CARRILES) ---
   const bookingSlots = useMemo(() => {
-    // Ordenamos por fecha de entrada
-    const sorted = [...bookings].filter(b => b.status !== 'cancelled').sort((a, b) => {
+    // Ordenamos por fecha de entrada la lista filtrada de visualización
+    const sorted = [...displayBookings].sort((a, b) => {
       const diff = a.check_in.localeCompare(b.check_in);
       if (diff !== 0) return diff;
       return b.check_out.localeCompare(a.check_out);
@@ -96,8 +172,7 @@ export const Calendar: React.FC = () => {
 
   const getBookingsForDate = (date: Date) => {
     const dStr = toDateStr(date);
-    return bookings.filter(b => {
-      if (b.status === 'cancelled') return false;
+    return displayBookings.filter(b => {
       if (selectedPropertyId !== 'all' && b.property_id !== selectedPropertyId) return false;
       // CAMBIO CLAVE: Incluimos el día de check_out en la visualización (<=)
       return dStr >= b.check_in && dStr <= b.check_out;
@@ -106,11 +181,11 @@ export const Calendar: React.FC = () => {
 
   const upcomingBookings = useMemo(() => {
     const today = toDateStr(new Date());
-    return bookings
-      .filter(b => b.check_in >= today && b.status !== 'cancelled')
+    return confirmed
+      .filter(b => b.check_in >= today)
       .sort((a, b) => a.check_in.localeCompare(b.check_in))
       .slice(0, 5);
-  }, [bookings]);
+  }, [confirmed]);
 
   const calendarDays = useMemo(() => {
     const year = currentDate.getFullYear();
@@ -148,9 +223,9 @@ export const Calendar: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 pb-20">
+    <div className="w-full space-y-6 animate-in fade-in duration-500 pb-20">
       {/* Header Compacto */}
-      <div className="flex flex-col lg:flex-row justify-between items-center gap-4 bg-white p-4 rounded-[2rem] border border-slate-200 shadow-sm">
+      <div className="flex flex-col lg:flex-row justify-between lg:items-center items-start gap-4 bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
             <CalendarDays size={24} />
@@ -181,6 +256,12 @@ export const Calendar: React.FC = () => {
               {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
+          <button
+            onClick={() => setShowCovered(!showCovered)}
+            className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all border ${showCovered ? 'bg-indigo-600 text-white border-indigo-700 shadow-md' : 'bg-white text-slate-400 border-slate-200'}`}
+          >
+            {showCovered ? 'Ocultar Cubiertos' : 'Ver Cubiertos'}
+          </button>
         </div>
       </div>
 
@@ -207,98 +288,102 @@ export const Calendar: React.FC = () => {
         </div>
       ) : (
         /* VISTA MENSUAL CONTINUA CON SLOTS */
-        <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden select-none">
-          <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
-            {['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map((d, i) => (
-              <div key={d} className={`py-3 text-center text-[10px] font-black uppercase tracking-widest ${i >= 5 ? 'text-rose-400' : 'text-slate-400'}`}>{d}</div>
-            ))}
-          </div>
+        <div className="w-full overflow-x-auto custom-scrollbar pb-4 -mb-4 touch-pan-x">
+          <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden select-none min-w-[850px] md:min-w-full">
+            <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+              {['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map((d, i) => (
+                <div key={d} className={`py-3 text-center text-[10px] font-black uppercase tracking-widest ${i >= 5 ? 'text-rose-400' : 'text-slate-400'}`}>{d}</div>
+              ))}
+            </div>
 
-          <div className="grid grid-cols-7 gap-px bg-slate-200 border-b border-slate-200">
-            {calendarDays.map((day, i) => {
-              const dayBookings = getBookingsForDate(day.date);
-              const isToday = day.dateStr === toDateStr(new Date());
+            <div className="grid grid-cols-7 gap-px bg-slate-200 border-b border-slate-200">
+              {calendarDays.map((day, i) => {
+                const dayBookings = getBookingsForDate(day.date);
+                const isToday = day.dateStr === toDateStr(new Date());
 
-              const slotsInDay = dayBookings.map(b => bookingSlots.get(b.id) ?? -1);
-              const maxSlot = Math.max(-1, ...slotsInDay);
+                const slotsInDay = dayBookings.map(b => bookingSlots.get(b.id) ?? -1);
+                const maxSlot = Math.max(-1, ...slotsInDay);
 
-              const renderSlots = Array.from({ length: maxSlot + 1 }, (_, slotIndex) => {
-                return dayBookings.find(b => bookingSlots.get(b.id) === slotIndex) || null;
-              });
+                const renderSlots = Array.from({ length: maxSlot + 1 }, (_, slotIndex) => {
+                  return dayBookings.find(b => bookingSlots.get(b.id) === slotIndex) || null;
+                });
 
-              return (
-                <div key={i} className={`min-h-[140px] bg-white relative flex flex-col ${!day.currentMonth ? 'bg-slate-50/50' : ''}`}>
-                  <div className="p-2 flex justify-between items-start z-10 relative pointer-events-none">
-                    <span className={`text-[10px] font-bold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white' : (day.currentMonth ? 'text-slate-700' : 'text-slate-300')}`}>
-                      {day.date.getDate()}
-                    </span>
-                  </div>
+                return (
+                  <div key={i} className={`min-h-[140px] bg-white relative flex flex-col ${!day.currentMonth ? 'bg-slate-50/50' : ''}`}>
+                    <div className="p-2 flex justify-between items-start z-10 relative pointer-events-none">
+                      <span className={`text-[10px] font-bold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white' : (day.currentMonth ? 'text-slate-700' : 'text-slate-300')}`}>
+                        {day.date.getDate()}
+                      </span>
+                    </div>
 
-                  <div className="flex-1 flex flex-col pt-1 w-full relative z-20">
-                    {renderSlots.map((b, idx) => {
-                      if (!b) {
-                        return <div key={`spacer-${idx}`} className="h-[22px] mb-[2px]"></div>;
-                      }
-
-                      const apt = apartments.find(a => a.id === b.apartment_id);
-                      const traveler = travelers.find(t => t.id === b.traveler_id);
-
-                      const isStart = b.check_in === day.dateStr;
-                      const isEnd = b.check_out === day.dateStr;
-
-                      let roundedClass = 'rounded-md';
-                      let marginClass = 'mx-1';
-
-                      if (isStart && !isEnd) {
-                        roundedClass = 'rounded-l-md rounded-r-none';
-                        marginClass = 'ml-1 -mr-px';
-                      } else if (!isStart && isEnd) {
-                        roundedClass = 'rounded-l-none rounded-r-md';
-                        marginClass = '-ml-px mr-1';
-                      } else if (!isStart && !isEnd) {
-                        roundedClass = 'rounded-none';
-                        marginClass = '-mx-px';
-                      } else if (isStart && isEnd) {
-                        roundedClass = 'rounded-md';
-                        marginClass = 'mx-1';
-                      }
-
-                      const baseColor = apt?.color || '#94a3b8';
-                      const isConflict = b.conflict_detected;
-
-                      const style = isConflict
-                        ? {
-                          backgroundImage: `repeating-linear-gradient(45deg, ${baseColor}, ${baseColor} 5px, #ef4444 5px, #ef4444 10px)`,
-                          border: '1px solid #ef4444'
+                    <div className="flex-1 flex flex-col pt-1 w-full relative z-20">
+                      {renderSlots.map((b, idx) => {
+                        if (!b) {
+                          return <div key={`spacer-${idx}`} className="h-[22px] mb-[2px]"></div>;
                         }
-                        : { backgroundColor: baseColor };
 
-                      return (
-                        <div
-                          key={b.id}
-                          onClick={(e) => { e.stopPropagation(); setViewingBooking(b); setIsViewModalOpen(true); }}
-                          className={`
-                              h-[22px] mb-[2px] text-white text-[10px] font-bold flex items-center px-2 cursor-pointer
-                              hover:brightness-110 transition-all shadow-sm relative z-30
-                              ${roundedClass} ${marginClass}
-                              ${isConflict ? 'animate-pulse' : ''}
-                            `}
-                          style={style}
-                          title={`${traveler?.nombre} (${b.guests}pax) - ${apt?.name} ${isConflict ? '[CONFLICTO]' : ''}`}
-                        >
-                          {(isStart || day.date.getDay() === 1) && (
-                            <span className="truncate w-full drop-shadow-md whitespace-nowrap flex items-center gap-1">
-                              {isConflict && <AlertTriangle size={8} className="text-white fill-white" />}
-                              {traveler?.nombre} {b.guests ? `${b.guests}px` : ''}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
+                        const apt = apartments.find(a => a.id === b.apartment_id);
+                        const traveler = travelers.find(t => t.id === b.traveler_id);
+
+                        const isStart = b.check_in === day.dateStr;
+                        const isEnd = b.check_out === day.dateStr;
+
+                        let roundedClass = 'rounded-md';
+                        let marginClass = 'mx-1';
+
+                        if (isStart && !isEnd) {
+                          roundedClass = 'rounded-l-md rounded-r-none';
+                          marginClass = 'ml-1 -mr-px';
+                        } else if (!isStart && isEnd) {
+                          roundedClass = 'rounded-l-none rounded-r-md';
+                          marginClass = '-ml-px mr-1';
+                        } else if (!isStart && !isEnd) {
+                          roundedClass = 'rounded-none';
+                          marginClass = '-mx-px';
+                        } else if (isStart && isEnd) {
+                          roundedClass = 'rounded-md';
+                          marginClass = 'mx-1';
+                        }
+
+                        const isBlock = isProvisionalBlock(b);
+                        const baseColor = isBlock ? '#94a3b8' : (apt?.color || '#4f46e5');
+                        const isConflict = b.conflict_detected;
+
+                        const style = isConflict
+                          ? {
+                            backgroundImage: `repeating-linear-gradient(45deg, ${baseColor}, ${baseColor} 5px, #ef4444 5px, #ef4444 10px)`,
+                            border: '1px solid #ef4444'
+                          }
+                          : { backgroundColor: baseColor };
+
+                        return (
+                          <div
+                            key={b.id}
+                            onClick={(e) => { e.stopPropagation(); setViewingBooking(b); setIsViewModalOpen(true); }}
+                            className={`
+                                h-[22px] mb-[2px] text-white text-[10px] font-bold flex items-center px-2 cursor-pointer
+                                hover:brightness-110 transition-all shadow-sm relative z-30
+                                ${roundedClass} ${marginClass}
+                                ${isConflict ? 'animate-pulse' : ''}
+                                ${isBlock ? 'opacity-70 grayscale-[0.5]' : ''}
+                              `}
+                            style={style}
+                            title={`${isBlock ? 'BLOQUEO' : (traveler?.nombre || 'Huésped')} (${b.guests}pax) - ${apt?.name} ${isConflict ? '[CONFLICTO]' : ''}`}
+                          >
+                            {(isStart || day.date.getDay() === 1) && (
+                              <span className="truncate w-full drop-shadow-md whitespace-nowrap flex items-center gap-1">
+                                {isConflict && <AlertTriangle size={8} className="text-white fill-white" />}
+                                {b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : (traveler?.nombre || 'Huésped'))} {(!isBlock && b.guests) ? `${b.guests}pax` : ''}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -310,12 +395,26 @@ export const Calendar: React.FC = () => {
           {upcomingBookings.map(b => {
             const apt = apartments.find(a => a.id === b.apartment_id);
             const trav = travelers.find(t => t.id === b.traveler_id);
+            const guestName = trav ? `${trav.nombre} ${trav.apellidos}` : (b.guest_name || 'Sin Huésped');
+
+            const handleClick = () => {
+              if (b.linked_event_id) {
+                navigate(`/calendar/event/${b.linked_event_id}`);
+              } else {
+                navigate(`/bookings/${b.id}`);
+              }
+            };
+
             return (
-              <div key={b.id} className="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex items-center gap-4 hover:bg-slate-100 transition-colors">
+              <div
+                key={b.id}
+                onClick={handleClick}
+                className="p-4 bg-slate-50 border border-slate-100 rounded-2xl flex items-center gap-4 hover:bg-slate-100 transition-colors cursor-pointer group"
+              >
                 <div className="w-2 h-12 rounded-full" style={{ backgroundColor: apt?.color || '#ccc' }}></div>
                 <div className="flex-1">
-                  <p className="font-bold text-slate-800">{trav?.nombre} {trav?.apellidos}</p>
-                  <p className="text-xs text-slate-500 font-bold">{dateFormat.formatRangeForUser(b.check_in, b.check_out)}</p>
+                  <p className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{guestName}</p>
+                  <p className="text-xs text-slate-500 font-bold">{formatDateRangeES(b.check_in, b.check_out)}</p>
                 </div>
                 <div className="text-right">
                   <span className="text-lg font-black text-indigo-900">{b.guests || 1}</span>
@@ -356,32 +455,70 @@ export const Calendar: React.FC = () => {
               <div className="p-6 bg-indigo-50 rounded-3xl border border-indigo-100">
                 <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-1">Huésped</p>
                 <div className="flex justify-between items-end">
-                  <p className="text-xl font-black text-indigo-900">{travelers.find(t => t.id === viewingBooking.traveler_id)?.nombre || 'Huésped'}</p>
-                  <span className="text-lg font-black text-indigo-600 bg-white px-3 py-1 rounded-xl shadow-sm">{viewingBooking.guests || 1} PAX</span>
+                  <p className="text-xl font-black text-indigo-900">{viewingBooking.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (travelers.find(t => t.id === viewingBooking.traveler_id)?.nombre || viewingBooking.guest_name || 'Sin Huésped')}</p>
+                  {isProvisionalBlock(viewingBooking) ? (
+                    <span className="text-xs font-black text-amber-600 bg-amber-50 px-3 py-1 rounded-xl shadow-sm flex items-center gap-1">
+                      <AlertCircle size={12} /> Bloqueo
+                    </span>
+                  ) : (
+                    <span className="text-lg font-black text-indigo-600 bg-white px-3 py-1 rounded-xl shadow-sm">{viewingBooking.guests || 1} PAX</span>
+                  )}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm text-center">
                   <p className="text-[9px] font-black text-slate-400 uppercase">Entrada</p>
-                  <p className="font-bold text-lg text-slate-700">{dateFormat.formatDateForUser(viewingBooking.check_in)}</p>
+                  <p className="font-bold text-lg text-slate-700">{formatDateES(viewingBooking.check_in)}</p>
                 </div>
                 <div className="p-5 bg-white border border-slate-100 rounded-2xl shadow-sm text-center">
                   <p className="text-[9px] font-black text-slate-400 uppercase">Salida</p>
-                  <p className="font-bold text-lg text-slate-700">{dateFormat.formatDateForUser(viewingBooking.check_out)}</p>
+                  <p className="font-bold text-lg text-slate-700">{formatDateES(viewingBooking.check_out)}</p>
                 </div>
               </div>
             </div>
-            <button onClick={async () => {
-              if (confirm("¿Estás seguro?")) {
-                await projectManager.getStore().deleteBooking(viewingBooking.id);
-                setIsViewModalOpen(false);
-                loadData();
-                notifyDataChanged();
-              }
-            }} className="w-full mt-8 py-4 bg-rose-50 text-rose-500 hover:bg-rose-100 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors"><Trash2 size={18} /> Eliminar Reserva</button>
+
+            <div className="mt-8 flex gap-3">
+              <button
+                onClick={() => {
+                  if (viewingBooking.id && !viewingBooking.id.startsWith('evt-')) {
+                    navigate(`/bookings/${viewingBooking.id}`);
+                  } else {
+                    // It's a raw event, maybe promote it? 
+                    // For now just navigate to bookings with provisional data?
+                    // Or just show it can't be edited directly as a booking yet.
+                    alert("Este evento proviene de iCal directo. Conviértelo en reserva desde 'Review' para editarlo totalmente.");
+                  }
+                }}
+                className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-black text-sm hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100"
+              >
+                <Clock size={18} /> Gestionar
+              </button>
+            </div>
+
+            {!viewingBooking.external_ref ? (
+              <button onClick={async () => {
+                if (confirm("¿Estás seguro?")) {
+                  await projectManager.getStore().deleteBooking(viewingBooking.id);
+                  await projectManager.saveProject();
+                  setIsViewModalOpen(false);
+                  loadData();
+                  notifyDataChanged();
+                }
+              }} className="w-full mt-8 py-4 bg-rose-50 text-rose-500 hover:bg-rose-100 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors"><Trash2 size={18} /> Eliminar Reserva</button>
+            ) : (
+              <div className="w-full mt-8 py-4 bg-slate-50 text-slate-400 rounded-2xl font-black flex items-center justify-center gap-2 border border-slate-100">
+                <ShieldCheck size={18} /> Sincronizado con OTA (Solo Lectura)
+              </div>
+            )}
           </div>
         </div>
       )}
     </div>
   );
 };
+
+export const Calendar: React.FC = () => (
+  <CalendarErrorBoundary>
+    <CalendarContent />
+  </CalendarErrorBoundary>
+);

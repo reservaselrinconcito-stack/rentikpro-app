@@ -3,11 +3,13 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectManager } from '../services/projectManager';
 import { Traveler, Stay } from '../types';
-import { 
-  ArrowLeft, Mail, Phone, MapPin, Calendar, 
-  Fingerprint, Globe, User, History, 
-  CheckCircle2, AlertCircle, Building2, MessageCircle
+import {
+  ArrowLeft, Mail, Phone, MapPin, Calendar,
+  Fingerprint, Globe, User, History,
+  CheckCircle2, AlertCircle, Building2, MessageCircle, Trophy
 } from 'lucide-react';
+import { guestService } from '../services/guestService';
+import { Booking } from '../types';
 
 export const TravelerDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -15,6 +17,8 @@ export const TravelerDetail: React.FC = () => {
   const [traveler, setTraveler] = useState<Traveler | null>(null);
   const [stays, setStays] = useState<Stay[]>([]);
   const [loading, setLoading] = useState(true);
+  const [allTravelers, setAllTravelers] = useState<Traveler[]>([]);
+  const [allBookings, setAllBookings] = useState<Booking[]>([]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -22,12 +26,16 @@ export const TravelerDetail: React.FC = () => {
       setLoading(true);
       try {
         const store = projectManager.getStore();
-        const [t, s] = await Promise.all([
+        const [t, s, tList, bList] = await Promise.all([
           store.getTravelerById(id),
-          store.getStaysByTravelerId(id)
+          store.getStaysByTravelerId(id),
+          store.getTravelers(),
+          store.getBookings()
         ]);
         setTraveler(t);
         setStays(s);
+        setAllTravelers(tList);
+        setAllBookings(bList);
       } catch (err) {
         console.error("Error loading traveler detail:", err);
       } finally {
@@ -50,7 +58,7 @@ export const TravelerDetail: React.FC = () => {
       <div className="text-center py-20 space-y-4">
         <AlertCircle size={48} className="mx-auto text-rose-500" />
         <h3 className="text-xl font-bold text-slate-800">Viajero no encontrado</h3>
-        <button 
+        <button
           onClick={() => navigate('/travelers')}
           className="text-indigo-600 font-bold hover:underline"
         >
@@ -64,7 +72,7 @@ export const TravelerDetail: React.FC = () => {
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
       {/* Header */}
       <div className="flex items-center gap-6">
-        <button 
+        <button
           onClick={() => navigate('/travelers')}
           className="p-3 bg-white border border-slate-200 rounded-2xl text-slate-400 hover:text-indigo-600 hover:border-indigo-200 transition-all shadow-sm"
         >
@@ -75,8 +83,13 @@ export const TravelerDetail: React.FC = () => {
             <span className="px-2 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase rounded">Ficha de Huésped</span>
             <span className="text-[10px] text-slate-300 font-mono uppercase tracking-tighter">ID: {traveler.id.slice(0, 8)}</span>
           </div>
-          <h2 className="text-4xl font-black text-slate-800 tracking-tight">
+          <h2 className="text-4xl font-black text-slate-800 tracking-tight flex items-center gap-4">
             {traveler.nombre} {traveler.apellidos}
+            {guestService.isRecurrent(traveler, allBookings, allTravelers) && (
+              <span className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-700 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-emerald-100 shadow-sm">
+                <Trophy size={16} className="text-emerald-500" /> Huésped Recurrente
+              </span>
+            )}
           </h2>
         </div>
       </div>
@@ -122,13 +135,13 @@ export const TravelerDetail: React.FC = () => {
             </div>
 
             <div className="mt-8 pt-8 border-t border-slate-100 space-y-4">
-              <button 
+              <button
                 onClick={() => navigate('/comms', { state: { travelerId: traveler.id } })}
                 className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-2 mb-4"
               >
-                <MessageCircle size={20}/> Enviar Mensaje
+                <MessageCircle size={20} /> Enviar Mensaje
               </button>
-              
+
               <div className="flex items-center gap-3 text-sm font-medium text-slate-600">
                 <Mail size={16} className="text-slate-300" />
                 {traveler.email || 'Sin correo electrónico'}
@@ -139,13 +152,13 @@ export const TravelerDetail: React.FC = () => {
               </div>
             </div>
           </div>
-          
+
           <div className="bg-indigo-50/50 border border-indigo-100 rounded-3xl p-6">
-             <div className="flex items-center gap-3 text-indigo-600 mb-2">
-                <CheckCircle2 size={18} />
-                <span className="font-bold text-sm">Estado de Registro</span>
-             </div>
-             <p className="text-xs text-indigo-500 font-medium">Huésped registrado en el sistema local desde {new Date(traveler.created_at).toLocaleDateString()}. Todos los datos están cifrados en su base de datos local.</p>
+            <div className="flex items-center gap-3 text-indigo-600 mb-2">
+              <CheckCircle2 size={18} />
+              <span className="font-bold text-sm">Estado de Registro</span>
+            </div>
+            <p className="text-xs text-indigo-500 font-medium">Huésped registrado en el sistema local desde {new Date(traveler.created_at).toLocaleDateString()}. Todos los datos están cifrados en su base de datos local.</p>
           </div>
         </div>
 
@@ -159,7 +172,9 @@ export const TravelerDetail: React.FC = () => {
                 </div>
                 <h3 className="text-xl font-black text-slate-800">Historial de Estancias</h3>
               </div>
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{stays.length} Registros</span>
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                {guestService.isRecurrent(traveler, allBookings, allTravelers) ? 'Firma Multi-registro' : `${stays.length} Registros`}
+              </span>
             </div>
 
             <div className="flex-1 overflow-x-auto">
@@ -181,9 +196,9 @@ export const TravelerDetail: React.FC = () => {
                       </td>
                       <td className="px-8 py-5">
                         {stay.apartment_id ? (
-                           <div className="flex items-center gap-2 text-indigo-600 font-bold text-xs uppercase">
-                              <Building2 size={14} /> Unidad Asignada
-                           </div>
+                          <div className="flex items-center gap-2 text-indigo-600 font-bold text-xs uppercase">
+                            <Building2 size={14} /> Unidad Asignada
+                          </div>
                         ) : (
                           <div className="text-slate-400 italic text-xs">Pendiente de asignar</div>
                         )}

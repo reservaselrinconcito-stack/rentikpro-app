@@ -3,6 +3,7 @@ import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 
 interface ErrorBoundaryProps {
   children?: ReactNode;
+  onError?: (error: any) => void;
 }
 
 interface ErrorBoundaryState {
@@ -25,6 +26,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo);
+    if (this.props.onError) {
+      this.props.onError(error);
+    }
   }
 
   public render() {
@@ -45,17 +49,17 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               </code>
             </div>
             <div className="flex gap-3 justify-center">
-              <button 
-                onClick={() => window.location.href = '/'} 
+              <button
+                onClick={() => window.location.href = '/'}
                 className="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition-colors"
               >
-                <Home size={16}/> Ir al Inicio
+                <Home size={16} /> Ir al Inicio
               </button>
-              <button 
-                onClick={() => window.location.reload()} 
+              <button
+                onClick={() => window.location.reload()}
                 className="flex items-center gap-2 px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100"
               >
-                <RefreshCw size={16}/> Recargar App
+                <RefreshCw size={16} /> Recargar App
               </button>
             </div>
           </div>
