@@ -1528,18 +1528,17 @@ export class SQLiteStore implements IDataStore {
       event_kind: 'BOOKING'
     }));
   }
-}
 
-  async getProvisionalArrivals(days: number = 7, propertyId ?: string, timezone: string = 'Europe/Madrid'): Promise < Booking[] > {
-  const now = this.getTodayInTimezone(timezone);
-  const startDate = this.getDateString(now);
+  async getProvisionalArrivals(days: number = 7, propertyId?: string, timezone: string = 'Europe/Madrid'): Promise<Booking[]> {
+    const now = this.getTodayInTimezone(timezone);
+    const startDate = this.getDateString(now);
 
-  const future = new Date(now);
-  future.setDate(future.getDate() + days);
-  const endDate = this.getDateString(future);
+    const future = new Date(now);
+    future.setDate(future.getDate() + days);
+    const endDate = this.getDateString(future);
 
-  // CANONICAL RULE: Source from accounting_movements
-  const sql = `SELECT * FROM accounting_movements 
+    // CANONICAL RULE: Source from accounting_movements
+    const sql = `SELECT * FROM accounting_movements 
                  WHERE (project_id = ? OR project_id IS NULL)
                  AND source_event_type = 'STAY_RESERVATION'
                  AND event_state = 'provisional'
@@ -1547,73 +1546,72 @@ export class SQLiteStore implements IDataStore {
                  ${(propertyId && propertyId !== 'all') ? 'AND property_id = ?' : ''}
                  ORDER BY check_in ASC`;
 
-  const projectId = localStorage.getItem('active_project_id');
-  const params: any[] = [projectId, startDate, endDate];
-  if(propertyId && propertyId !== 'all') params.push(propertyId);
+    const projectId = localStorage.getItem('active_project_id');
+    const params: any[] = [projectId, startDate, endDate];
+    if (propertyId && propertyId !== 'all') params.push(propertyId);
 
-const rows = await this.query(sql, params);
-return rows.map(r => ({
-  id: r.reservation_id || r.id,
-  property_id: r.property_id || 'prop_default',
-  apartment_id: r.apartment_id || '',
-  traveler_id: r.traveler_id || '',
-  check_in: r.check_in || '',
-  check_out: r.check_out || '',
-  status: 'pending',
-  total_price: r.amount_gross || 0,
-  guests: r.guests || 1,
-  source: r.platform || 'manual',
-  guest_name: r.concept || '',
-  event_state: 'provisional',
-  event_kind: 'BOOKING'
-}));
+    const rows = await this.query(sql, params);
+    return rows.map(r => ({
+      id: r.reservation_id || r.id,
+      property_id: r.property_id || 'prop_default',
+      apartment_id: r.apartment_id || '',
+      traveler_id: r.traveler_id || '',
+      check_in: r.check_in || '',
+      check_out: r.check_out || '',
+      status: 'pending',
+      total_price: r.amount_gross || 0,
+      guests: r.guests || 1,
+      source: r.platform || 'manual',
+      guest_name: r.concept || '',
+      event_state: 'provisional',
+      event_kind: 'BOOKING'
+    }));
   }
+
+  async getPendingCheckins(days: number = 7, propertyId?: string, timezone: string = 'Europe/Madrid'): Promise<Booking[]> {
+    // Defines "Pending Checkin" as any confirmed booking arriving soon.
+    // In future this could exclude bookings with 'checkin_completed' flag if added.
+    return this.getUpcomingArrivals(days, propertyId, timezone);
   }
 
-  async getPendingCheckins(days: number = 7, propertyId ?: string, timezone: string = 'Europe/Madrid'): Promise < Booking[] > {
-  // Defines "Pending Checkin" as any confirmed booking arriving soon.
-  // In future this could exclude bookings with 'checkin_completed' flag if added.
-  return this.getUpcomingArrivals(days, propertyId, timezone);
-}
+  async getMarketingTemplates(): Promise<MarketingTemplate[]> {
+    return await this.query("SELECT * FROM marketing_templates ORDER BY created_at DESC");
+  }
 
-  async getMarketingTemplates(): Promise < MarketingTemplate[] > {
-  return await this.query("SELECT * FROM marketing_templates ORDER BY created_at DESC");
-}
+  async saveMarketingTemplate(t: MarketingTemplate): Promise<void> {
+    await this.executeWithParams("INSERT OR REPLACE INTO marketing_templates (id, name, subject, body, created_at) VALUES (?,?,?,?,?)", [t.id, t.name, t.subject, t.body, t.created_at]);
+  }
 
-  async saveMarketingTemplate(t: MarketingTemplate): Promise < void> {
-  await this.executeWithParams("INSERT OR REPLACE INTO marketing_templates (id, name, subject, body, created_at) VALUES (?,?,?,?,?)", [t.id, t.name, t.subject, t.body, t.created_at]);
-}
+  async getMarketingLogs(): Promise<MarketingLog[]> {
+    return await this.query("SELECT * FROM marketing_logs ORDER BY created_at DESC");
+  }
 
-  async getMarketingLogs(): Promise < MarketingLog[] > {
-  return await this.query("SELECT * FROM marketing_logs ORDER BY created_at DESC");
-}
-
-  async saveMarketingLog(l: MarketingLog): Promise < void> {
-  await this.executeWithParams("INSERT OR REPLACE INTO marketing_logs (id, traveler_id, event_type, metadata, created_at) VALUES (?,?,?,?,?)", [l.id, l.traveler_id, l.event_type, l.metadata, l.created_at]);
-}
+  async saveMarketingLog(l: MarketingLog): Promise<void> {
+    await this.executeWithParams("INSERT OR REPLACE INTO marketing_logs (id, traveler_id, event_type, metadata, created_at) VALUES (?,?,?,?,?)", [l.id, l.traveler_id, l.event_type, l.metadata, l.created_at]);
+  }
 
   // --- CAMPAIGNS & COUPONS ---
 
-  async getCoupons(): Promise < Coupon[] > {
-  const projectId = localStorage.getItem('active_project_id');
-  return await this.query("SELECT * FROM coupons WHERE project_id = ?", [projectId]);
-}
+  async getCoupons(): Promise<Coupon[]> {
+    const projectId = localStorage.getItem('active_project_id');
+    return await this.query("SELECT * FROM coupons WHERE project_id = ?", [projectId]);
+  }
 
-  async saveCoupon(c: Coupon): Promise < void> {
-  const projectId = localStorage.getItem('active_project_id');
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO coupons (id, code, discount_type, discount_value, expiration_date, status, created_at, project_id) VALUES (?,?,?,?,?,?,?,?)",
-    [c.id, c.code, c.discount_type, c.discount_value, c.expiration_date || null, c.status, c.created_at, projectId]
-  );
-}
+  async saveCoupon(c: Coupon): Promise<void> {
+    const projectId = localStorage.getItem('active_project_id');
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO coupons (id, code, discount_type, discount_value, expiration_date, status, created_at, project_id) VALUES (?,?,?,?,?,?,?,?)",
+      [c.id, c.code, c.discount_type, c.discount_value, c.expiration_date || null, c.status, c.created_at, projectId]
+    );
+  }
 
-  async deleteCoupon(id: string): Promise < void> {
-  await this.executeWithParams("DELETE FROM coupons WHERE id=?", [id]);
-}
+  async deleteCoupon(id: string): Promise<void> {
+    await this.executeWithParams("DELETE FROM coupons WHERE id=?", [id]);
+  }
 
   // --- ACCOUNTING AGGREGATIONS ---
-  async getAccountingSummaryByApartment(year: number, bucket: string, propId ?: string) {
-  let sql = `
+  async getAccountingSummaryByApartment(year: number, bucket: string, propId?: string) {
+    let sql = `
       SELECT 
         a.id as apartment_id, 
         a.name as apartment_name, 
@@ -1629,14 +1627,14 @@ return rows.map(r => ({
       ${propId && propId !== 'ALL' ? 'WHERE a.property_id = ?' : ''} 
       GROUP BY a.id`;
 
-  const params: string[] = [year.toString(), year.toString()];
-  if (bucket !== 'ALL') params.push(bucket);
-  if (propId && propId !== 'ALL') params.push(propId);
-  return await this.query(sql, params);
-}
+    const params: string[] = [year.toString(), year.toString()];
+    if (bucket !== 'ALL') params.push(bucket);
+    if (propId && propId !== 'ALL') params.push(propId);
+    return await this.query(sql, params);
+  }
 
-  async getAccountingTimeSeries(year: number, bucket: string, propId ?: string, apartmentId ?: string) {
-  let sql = `
+  async getAccountingTimeSeries(year: number, bucket: string, propId?: string, apartmentId?: string) {
+    let sql = `
       SELECT 
         strftime('%m', m.date) as month, 
         SUM(CASE WHEN m.type = 'income' THEN m.amount_net ELSE 0 END) as income,
@@ -1645,666 +1643,666 @@ return rows.map(r => ({
       LEFT JOIN apartments a ON m.apartment_id = a.id
       WHERE (strftime('%Y', m.date) = ? OR m.date LIKE '%' || ?)
     `;
-  const params: any[] = [year.toString(), year.toString()];
+    const params: any[] = [year.toString(), year.toString()];
 
-  if (bucket !== 'ALL') {
-    sql += ' AND m.accounting_bucket = ?';
-    params.push(bucket);
-  }
-  if (propId && propId !== 'ALL') {
-    sql += ' AND a.property_id = ?';
-    params.push(propId);
-  }
-  if (apartmentId && apartmentId !== 'ALL') {
-    sql += ' AND m.apartment_id = ?';
-    params.push(apartmentId);
-  }
+    if (bucket !== 'ALL') {
+      sql += ' AND m.accounting_bucket = ?';
+      params.push(bucket);
+    }
+    if (propId && propId !== 'ALL') {
+      sql += ' AND a.property_id = ?';
+      params.push(propId);
+    }
+    if (apartmentId && apartmentId !== 'ALL') {
+      sql += ' AND m.apartment_id = ?';
+      params.push(apartmentId);
+    }
 
-  sql += ' GROUP BY month ORDER BY month ASC';
+    sql += ' GROUP BY month ORDER BY month ASC';
 
-  return await this.query(sql, params);
-}
+    return await this.query(sql, params);
+  }
 
 
   // --- FISCAL ---
   async getFiscalProfile() {
-  const res = await this.query("SELECT * FROM fiscal_profile WHERE id = 1");
-  return res[0] || null;
-}
+    const res = await this.query("SELECT * FROM fiscal_profile WHERE id = 1");
+    return res[0] || null;
+  }
   async saveFiscalProfile(p: FiscalProfile) {
-  const sql = `INSERT OR REPLACE INTO fiscal_profile (id, tipo_fiscal, nombre_razon_social, nif_cif, domicilio_fiscal, provincia, email, telefono, regimen_iva, iva_defecto) VALUES (1,?,?,?,?,?,?,?,?,?)`;
-  await this.executeWithParams(sql, [p.tipo_fiscal, p.nombre_razon_social, p.nif_cif, p.domicilio_fiscal, p.provincia, p.email, p.telefono, p.regimen_iva || null, p.iva_defecto || 0]);
-}
-
-  async ensureSettings(): Promise < UserSettings > {
-  const rows = await this.query(`SELECT * FROM user_settings WHERE id = 'default' LIMIT 1`);
-  if(rows.length > 0) {
-  return rows[0] as UserSettings;
-}
-
-const defaultSettings: UserSettings = {
-  id: 'default',
-  fiscal_country: 'España',
-  default_currency: 'EUR',
-  default_timezone: 'Europe/Madrid',
-  date_format: 'DD/MM/YYYY',
-  ui_scale: 1.0,
-  created_at: Date.now(),
-  updated_at: Date.now()
-};
-
-await this.saveSettings(defaultSettings);
-logger.log("Default settings created successfully.");
-return defaultSettings;
+    const sql = `INSERT OR REPLACE INTO fiscal_profile (id, tipo_fiscal, nombre_razon_social, nif_cif, domicilio_fiscal, provincia, email, telefono, regimen_iva, iva_defecto) VALUES (1,?,?,?,?,?,?,?,?,?)`;
+    await this.executeWithParams(sql, [p.tipo_fiscal, p.nombre_razon_social, p.nif_cif, p.domicilio_fiscal, p.provincia, p.email, p.telefono, p.regimen_iva || null, p.iva_defecto || 0]);
   }
 
-  async getSettings(): Promise < UserSettings > {
-  return this.ensureSettings();
-}
+  async ensureSettings(): Promise<UserSettings> {
+    const rows = await this.query(`SELECT * FROM user_settings WHERE id = 'default' LIMIT 1`);
+    if (rows.length > 0) {
+      return rows[0] as UserSettings;
+    }
 
-  async saveSettings(s: UserSettings): Promise < void> {
-  const updated = { ...s, updated_at: Date.now() };
-  await this.executeWithParams(
-    `INSERT OR REPLACE INTO user_settings (
+    const defaultSettings: UserSettings = {
+      id: 'default',
+      fiscal_country: 'España',
+      default_currency: 'EUR',
+      default_timezone: 'Europe/Madrid',
+      date_format: 'DD/MM/YYYY',
+      ui_scale: 1.0,
+      created_at: Date.now(),
+      updated_at: Date.now()
+    };
+
+    await this.saveSettings(defaultSettings);
+    logger.log("Default settings created successfully.");
+    return defaultSettings;
+  }
+
+  async getSettings(): Promise<UserSettings> {
+    return this.ensureSettings();
+  }
+
+  async saveSettings(s: UserSettings): Promise<void> {
+    const updated = { ...s, updated_at: Date.now() };
+    await this.executeWithParams(
+      `INSERT OR REPLACE INTO user_settings (
         id, business_name, business_description, fiscal_name, fiscal_id,
         fiscal_address, fiscal_city, fiscal_postal_code, fiscal_country,
         contact_email, contact_phone, contact_website, default_currency,
         default_timezone, date_format, ui_scale, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      updated.id || 'default',
-      updated.business_name,
-      updated.business_description,
-      updated.fiscal_name,
-      updated.fiscal_id,
-      updated.fiscal_address,
-      updated.fiscal_city,
-      updated.fiscal_postal_code,
-      updated.fiscal_country,
-      updated.contact_email,
-      updated.contact_phone,
-      updated.contact_website,
-      updated.default_currency,
-      updated.default_timezone,
-      updated.date_format,
-      updated.ui_scale || 1.0,
-      updated.created_at || Date.now(),
-      updated.updated_at
-    ]
-  );
-}
+      [
+        updated.id || 'default',
+        updated.business_name,
+        updated.business_description,
+        updated.fiscal_name,
+        updated.fiscal_id,
+        updated.fiscal_address,
+        updated.fiscal_city,
+        updated.fiscal_postal_code,
+        updated.fiscal_country,
+        updated.contact_email,
+        updated.contact_phone,
+        updated.contact_website,
+        updated.default_currency,
+        updated.default_timezone,
+        updated.date_format,
+        updated.ui_scale || 1.0,
+        updated.created_at || Date.now(),
+        updated.updated_at
+      ]
+    );
+  }
 
   // --- BLOCK 22: CANCELLATION POLICIES & RATE PLANS ---
-  async getCancellationPolicies(propertyId: string): Promise < CancellationPolicy[] > {
-  if(propertyId === 'ALL_LEGACY') {
-  return await this.query("SELECT * FROM cancellation_policies");
-}
-return await this.query("SELECT * FROM cancellation_policies WHERE property_id = ?", [propertyId]);
+  async getCancellationPolicies(propertyId: string): Promise<CancellationPolicy[]> {
+    if (propertyId === 'ALL_LEGACY') {
+      return await this.query("SELECT * FROM cancellation_policies");
+    }
+    return await this.query("SELECT * FROM cancellation_policies WHERE property_id = ?", [propertyId]);
   }
 
-  async saveCancellationPolicy(p: CancellationPolicy): Promise < void> {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO cancellation_policies (id, property_id, name, type, rules_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
-    [p.id, p.property_id, p.name, p.type, p.rules_json, p.created_at, p.updated_at]
-  );
-}
+  async saveCancellationPolicy(p: CancellationPolicy): Promise<void> {
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO cancellation_policies (id, property_id, name, type, rules_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+      [p.id, p.property_id, p.name, p.type, p.rules_json, p.created_at, p.updated_at]
+    );
+  }
 
-  async deleteCancellationPolicy(id: string): Promise < void> {
-  await this.executeWithParams("DELETE FROM cancellation_policies WHERE id = ?", [id]);
-}
+  async deleteCancellationPolicy(id: string): Promise<void> {
+    await this.executeWithParams("DELETE FROM cancellation_policies WHERE id = ?", [id]);
+  }
 
-  async getRatePlans(unitId: string): Promise < RatePlan[] > {
-  const res = await this.query("SELECT * FROM rate_plans WHERE apartment_id = ?", [unitId]);
-  return res.map(row => ({ ...row, is_active: !!row.is_active }));
-}
+  async getRatePlans(unitId: string): Promise<RatePlan[]> {
+    const res = await this.query("SELECT * FROM rate_plans WHERE apartment_id = ?", [unitId]);
+    return res.map(row => ({ ...row, is_active: !!row.is_active }));
+  }
 
-  async getRatePlanById(id: string): Promise < RatePlan | null > {
-  const res = await this.query("SELECT * FROM rate_plans WHERE id = ?", [id]);
-  if(!res[0]) return null;
-  const row = res[0];
-  return { ...row, is_active: !!row.is_active } as RatePlan;
-}
+  async getRatePlanById(id: string): Promise<RatePlan | null> {
+    const res = await this.query("SELECT * FROM rate_plans WHERE id = ?", [id]);
+    if (!res[0]) return null;
+    const row = res[0];
+    return { ...row, is_active: !!row.is_active } as RatePlan;
+  }
 
-  async saveRatePlan(plan: RatePlan): Promise < void> {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO rate_plans (id, apartment_id, cancellation_policy_id, name, is_active, price_modifier_type, price_modifier_value, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
-    [
-      plan.id, plan.apartment_id, plan.cancellation_policy_id,
-      plan.name, plan.is_active ? 1 : 0, plan.price_modifier_type,
-      plan.price_modifier_value, plan.created_at, plan.updated_at
-    ]
-  );
-}
+  async saveRatePlan(plan: RatePlan): Promise<void> {
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO rate_plans (id, apartment_id, cancellation_policy_id, name, is_active, price_modifier_type, price_modifier_value, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      [
+        plan.id, plan.apartment_id, plan.cancellation_policy_id,
+        plan.name, plan.is_active ? 1 : 0, plan.price_modifier_type,
+        plan.price_modifier_value, plan.created_at, plan.updated_at
+      ]
+    );
+  }
 
-  async deleteRatePlan(id: string): Promise < void> {
-  await this.executeWithParams("DELETE FROM rate_plans WHERE id = ?", [id]);
-}
+  async deleteRatePlan(id: string): Promise<void> {
+    await this.executeWithParams("DELETE FROM rate_plans WHERE id = ?", [id]);
+  }
 
   // --- BLOCK 25: BOOKING WINDOW MODIFIERS ---
-  async getPricingModifiers(propertyId: string): Promise < PricingModifier[] > {
-  const res = await this.query("SELECT * FROM pricing_modifiers WHERE property_id = ? AND enabled = 1", [propertyId]);
-  return res.map(row => ({ ...row, enabled: !!row.enabled }));
-}
+  async getPricingModifiers(propertyId: string): Promise<PricingModifier[]> {
+    const res = await this.query("SELECT * FROM pricing_modifiers WHERE property_id = ? AND enabled = 1", [propertyId]);
+    return res.map(row => ({ ...row, enabled: !!row.enabled }));
+  }
 
-  async savePricingModifier(m: PricingModifier): Promise < void> {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO pricing_modifiers (id, property_id, unit_id, rate_plan_id, type, condition_json, apply_json, enabled, priority, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-    [m.id, m.property_id, m.unit_id, m.rate_plan_id, m.type, m.condition_json, m.apply_json, m.enabled ? 1 : 0, m.priority, m.created_at, m.updated_at]
-  );
-}
+  async savePricingModifier(m: PricingModifier): Promise<void> {
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO pricing_modifiers (id, property_id, unit_id, rate_plan_id, type, condition_json, apply_json, enabled, priority, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      [m.id, m.property_id, m.unit_id, m.rate_plan_id, m.type, m.condition_json, m.apply_json, m.enabled ? 1 : 0, m.priority, m.created_at, m.updated_at]
+    );
+  }
 
-  async deletePricingModifier(id: string): Promise < void> {
-  await this.executeWithParams("DELETE FROM pricing_modifiers WHERE id = ?", [id]);
-}
+  async deletePricingModifier(id: string): Promise<void> {
+    await this.executeWithParams("DELETE FROM pricing_modifiers WHERE id = ?", [id]);
+  }
 
   // --- BLOCK 26: FEES & TAXES ---
-  async getFees(propertyId: string): Promise < Fee[] > {
-  const res = await this.query("SELECT * FROM fees WHERE property_id = ? AND enabled = 1", [propertyId]);
-  return res.map(row => ({ ...row, enabled: !!row.enabled }));
-}
-
-  async saveFee(f: Fee): Promise < void> {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO fees (id, property_id, name, type, charge_mode, amount_cents, vat_percent, enabled, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    [f.id, f.property_id, f.name, f.type, f.charge_mode, f.amount_cents, f.vat_percent, f.enabled ? 1 : 0, f.created_at, f.updated_at]
-  );
-}
-
-  async deleteFee(id: string): Promise < void> {
-  await this.executeWithParams("DELETE FROM fees WHERE id = ?", [id]);
-}
-
-
-
-  async getRecentMessages(limit: number = 5): Promise < Conversation[] > {
-  const sql = "SELECT * FROM conversations ORDER BY last_message_at DESC LIMIT ?";
-  const rows = await this.query(sql, [limit]);
-  return rows.map(r => ({
-    ...r,
-    metadata: r.metadata ? JSON.parse(r.metadata) : {}
-  }));
-}
-
-  async getMyWebsite(): Promise < WebSite | null > {
-  const rows = await this.query("SELECT * FROM websites ORDER BY updated_at DESC LIMIT 1");
-  if(rows.length === 0) return null;
-  const r = rows[0];
-  return {
-    ...r,
-    theme_config: r.theme_config ? JSON.parse(r.theme_config) : {},
-    sections_json: r.sections_json, // Already string in interface?
-    booking_config: r.booking_config ? JSON.parse(r.booking_config) : {}
-  };
-}
-
-  async getMovements(bucket ?: string): Promise < AccountingMovement[] > {
-  const projectId = localStorage.getItem('active_project_id');
-  let sql = "SELECT * FROM accounting_movements WHERE (project_id = ? OR project_id IS NULL)";
-  const params: any[] = [projectId];
-
-  if(bucket && bucket !== 'ALL') {
-  sql += " AND accounting_bucket = ?";
-  params.push(bucket);
-}
-sql += " ORDER BY date DESC";
-return await this.query(sql, params);
+  async getFees(propertyId: string): Promise<Fee[]> {
+    const res = await this.query("SELECT * FROM fees WHERE property_id = ? AND enabled = 1", [propertyId]);
+    return res.map(row => ({ ...row, enabled: !!row.enabled }));
   }
 
-  async saveMovement(m: AccountingMovement): Promise < void> {
-  const cols = [
-    'id', 'date', 'type', 'category', 'concept', 'apartment_id', 'reservation_id', 'traveler_id',
-    'platform', 'supplier', 'amount_gross', 'commission', 'vat', 'amount_net', 'payment_method',
-    'accounting_bucket', 'import_hash', 'import_batch_id', 'receipt_blob', 'created_at', 'updated_at', 'movement_key', 'project_id',
-    'property_id', 'check_in', 'check_out', 'guests', 'pax_adults', 'pax_children', 'source_event_type', 'event_state', 'ical_uid', 'connection_id', 'raw_summary', 'raw_description'
-  ];
-  const vals = [
-    m.id, m.date, m.type, m.category || null, m.concept, m.apartment_id || null, m.reservation_id || null, m.traveler_id || null,
-    m.platform || null, m.supplier || null, m.amount_gross, m.commission || 0, m.vat || 0, m.amount_net, m.payment_method || 'Unknown',
-    m.accounting_bucket, m.import_hash || null, m.import_batch_id || null, m.receipt_blob || null, m.created_at, m.updated_at, m.movement_key || null, m.project_id || null,
-    m.property_id || null, m.check_in || null, m.check_out || null, m.guests || null, m.pax_adults || null, m.pax_children || null, m.source_event_type || null, m.event_state || null, m.ical_uid || null, m.connection_id || null, m.raw_summary || null, m.raw_description || null
-  ];
-
-  if(this.schemaFlags.accounting_payment_id) {
-  cols.push('payment_id');
-  vals.push(m.payment_id || null);
-}
-
-const placeholders = cols.map(() => '?').join(',');
-await this.executeWithParams(
-  `INSERT OR REPLACE INTO accounting_movements (${cols.join(',')}) VALUES (${placeholders})`,
-  vals
-);
+  async saveFee(f: Fee): Promise<void> {
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO fees (id, property_id, name, type, charge_mode, amount_cents, vat_percent, enabled, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      [f.id, f.property_id, f.name, f.type, f.charge_mode, f.amount_cents, f.vat_percent, f.enabled ? 1 : 0, f.created_at, f.updated_at]
+    );
   }
 
-  async getBookingByKey(key: string): Promise < Booking | null > {
-  const r = await this.query("SELECT * FROM bookings WHERE booking_key = ?", [key]);
-  if(!r[0]) return null;
-  return {
-    ...r[0],
-    conflict_detected: !!r[0].conflict_detected
-  };
-}
+  async deleteFee(id: string): Promise<void> {
+    await this.executeWithParams("DELETE FROM fees WHERE id = ?", [id]);
+  }
 
-  async getMovementByKey(key: string): Promise < AccountingMovement | null > {
-  const r = await this.query("SELECT * FROM accounting_movements WHERE movement_key = ?", [key]);
-  if(!r[0]) return null;
-  return {
-    ...r[0],
-    amount_gross: Number(r[0].amount_gross),
-    amount_net: Number(r[0].amount_net),
-    vat: Number(r[0].vat),
-    commission: Number(r[0].commission)
-  };
-}
 
-  async getBookingsFromAccounting(): Promise < Booking[] > {
-  const projectId = localStorage.getItem('active_project_id');
 
-  // Query for movements that represent a stay or have a reservation link
-  const rows = await this.query(
-    `SELECT * FROM accounting_movements 
+  async getRecentMessages(limit: number = 5): Promise<Conversation[]> {
+    const sql = "SELECT * FROM conversations ORDER BY last_message_at DESC LIMIT ?";
+    const rows = await this.query(sql, [limit]);
+    return rows.map(r => ({
+      ...r,
+      metadata: r.metadata ? JSON.parse(r.metadata) : {}
+    }));
+  }
+
+  async getMyWebsite(): Promise<WebSite | null> {
+    const rows = await this.query("SELECT * FROM websites ORDER BY updated_at DESC LIMIT 1");
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {
+      ...r,
+      theme_config: r.theme_config ? JSON.parse(r.theme_config) : {},
+      sections_json: r.sections_json, // Already string in interface?
+      booking_config: r.booking_config ? JSON.parse(r.booking_config) : {}
+    };
+  }
+
+  async getMovements(bucket?: string): Promise<AccountingMovement[]> {
+    const projectId = localStorage.getItem('active_project_id');
+    let sql = "SELECT * FROM accounting_movements WHERE (project_id = ? OR project_id IS NULL)";
+    const params: any[] = [projectId];
+
+    if (bucket && bucket !== 'ALL') {
+      sql += " AND accounting_bucket = ?";
+      params.push(bucket);
+    }
+    sql += " ORDER BY date DESC";
+    return await this.query(sql, params);
+  }
+
+  async saveMovement(m: AccountingMovement): Promise<void> {
+    const cols = [
+      'id', 'date', 'type', 'category', 'concept', 'apartment_id', 'reservation_id', 'traveler_id',
+      'platform', 'supplier', 'amount_gross', 'commission', 'vat', 'amount_net', 'payment_method',
+      'accounting_bucket', 'import_hash', 'import_batch_id', 'receipt_blob', 'created_at', 'updated_at', 'movement_key', 'project_id',
+      'property_id', 'check_in', 'check_out', 'guests', 'pax_adults', 'pax_children', 'source_event_type', 'event_state', 'ical_uid', 'connection_id', 'raw_summary', 'raw_description'
+    ];
+    const vals = [
+      m.id, m.date, m.type, m.category || null, m.concept, m.apartment_id || null, m.reservation_id || null, m.traveler_id || null,
+      m.platform || null, m.supplier || null, m.amount_gross, m.commission || 0, m.vat || 0, m.amount_net, m.payment_method || 'Unknown',
+      m.accounting_bucket, m.import_hash || null, m.import_batch_id || null, m.receipt_blob || null, m.created_at, m.updated_at, m.movement_key || null, m.project_id || null,
+      m.property_id || null, m.check_in || null, m.check_out || null, m.guests || null, m.pax_adults || null, m.pax_children || null, m.source_event_type || null, m.event_state || null, m.ical_uid || null, m.connection_id || null, m.raw_summary || null, m.raw_description || null
+    ];
+
+    if (this.schemaFlags.accounting_payment_id) {
+      cols.push('payment_id');
+      vals.push(m.payment_id || null);
+    }
+
+    const placeholders = cols.map(() => '?').join(',');
+    await this.executeWithParams(
+      `INSERT OR REPLACE INTO accounting_movements (${cols.join(',')}) VALUES (${placeholders})`,
+      vals
+    );
+  }
+
+  async getBookingByKey(key: string): Promise<Booking | null> {
+    const r = await this.query("SELECT * FROM bookings WHERE booking_key = ?", [key]);
+    if (!r[0]) return null;
+    return {
+      ...r[0],
+      conflict_detected: !!r[0].conflict_detected
+    };
+  }
+
+  async getMovementByKey(key: string): Promise<AccountingMovement | null> {
+    const r = await this.query("SELECT * FROM accounting_movements WHERE movement_key = ?", [key]);
+    if (!r[0]) return null;
+    return {
+      ...r[0],
+      amount_gross: Number(r[0].amount_gross),
+      amount_net: Number(r[0].amount_net),
+      vat: Number(r[0].vat),
+      commission: Number(r[0].commission)
+    };
+  }
+
+  async getBookingsFromAccounting(): Promise<Booking[]> {
+    const projectId = localStorage.getItem('active_project_id');
+
+    // Query for movements that represent a stay or have a reservation link
+    const rows = await this.query(
+      `SELECT * FROM accounting_movements 
        WHERE (project_id = ? OR project_id IS NULL) 
        AND (reservation_id IS NOT NULL OR source_event_type = 'STAY_RESERVATION')
        ORDER BY check_in DESC, date DESC`,
-    [projectId]
-  );
+      [projectId]
+    );
 
-  const bookingsMap = new Map<string, Booking>();
+    const bookingsMap = new Map<string, Booking>();
 
-  for(const r of rows) {
-    const b_id = r.reservation_id || r.id;
+    for (const r of rows) {
+      const b_id = r.reservation_id || r.id;
 
-    if (!bookingsMap.has(b_id)) {
-      bookingsMap.set(b_id, {
-        id: b_id,
-        property_id: r.property_id || 'prop_default',
-        apartment_id: r.apartment_id || '',
-        traveler_id: r.traveler_id || '',
-        check_in: r.check_in || r.date,
-        check_out: r.check_out || r.date,
-        status: 'confirmed', // will refine
-        total_price: 0,
-        guests: r.guests || 1,
-        source: r.platform || 'manual',
-        created_at: r.created_at,
-        guest_name: r.concept,
-        event_state: (r.event_state as any) || 'confirmed',
-        event_kind: 'BOOKING',
-        payments: []
-      });
+      if (!bookingsMap.has(b_id)) {
+        bookingsMap.set(b_id, {
+          id: b_id,
+          property_id: r.property_id || 'prop_default',
+          apartment_id: r.apartment_id || '',
+          traveler_id: r.traveler_id || '',
+          check_in: r.check_in || r.date,
+          check_out: r.check_out || r.date,
+          status: 'confirmed', // will refine
+          total_price: 0,
+          guests: r.guests || 1,
+          source: r.platform || 'manual',
+          created_at: r.created_at,
+          guest_name: r.concept,
+          event_state: (r.event_state as any) || 'confirmed',
+          event_kind: 'BOOKING',
+          payments: []
+        });
+      }
+
+      const b = bookingsMap.get(b_id)!;
+
+      // Aggregation logic
+      if (r.type === 'income') {
+        b.total_price += r.amount_gross;
+      }
+
+      // Metadata enrichment from the primary reservation record
+      if (r.source_event_type === 'STAY_RESERVATION' || (!b.check_in && r.check_in)) {
+        b.check_in = r.check_in || b.check_in;
+        b.check_out = r.check_out || b.check_out;
+        b.guests = r.guests || b.guests;
+        b.guest_name = r.concept || b.guest_name;
+        b.property_id = r.property_id || b.property_id;
+        b.event_state = (r.event_state as any) || b.event_state;
+        b.ical_uid = r.ical_uid || b.ical_uid;
+        b.connection_id = r.connection_id || b.connection_id;
+      }
+
+      // Collect payments
+      if (r.payment_id || r.reservation_id) {
+        b.payments!.push({
+          id: r.id,
+          type: 'extra', // could be refined
+          amount: r.amount_gross,
+          date: r.date,
+          method: r.payment_method,
+          status: 'pagado',
+          note: r.concept
+        });
+      }
     }
-
-    const b = bookingsMap.get(b_id)!;
-
-    // Aggregation logic
-    if (r.type === 'income') {
-      b.total_price += r.amount_gross;
-    }
-
-    // Metadata enrichment from the primary reservation record
-    if (r.source_event_type === 'STAY_RESERVATION' || (!b.check_in && r.check_in)) {
-      b.check_in = r.check_in || b.check_in;
-      b.check_out = r.check_out || b.check_out;
-      b.guests = r.guests || b.guests;
-      b.guest_name = r.concept || b.guest_name;
-      b.property_id = r.property_id || b.property_id;
-      b.event_state = (r.event_state as any) || b.event_state;
-      b.ical_uid = r.ical_uid || b.ical_uid;
-      b.connection_id = r.connection_id || b.connection_id;
-    }
-
-    // Collect payments
-    if (r.payment_id || r.reservation_id) {
-      b.payments!.push({
-        id: r.id,
-        type: 'extra', // could be refined
-        amount: r.amount_gross,
-        date: r.date,
-        method: r.payment_method,
-        status: 'pagado',
-        note: r.concept
-      });
-    }
-  }
 
     // Secondary pass: Final status derivation if needed
     // Actually the user says Booking is just a VIEW. 
     return Array.from(bookingsMap.values());
-}
-
-  async deleteMovement(id: string): Promise < void> {
-  await this.executeWithParams("DELETE FROM accounting_movements WHERE id = ?", [id]);
-}
-
-  async exportDataOnly(): Promise < DataOnlyBackup > {
-  const [travelers, stays, bookings, movements, registry_units, registry_presentations, websites, accounts, conversations, messages, personas, facts, channels, calendarEvents, pricingSets, pricingRules, cancelPolicies, ratePlans, pricingModifiers, fees, settings, provisionals] = await Promise.all([
-    this.getTravelers(), this.getStays(), this.getBookings(), this.getMovements('ALL'),
-    this.query("SELECT * FROM registry_units"), this.query("SELECT * FROM registry_presentations"),
-    this.getWebsites(),
-    this.getAccounts(), this.getConversations('OPEN'), this.query("SELECT * FROM messages"),
-    this.getAiPersonas(), this.query("SELECT * FROM ai_facts"),
-    this.query("SELECT * FROM channel_connections"), this.query("SELECT * FROM calendar_events"),
-    this.query("SELECT * FROM pricing_rule_sets"), this.query("SELECT * FROM pricing_rules"),
-    this.query("SELECT * FROM cancellation_policies"), this.query("SELECT * FROM rate_plans"),
-    this.query("SELECT * FROM pricing_modifiers"),
-    this.query("SELECT * FROM fees"),
-    this.getSettings(),
-    this.getProvisionalBookings()
-  ]);
-  return {
-    app_version: APP_VERSION,
-    schema_version: SCHEMA_VERSION,
-    exported_at: new Date().toISOString(),
-    travelers, stays, bookings, movements, registry_units, registry_presentations, websites,
-    communication_accounts: accounts, conversations, messages, ai_personas: personas, ai_facts: facts,
-    channel_connections: channels, calendar_events: calendarEvents,
-    pricing_rule_sets: pricingSets, pricing_rules: pricingRules,
-    cancellation_policies: cancelPolicies, rate_plans: ratePlans,
-    pricing_modifiers: pricingModifiers,
-    fees,
-    user_settings: settings,
-    provisional_bookings: provisionals
-  };
-}
-  async exportStructureOnly(): Promise < StructureOnlyBackup > {
-  const props = await this.query("SELECT * FROM properties");
-  const apts = await this.query("SELECT * FROM apartments");
-
-  // Extended fields
-  let settings: UserSettings | undefined;
-  if(await this.tableExists('user_settings')) {
-  settings = await this.getSettings();
-}
-
-let websites: WebSite[] = [];
-if (await this.tableExists('websites')) {
-  websites = await this.getWebsites();
-}
-
-let media: MediaAsset[] = [];
-if (await this.tableExists('media_assets')) {
-  media = await this.getAllMediaAssets();
-}
-
-return {
-  app_version: APP_VERSION,
-  schema_version: SCHEMA_VERSION,
-  exported_at: new Date().toISOString(),
-  properties: props.map(p => ({ ...p, is_active: p.is_active !== 0 })),
-  apartments: apts.map(a => ({ ...a, is_active: a.is_active !== 0 })),
-  user_settings: settings,
-  websites: websites,
-  media_assets: media
-};
   }
 
-  async importStructureOnly(data: StructureOnlyBackup): Promise < any > {
-  const log: string[] = [];
-
-  // Import Properties
-  for(const p of data.properties) {
-  await this.saveProperty(p);
-}
-log.push(`Properties: ${data.properties.length}`);
-
-// Import Apartments
-for (const a of data.apartments) {
-  await this.saveApartment(a);
-}
-log.push(`Apartments: ${data.apartments.length}`);
-
-// Import Settings
-if (data.user_settings) {
-  await this.saveSettings(data.user_settings);
-  log.push(`Settings: 1`);
-}
-
-// Import Websites
-if (data.websites && data.websites.length > 0) {
-  for (const w of data.websites) {
-    await this.saveWebsite(w);
-  }
-  log.push(`Websites: ${data.websites.length}`);
-}
-
-// Import Media
-if (data.media_assets && data.media_assets.length > 0) {
-  // Manual save because saveMedia expects specific args object, not entity
-  // Actually saveMedia takes an object, check signature.
-  // Signature: saveMedia(asset: MediaAsset) -> void (impl check needed)
-  // Checking impl at line 553: saveMedia(asset: {id, ...}) matches MediaAsset roughly
-  for (const m of data.media_assets) {
-    // Ensure we match the signature expected by saveMedia
-    await this.saveMedia(m);
-  }
-  log.push(`Media Assets: ${data.media_assets.length}`);
-}
-
-return { success: true, log };
+  async deleteMovement(id: string): Promise<void> {
+    await this.executeWithParams("DELETE FROM accounting_movements WHERE id = ?", [id]);
   }
 
-  async importDataOnly(data: any): Promise < any > {
-  // 0. Ensure DB is initialized
-  if(!this.db || !this.initialized) {
-  await this.init();
-}
-const backupSchema = data.schema_version || 0;
-const summary: any = { success: true, counts: {} as any, errors: {} as any, wasLegacy: false };
-let tablesProcessed = 0;
-
-// --- MIGRATION LOGIC FOR LEGACY BACKUPS (Schema 0 or missing) ---
-if (backupSchema === 0) {
-  console.log("⚠️ Legacy Backup Detected (Schema 0). Running migration adapter...");
-  summary.wasLegacy = true;
-
-  // 1. Ensure 'prop_default' for multi-property entities if missing
-  const targetProp = 'prop_default';
-
-  if (data.bookings) {
-    data.bookings.forEach(b => {
-      if (!b.property_id) b.property_id = targetProp;
-    });
+  async exportDataOnly(): Promise<DataOnlyBackup> {
+    const [travelers, stays, bookings, movements, registry_units, registry_presentations, websites, accounts, conversations, messages, personas, facts, channels, calendarEvents, pricingSets, pricingRules, cancelPolicies, ratePlans, pricingModifiers, fees, settings, provisionals] = await Promise.all([
+      this.getTravelers(), this.getStays(), this.getBookings(), this.getMovements('ALL'),
+      this.query("SELECT * FROM registry_units"), this.query("SELECT * FROM registry_presentations"),
+      this.getWebsites(),
+      this.getAccounts(), this.getConversations('OPEN'), this.query("SELECT * FROM messages"),
+      this.getAiPersonas(), this.query("SELECT * FROM ai_facts"),
+      this.query("SELECT * FROM channel_connections"), this.query("SELECT * FROM calendar_events"),
+      this.query("SELECT * FROM pricing_rule_sets"), this.query("SELECT * FROM pricing_rules"),
+      this.query("SELECT * FROM cancellation_policies"), this.query("SELECT * FROM rate_plans"),
+      this.query("SELECT * FROM pricing_modifiers"),
+      this.query("SELECT * FROM fees"),
+      this.getSettings(),
+      this.getProvisionalBookings()
+    ]);
+    return {
+      app_version: APP_VERSION,
+      schema_version: SCHEMA_VERSION,
+      exported_at: new Date().toISOString(),
+      travelers, stays, bookings, movements, registry_units, registry_presentations, websites,
+      communication_accounts: accounts, conversations, messages, ai_personas: personas, ai_facts: facts,
+      channel_connections: channels, calendar_events: calendarEvents,
+      pricing_rule_sets: pricingSets, pricing_rules: pricingRules,
+      cancellation_policies: cancelPolicies, rate_plans: ratePlans,
+      pricing_modifiers: pricingModifiers,
+      fees,
+      user_settings: settings,
+      provisional_bookings: provisionals
+    };
   }
-  // In structure only usually, but sometimes in full data dump
-  if (data.calendar_events) {
-    data.calendar_events.forEach(e => {
-      if (!e.property_id) e.property_id = targetProp;
-    });
-  }
+  async exportStructureOnly(): Promise<StructureOnlyBackup> {
+    const props = await this.query("SELECT * FROM properties");
+    const apts = await this.query("SELECT * FROM apartments");
 
-  // 2. Accounting Movement Defaults
-  if (data.movements) {
-    data.movements.forEach(m => {
-      if (!m.payment_method) m.payment_method = 'Unknown';
-      if (!m.platform) m.platform = 'Unknown';
-      if (!m.accounting_bucket) m.accounting_bucket = 'A';
-    });
-  }
-}
-
-// Disable Foreign Keys globally for the import session to prevent ordering issues
-await this.execute("PRAGMA foreign_keys = OFF;");
-
-const importTable = async (tableName: string, items: any[]) => {
-  if (!items || items.length === 0) return;
-
-  try {
-    this.execute("BEGIN TRANSACTION");
-    let inserted = 0;
-
-    // Get valid columns for this table
-    const tableInfo = await this.query(`PRAGMA table_info(${tableName})`);
-    const validColumns = new Set(tableInfo.map((c: any) => c.name));
-
-    for (const item of items) {
-      const keys = Object.keys(item).filter(k => validColumns.has(k));
-      if (keys.length === 0) continue;
-
-      const cols = keys.join(',');
-      const placeholders = keys.map(() => '?').join(',');
-      const values = keys.map(k => {
-        const v = item[k];
-        return v === undefined ? null : v;
-      });
-
-      const sql = `INSERT OR REPLACE INTO ${tableName} (${cols}) VALUES (${placeholders})`;
-      await this.executeWithParams(sql, values);
-      inserted++;
+    // Extended fields
+    let settings: UserSettings | undefined;
+    if (await this.tableExists('user_settings')) {
+      settings = await this.getSettings();
     }
 
-    this.execute("COMMIT");
-    summary.counts[tableName] = inserted;
-    tablesProcessed++;
-
-  } catch (err: any) {
-    this.execute("ROLLBACK");
-    summary.errors[tableName] = err.message || String(err);
-    summary.success = false;
-    console.error(`Error importing table ${tableName}:`, err);
-  }
-};
-
-try {
-  // --- MIGRATION LOGIC FOR LEGACY BACKUPS (Schema 0 or missing) ---
-  const backupSchema = data.schema_version || 0;
-  if (backupSchema === 0) {
-    console.log("⚠️ Legacy Backup Detected (Schema 0). Running migration adapter...");
-    summary.wasLegacy = true;
-
-    // 1. Ensure 'prop_default' for multi-property entities if missing
-    const targetProp = 'prop_default';
-
-    if (data.bookings) {
-      data.bookings.forEach(b => {
-        if (!b.property_id) b.property_id = targetProp;
-      });
-    }
-    // In structure only usually, but sometimes in full data dump
-    if (data.calendar_events) {
-      data.calendar_events.forEach(e => {
-        if (!e.property_id) e.property_id = targetProp;
-      });
+    let websites: WebSite[] = [];
+    if (await this.tableExists('websites')) {
+      websites = await this.getWebsites();
     }
 
-    // 2. Accounting Movement Defaults
-    if (data.movements) {
-      data.movements.forEach(m => {
-        if (!m.payment_method) m.payment_method = 'Unknown';
-        if (!m.platform) m.platform = 'Unknown';
-        if (!m.accounting_bucket) m.accounting_bucket = 'A';
-      });
+    let media: MediaAsset[] = [];
+    if (await this.tableExists('media_assets')) {
+      media = await this.getAllMediaAssets();
     }
+
+    return {
+      app_version: APP_VERSION,
+      schema_version: SCHEMA_VERSION,
+      exported_at: new Date().toISOString(),
+      properties: props.map(p => ({ ...p, is_active: p.is_active !== 0 })),
+      apartments: apts.map(a => ({ ...a, is_active: a.is_active !== 0 })),
+      user_settings: settings,
+      websites: websites,
+      media_assets: media
+    };
   }
 
-  // 1. Settings & Core Structure
-  try {
-    if (data.user_settings) await this.saveSettings(data.user_settings);
-    summary.counts['settings'] = 1;
-  } catch (e: any) {
-    summary.errors['settings'] = e.message;
+  async importStructureOnly(data: StructureOnlyBackup): Promise<any> {
+    const log: string[] = [];
+
+    // Import Properties
+    for (const p of data.properties) {
+      await this.saveProperty(p);
+    }
+    log.push(`Properties: ${data.properties.length}`);
+
+    // Import Apartments
+    for (const a of data.apartments) {
+      await this.saveApartment(a);
+    }
+    log.push(`Apartments: ${data.apartments.length}`);
+
+    // Import Settings
+    if (data.user_settings) {
+      await this.saveSettings(data.user_settings);
+      log.push(`Settings: 1`);
+    }
+
+    // Import Websites
+    if (data.websites && data.websites.length > 0) {
+      for (const w of data.websites) {
+        await this.saveWebsite(w);
+      }
+      log.push(`Websites: ${data.websites.length}`);
+    }
+
+    // Import Media
+    if (data.media_assets && data.media_assets.length > 0) {
+      // Manual save because saveMedia expects specific args object, not entity
+      // Actually saveMedia takes an object, check signature.
+      // Signature: saveMedia(asset: MediaAsset) -> void (impl check needed)
+      // Checking impl at line 553: saveMedia(asset: {id, ...}) matches MediaAsset roughly
+      for (const m of data.media_assets) {
+        // Ensure we match the signature expected by saveMedia
+        await this.saveMedia(m);
+      }
+      log.push(`Media Assets: ${data.media_assets.length}`);
+    }
+
+    return { success: true, log };
   }
 
-  if (data.properties) await importTable('properties', data.properties);
-  if (data.apartments) await importTable('apartments', data.apartments);
+  async importDataOnly(data: any): Promise<any> {
+    // 0. Ensure DB is initialized
+    if (!this.db || !this.initialized) {
+      await this.init();
+    }
+    const backupSchema = data.schema_version || 0;
+    const summary: any = { success: true, counts: {} as any, errors: {} as any, wasLegacy: false };
+    let tablesProcessed = 0;
 
-  // 2. Data Tables
-  if (data.travelers) await importTable('travelers', data.travelers);
-  if (data.stays) await importTable('stays', data.stays);
-  if (data.bookings) await importTable('bookings', data.bookings);
-  if (data.movements || data.accounting_movements) {
-    await importTable('accounting_movements', data.movements || data.accounting_movements);
-  }
+    // --- MIGRATION LOGIC FOR LEGACY BACKUPS (Schema 0 or missing) ---
+    if (backupSchema === 0) {
+      console.log("⚠️ Legacy Backup Detected (Schema 0). Running migration adapter...");
+      summary.wasLegacy = true;
 
-  // 3b. Channel Connections (needed for calendar events)
-  if (data.channel_connections) await importTable('channel_connections', data.channel_connections);
+      // 1. Ensure 'prop_default' for multi-property entities if missing
+      const targetProp = 'prop_default';
 
-  // 3. Calendar Events with orphan filtering
-  if (data.calendar_events && data.calendar_events.length > 0) {
-    const validBookingIds = new Set((await this.query("SELECT id FROM bookings")).map(b => b.id));
-    const validApartmentIds = new Set((await this.query("SELECT id FROM apartments")).map(a => a.id));
-    const validConnectionIds = new Set((await this.query("SELECT id FROM channel_connections")).map(c => c.id));
+      if (data.bookings) {
+        data.bookings.forEach(b => {
+          if (!b.property_id) b.property_id = targetProp;
+        });
+      }
+      // In structure only usually, but sometimes in full data dump
+      if (data.calendar_events) {
+        data.calendar_events.forEach(e => {
+          if (!e.property_id) e.property_id = targetProp;
+        });
+      }
 
-    const safeEvents = data.calendar_events.filter((ev: any) => {
-      let isSafe = true;
-      if (ev.connection_id && !validConnectionIds.has(ev.connection_id)) isSafe = false;
-      if (ev.booking_id && !validBookingIds.has(ev.booking_id)) isSafe = false;
-      if (ev.apartment_id && !validApartmentIds.has(ev.apartment_id)) isSafe = false;
-      return isSafe;
-    });
+      // 2. Accounting Movement Defaults
+      if (data.movements) {
+        data.movements.forEach(m => {
+          if (!m.payment_method) m.payment_method = 'Unknown';
+          if (!m.platform) m.platform = 'Unknown';
+          if (!m.accounting_bucket) m.accounting_bucket = 'A';
+        });
+      }
+    }
 
-    await importTable('calendar_events', safeEvents);
-  }
+    // Disable Foreign Keys globally for the import session to prevent ordering issues
+    await this.execute("PRAGMA foreign_keys = OFF;");
 
-  // 4. Other tables
-  const otherTables = [
-    'pricing_rule_sets', 'pricing_rules',
-    'cancellation_policies', 'rate_plans', 'pricing_modifiers', 'fees',
-    'registry_units', 'registry_presentations',
-    'websites', 'communication_accounts', 'conversations', 'messages',
-    'ai_personas', 'ai_facts'
-  ];
-  for (const table of otherTables) {
-    if (data[table]) await importTable(table, data[table]);
-  }
+    const importTable = async (tableName: string, items: any[]) => {
+      if (!items || items.length === 0) return;
 
-  // Ensure settings exist at the end
-  await this.ensureSettings();
+      try {
+        this.execute("BEGIN TRANSACTION");
+        let inserted = 0;
 
-  // Final Query for REAL counts
-  const tCount = await this.query("SELECT COUNT(*) as count FROM travelers");
-  const bCount = await this.query("SELECT COUNT(*) as count FROM bookings");
-  const mCount = await this.query("SELECT COUNT(*) as count FROM accounting_movements");
+        // Get valid columns for this table
+        const tableInfo = await this.query(`PRAGMA table_info(${tableName})`);
+        const validColumns = new Set(tableInfo.map((c: any) => c.name));
 
-  summary.realCounts = {
-    travelers: tCount[0]?.count || 0,
-    bookings: bCount[0]?.count || 0,
-    movements: mCount[0]?.count || 0
-  };
+        for (const item of items) {
+          const keys = Object.keys(item).filter(k => validColumns.has(k));
+          if (keys.length === 0) continue;
 
-} finally {
-  await this.execute("PRAGMA foreign_keys = ON;");
-}
+          const cols = keys.join(',');
+          const placeholders = keys.map(() => '?').join(',');
+          const values = keys.map(k => {
+            const v = item[k];
+            return v === undefined ? null : v;
+          });
 
-return summary;
+          const sql = `INSERT OR REPLACE INTO ${tableName} (${cols}) VALUES (${placeholders})`;
+          await this.executeWithParams(sql, values);
+          inserted++;
+        }
+
+        this.execute("COMMIT");
+        summary.counts[tableName] = inserted;
+        tablesProcessed++;
+
+      } catch (err: any) {
+        this.execute("ROLLBACK");
+        summary.errors[tableName] = err.message || String(err);
+        summary.success = false;
+        console.error(`Error importing table ${tableName}:`, err);
+      }
+    };
+
+    try {
+      // --- MIGRATION LOGIC FOR LEGACY BACKUPS (Schema 0 or missing) ---
+      const backupSchema = data.schema_version || 0;
+      if (backupSchema === 0) {
+        console.log("⚠️ Legacy Backup Detected (Schema 0). Running migration adapter...");
+        summary.wasLegacy = true;
+
+        // 1. Ensure 'prop_default' for multi-property entities if missing
+        const targetProp = 'prop_default';
+
+        if (data.bookings) {
+          data.bookings.forEach(b => {
+            if (!b.property_id) b.property_id = targetProp;
+          });
+        }
+        // In structure only usually, but sometimes in full data dump
+        if (data.calendar_events) {
+          data.calendar_events.forEach(e => {
+            if (!e.property_id) e.property_id = targetProp;
+          });
+        }
+
+        // 2. Accounting Movement Defaults
+        if (data.movements) {
+          data.movements.forEach(m => {
+            if (!m.payment_method) m.payment_method = 'Unknown';
+            if (!m.platform) m.platform = 'Unknown';
+            if (!m.accounting_bucket) m.accounting_bucket = 'A';
+          });
+        }
+      }
+
+      // 1. Settings & Core Structure
+      try {
+        if (data.user_settings) await this.saveSettings(data.user_settings);
+        summary.counts['settings'] = 1;
+      } catch (e: any) {
+        summary.errors['settings'] = e.message;
+      }
+
+      if (data.properties) await importTable('properties', data.properties);
+      if (data.apartments) await importTable('apartments', data.apartments);
+
+      // 2. Data Tables
+      if (data.travelers) await importTable('travelers', data.travelers);
+      if (data.stays) await importTable('stays', data.stays);
+      if (data.bookings) await importTable('bookings', data.bookings);
+      if (data.movements || data.accounting_movements) {
+        await importTable('accounting_movements', data.movements || data.accounting_movements);
+      }
+
+      // 3b. Channel Connections (needed for calendar events)
+      if (data.channel_connections) await importTable('channel_connections', data.channel_connections);
+
+      // 3. Calendar Events with orphan filtering
+      if (data.calendar_events && data.calendar_events.length > 0) {
+        const validBookingIds = new Set((await this.query("SELECT id FROM bookings")).map(b => b.id));
+        const validApartmentIds = new Set((await this.query("SELECT id FROM apartments")).map(a => a.id));
+        const validConnectionIds = new Set((await this.query("SELECT id FROM channel_connections")).map(c => c.id));
+
+        const safeEvents = data.calendar_events.filter((ev: any) => {
+          let isSafe = true;
+          if (ev.connection_id && !validConnectionIds.has(ev.connection_id)) isSafe = false;
+          if (ev.booking_id && !validBookingIds.has(ev.booking_id)) isSafe = false;
+          if (ev.apartment_id && !validApartmentIds.has(ev.apartment_id)) isSafe = false;
+          return isSafe;
+        });
+
+        await importTable('calendar_events', safeEvents);
+      }
+
+      // 4. Other tables
+      const otherTables = [
+        'pricing_rule_sets', 'pricing_rules',
+        'cancellation_policies', 'rate_plans', 'pricing_modifiers', 'fees',
+        'registry_units', 'registry_presentations',
+        'websites', 'communication_accounts', 'conversations', 'messages',
+        'ai_personas', 'ai_facts'
+      ];
+      for (const table of otherTables) {
+        if (data[table]) await importTable(table, data[table]);
+      }
+
+      // Ensure settings exist at the end
+      await this.ensureSettings();
+
+      // Final Query for REAL counts
+      const tCount = await this.query("SELECT COUNT(*) as count FROM travelers");
+      const bCount = await this.query("SELECT COUNT(*) as count FROM bookings");
+      const mCount = await this.query("SELECT COUNT(*) as count FROM accounting_movements");
+
+      summary.realCounts = {
+        travelers: tCount[0]?.count || 0,
+        bookings: bCount[0]?.count || 0,
+        movements: mCount[0]?.count || 0
+      };
+
+    } finally {
+      await this.execute("PRAGMA foreign_keys = ON;");
+    }
+
+    return summary;
   }
 
 
 
   // --- BASE HELPERS ---
   async execute(sql: string) {
-  await this.ensureInitialized();
-  if (!this.db) {
-    console.warn("DB not initialized during execute:", sql);
-    return;
+    await this.ensureInitialized();
+    if (!this.db) {
+      console.warn("DB not initialized during execute:", sql);
+      return;
+    }
+    this.db.run(sql);
   }
-  this.db.run(sql);
-}
   async executeWithParams(sql: string, params: any[]) {
-  await this.ensureInitialized();
-  if (!this.db) {
-    console.warn("DB not initialized during executeWithParams:", sql);
-    return;
+    await this.ensureInitialized();
+    if (!this.db) {
+      console.warn("DB not initialized during executeWithParams:", sql);
+      return;
+    }
+    const sanitized = this.sanitizeParams(params);
+    this.db.run(sql, sanitized);
   }
-  const sanitized = this.sanitizeParams(params);
-  this.db.run(sql, sanitized);
-}
 
   // Generic query method
-  public async query(sql: string, params: any[] = []): Promise < any[] > {
-  await this.ensureInitialized();
-  if(!this.db) {
-  return [];
-}
-const sanitized = this.sanitizeParams(params);
+  public async query(sql: string, params: any[] = []): Promise<any[]> {
+    await this.ensureInitialized();
+    if (!this.db) {
+      return [];
+    }
+    const sanitized = this.sanitizeParams(params);
 
-const res = this.db?.exec(sql, sanitized);
-if (!res || res.length === 0) return [];
-const columns = res[0].columns;
-return res[0].values.map((row: any[]) => {
-  const obj: any = {};
-  columns.forEach((col: string, i: number) => { obj[col] = row[i]; });
-  return obj;
-});
+    const res = this.db?.exec(sql, sanitized);
+    if (!res || res.length === 0) return [];
+    const columns = res[0].columns;
+    return res[0].values.map((row: any[]) => {
+      const obj: any = {};
+      columns.forEach((col: string, i: number) => { obj[col] = row[i]; });
+      return obj;
+    });
   }
 
   // --- CRUD BLINDADOS ---
@@ -2312,185 +2310,185 @@ return res[0].values.map((row: any[]) => {
   async findApartmentByName(name: string) { const r = await this.query("SELECT * FROM apartments WHERE name LIKE ?", [`%${name}%`]); return r[0] || null; }
 
   async getProperties() {
-  const res = await this.query("SELECT * FROM properties");
-  return res.map(p => ({ ...p, is_active: p.is_active !== 0 })); // Convert sqlite int to bool
-}
+    const res = await this.query("SELECT * FROM properties");
+    return res.map(p => ({ ...p, is_active: p.is_active !== 0 })); // Convert sqlite int to bool
+  }
   async saveProperty(p: Property) {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO properties (id, name, description, created_at, is_active, timezone, currency, updated_at) VALUES (?,?,?,?,?,?,?,?)",
-    [
-      p.id,
-      p.name || 'Sin nombre',
-      p.description || null,
-      p.created_at || Date.now(),
-      p.is_active !== false ? 1 : 0,
-      p.timezone || 'Europe/Madrid',
-      p.currency || 'EUR',
-      p.updated_at || Date.now()
-    ]
-  );
-}
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO properties (id, name, description, created_at, is_active, timezone, currency, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+      [
+        p.id,
+        p.name || 'Sin nombre',
+        p.description || null,
+        p.created_at || Date.now(),
+        p.is_active !== false ? 1 : 0,
+        p.timezone || 'Europe/Madrid',
+        p.currency || 'EUR',
+        p.updated_at || Date.now()
+      ]
+    );
+  }
   async deleteProperty(id: string) { await this.executeWithParams("DELETE FROM properties WHERE id=?", [id]); }
 
   async getAllApartments() {
-  const res = await this.query("SELECT * FROM apartments");
-  return res.map(a => ({ ...a, is_active: a.is_active !== 0 }));
-}
+    const res = await this.query("SELECT * FROM apartments");
+    return res.map(a => ({ ...a, is_active: a.is_active !== 0 }));
+  }
   async getApartments(pid: string) {
-  const res = await this.query("SELECT * FROM apartments WHERE property_id=?", [pid]);
-  return res.map(a => ({ ...a, is_active: a.is_active !== 0 }));
-}
+    const res = await this.query("SELECT * FROM apartments WHERE property_id=?", [pid]);
+    return res.map(a => ({ ...a, is_active: a.is_active !== 0 }));
+  }
   async saveApartment(a: Apartment) {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO apartments (id, property_id, name, color, created_at, is_active, ical_export_token, ical_last_publish, ical_event_count) VALUES (?,?,?,?,?,?,?,?,?)",
-    [
-      a.id, a.property_id, a.name || 'Unidad', a.color || '#4F46E5',
-      a.created_at || Date.now(), a.is_active !== false ? 1 : 0,
-      a.ical_export_token || null, a.ical_last_publish || null, a.ical_event_count || null
-    ]
-  );
-}
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO apartments (id, property_id, name, color, created_at, is_active, ical_export_token, ical_last_publish, ical_event_count) VALUES (?,?,?,?,?,?,?,?,?)",
+      [
+        a.id, a.property_id, a.name || 'Unidad', a.color || '#4F46E5',
+        a.created_at || Date.now(), a.is_active !== false ? 1 : 0,
+        a.ical_export_token || null, a.ical_last_publish || null, a.ical_event_count || null
+      ]
+    );
+  }
   async deleteApartment(id: string) {
-  await this.executeWithParams("DELETE FROM apartments WHERE id=?", [id]);
-}
+    await this.executeWithParams("DELETE FROM apartments WHERE id=?", [id]);
+  }
   // --- EMAIL INGEST ---
-  async saveEmailIngest(email: EmailIngest): Promise < void> {
-  await this.ensureEmailIngestTables();
-  await this.executeWithParams(
-    `INSERT OR REPLACE INTO email_ingest (
+  async saveEmailIngest(email: EmailIngest): Promise<void> {
+    await this.ensureEmailIngestTables();
+    await this.executeWithParams(
+      `INSERT OR REPLACE INTO email_ingest (
         id, provider, message_id, received_at, from_addr, subject, body_text, body_html,
         raw_links_json, parsed_json, status, error_message, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      email.id, email.provider, email.message_id, email.received_at, email.from_addr, email.subject,
-      email.body_text, email.body_html || null, JSON.stringify(email.raw_links_json),
-      JSON.stringify(email.parsed_json), email.status, email.error_message || null, email.created_at
-    ]
-  );
-}
+      [
+        email.id, email.provider, email.message_id, email.received_at, email.from_addr, email.subject,
+        email.body_text, email.body_html || null, JSON.stringify(email.raw_links_json),
+        JSON.stringify(email.parsed_json), email.status, email.error_message || null, email.created_at
+      ]
+    );
+  }
 
-  async getEmailIngestById(id: string): Promise < EmailIngest | null > {
-  const res = await this.query("SELECT * FROM email_ingest WHERE id=?", [id]);
-  if(!res.length) return null;
-  const e = res[0];
-  return {
-    ...e,
-    raw_links_json: JSON.parse(e.raw_links_json || '[]'),
-    parsed_json: JSON.parse(e.parsed_json || '{}')
-  };
-}
+  async getEmailIngestById(id: string): Promise<EmailIngest | null> {
+    const res = await this.query("SELECT * FROM email_ingest WHERE id=?", [id]);
+    if (!res.length) return null;
+    const e = res[0];
+    return {
+      ...e,
+      raw_links_json: JSON.parse(e.raw_links_json || '[]'),
+      parsed_json: JSON.parse(e.parsed_json || '{}')
+    };
+  }
 
-  async getPendingEmailIngests(): Promise < EmailIngest[] > {
-  const res = await this.query("SELECT * FROM email_ingest WHERE status IN ('NEW', 'PARSED', 'NEEDS_MANUAL') ORDER BY created_at DESC");
-  return res.map(e => ({
-    ...e,
-    raw_links_json: JSON.parse(e.raw_links_json || '[]'),
-    parsed_json: JSON.parse(e.parsed_json || '{}')
-  }));
-}
+  async getPendingEmailIngests(): Promise<EmailIngest[]> {
+    const res = await this.query("SELECT * FROM email_ingest WHERE status IN ('NEW', 'PARSED', 'NEEDS_MANUAL') ORDER BY created_at DESC");
+    return res.map(e => ({
+      ...e,
+      raw_links_json: JSON.parse(e.raw_links_json || '[]'),
+      parsed_json: JSON.parse(e.parsed_json || '{}')
+    }));
+  }
 
   // --- PROVISIONAL BOOKINGS ---
 
-  async getProvisionalBookings(): Promise < ProvisionalBooking[] > {
-  try {
-    // Logic based approach as requested: fetch bookings and filter in memory
-    const allBookings = await this.query(`SELECT * FROM bookings ORDER BY created_at DESC`);
+  async getProvisionalBookings(): Promise<ProvisionalBooking[]> {
+    try {
+      // Logic based approach as requested: fetch bookings and filter in memory
+      const allBookings = await this.query(`SELECT * FROM bookings ORDER BY created_at DESC`);
 
-    const provisionals = allBookings.filter(b => isProvisionalBlock(b) || isProvisionalBooking(b));
+      const provisionals = allBookings.filter(b => isProvisionalBlock(b) || isProvisionalBooking(b));
 
-    return provisionals.map((b: any) => {
-      if (b.policy_snapshot) {
-        try {
-          const pb = JSON.parse(b.policy_snapshot);
-          return {
-            ...pb,
-            // Ensure we use the most up-to-date core fields from the main record
-            status: b.status === 'confirmed' ? 'CONFIRMED' : (b.status === 'cancelled' ? 'CANCELLED' : pb.status),
-            start_date: b.check_in,
-            end_date: b.check_out,
-            total_price: b.total_price,
-            guest_name: b.guest_name,
-            connection_id: b.connection_id,
-            ical_uid: b.ical_uid,
-            raw_summary: b.raw_summary,
-            raw_description: b.raw_description,
-            apartment_id: b.apartment_id
-          };
-        } catch (e) {
-          console.warn("Error parsing policy_snapshot as ProvisionalBooking", e);
+      return provisionals.map((b: any) => {
+        if (b.policy_snapshot) {
+          try {
+            const pb = JSON.parse(b.policy_snapshot);
+            return {
+              ...pb,
+              // Ensure we use the most up-to-date core fields from the main record
+              status: b.status === 'confirmed' ? 'CONFIRMED' : (b.status === 'cancelled' ? 'CANCELLED' : pb.status),
+              start_date: b.check_in,
+              end_date: b.check_out,
+              total_price: b.total_price,
+              guest_name: b.guest_name,
+              connection_id: b.connection_id,
+              ical_uid: b.ical_uid,
+              raw_summary: b.raw_summary,
+              raw_description: b.raw_description,
+              apartment_id: b.apartment_id
+            };
+          } catch (e) {
+            console.warn("Error parsing policy_snapshot as ProvisionalBooking", e);
+          }
         }
-      }
-      // Fallback mapping if no snapshot
-      return {
-        id: b.id,
-        provider: b.source?.includes('Airbnb') ? 'AIRBNB' : (b.source?.includes('Booking') ? 'BOOKING' : 'OTHER'),
-        status: b.status === 'confirmed' ? 'CONFIRMED' : 'PENDING_DETAILS',
-        source: 'EMAIL_TRIGGER',
-        created_at: b.created_at,
-        updated_at: b.created_at,
-        start_date: b.check_in,
-        end_date: b.check_out,
-        guest_name: b.guest_name || 'Guest',
-        pax_adults: b.guests || 1,
-        total_price: b.total_price || 0,
-        currency: 'EUR',
-        connection_id: b.connection_id,
-        ical_uid: b.ical_uid,
-        raw_summary: b.raw_summary,
-        raw_description: b.raw_description,
-        apartment_id: b.apartment_id
-      } as ProvisionalBooking;
-    });
-  } catch(e) {
-    console.warn("Error deriving provisional bookings from bookings table", e);
-    return [];
+        // Fallback mapping if no snapshot
+        return {
+          id: b.id,
+          provider: b.source?.includes('Airbnb') ? 'AIRBNB' : (b.source?.includes('Booking') ? 'BOOKING' : 'OTHER'),
+          status: b.status === 'confirmed' ? 'CONFIRMED' : 'PENDING_DETAILS',
+          source: 'EMAIL_TRIGGER',
+          created_at: b.created_at,
+          updated_at: b.created_at,
+          start_date: b.check_in,
+          end_date: b.check_out,
+          guest_name: b.guest_name || 'Guest',
+          pax_adults: b.guests || 1,
+          total_price: b.total_price || 0,
+          currency: 'EUR',
+          connection_id: b.connection_id,
+          ical_uid: b.ical_uid,
+          raw_summary: b.raw_summary,
+          raw_description: b.raw_description,
+          apartment_id: b.apartment_id
+        } as ProvisionalBooking;
+      });
+    } catch (e) {
+      console.warn("Error deriving provisional bookings from bookings table", e);
+      return [];
+    }
   }
-}
 
-  async saveProvisionalBooking(pb: ProvisionalBooking): Promise < void> {
-  // Map ProvisionalBooking to Booking
-  const statusMap: Record<string, 'pending' | 'confirmed' | 'cancelled' > = {
-  'CONFIRMED': 'confirmed',
-    'PENDING_DETAILS': 'pending',
+  async saveProvisionalBooking(pb: ProvisionalBooking): Promise<void> {
+    // Map ProvisionalBooking to Booking
+    const statusMap: Record<string, 'pending' | 'confirmed' | 'cancelled'> = {
+      'CONFIRMED': 'confirmed',
+      'PENDING_DETAILS': 'pending',
       'INQUIRY': 'pending',
-        'HOLD': 'pending',
-          'PENDING_CONFIRMATION': 'pending',
-            'CANCELLED': 'cancelled',
-              'EXPIRED': 'cancelled'
-};
+      'HOLD': 'pending',
+      'PENDING_CONFIRMATION': 'pending',
+      'CANCELLED': 'cancelled',
+      'EXPIRED': 'cancelled'
+    };
 
-const booking: Booking = {
-  id: pb.id,
-  provisional_id: pb.id,
-  property_id: 'prop_default', // Default, usually enriched later
-  apartment_id: pb.apartment_id || pb.apartment_hint || 'apt_unknown',
-  traveler_id: 'placeholder',
-  check_in: pb.start_date || '',
-  check_out: pb.end_date || '',
-  status: statusMap[pb.status] || 'pending',
-  total_price: pb.total_price || 0,
-  guests: pb.pax_adults || 1,
-  source: pb.source === 'ICAL' ? 'ICAL' : (pb.provider === 'DIRECT_WEB' ? 'DIRECT_WEB' : `EMAIL_TRIGGER (${pb.provider})`),
-  external_ref: pb.provider_reservation_id,
-  created_at: pb.created_at || Date.now(),
-  guest_name: pb.guest_name,
-  enrichment_status: pb.status === 'PENDING_DETAILS' ? 'PENDING' : 'COMPLETE',
-  event_origin: pb.source === 'ICAL' ? 'ical' : 'other',
-  event_state: pb.status === 'CONFIRMED' ? 'confirmed' : 'provisional',
-  policy_snapshot: JSON.stringify(pb)
-};
+    const booking: Booking = {
+      id: pb.id,
+      provisional_id: pb.id,
+      property_id: 'prop_default', // Default, usually enriched later
+      apartment_id: pb.apartment_id || pb.apartment_hint || 'apt_unknown',
+      traveler_id: 'placeholder',
+      check_in: pb.start_date || '',
+      check_out: pb.end_date || '',
+      status: statusMap[pb.status] || 'pending',
+      total_price: pb.total_price || 0,
+      guests: pb.pax_adults || 1,
+      source: pb.source === 'ICAL' ? 'ICAL' : (pb.provider === 'DIRECT_WEB' ? 'DIRECT_WEB' : `EMAIL_TRIGGER (${pb.provider})`),
+      external_ref: pb.provider_reservation_id,
+      created_at: pb.created_at || Date.now(),
+      guest_name: pb.guest_name,
+      enrichment_status: pb.status === 'PENDING_DETAILS' ? 'PENDING' : 'COMPLETE',
+      event_origin: pb.source === 'ICAL' ? 'ical' : 'other',
+      event_state: pb.status === 'CONFIRMED' ? 'confirmed' : 'provisional',
+      policy_snapshot: JSON.stringify(pb)
+    };
 
-await this.saveBooking(booking);
+    await this.saveBooking(booking);
   }
 
-  async deleteProvisionalBooking(id: string): Promise < void> {
-  await this.deleteBooking(id);
-}
+  async deleteProvisionalBooking(id: string): Promise<void> {
+    await this.deleteBooking(id);
+  }
 
   private async ensureEmailIngestTables() {
-  try {
-    // Email Ingest Table
-    await this.execute(`
+    try {
+      // Email Ingest Table
+      await this.execute(`
         CREATE TABLE IF NOT EXISTS email_ingest (
           id TEXT PRIMARY KEY,
           provider TEXT,
@@ -2508,8 +2506,8 @@ await this.saveBooking(booking);
         )
       `);
 
-    // Media Assets Table
-    await this.execute(`
+      // Media Assets Table
+      await this.execute(`
           CREATE TABLE IF NOT EXISTS media_assets (
             id TEXT PRIMARY KEY,
             site_id TEXT,
@@ -2523,660 +2521,660 @@ await this.saveBooking(booking);
           )
         `);
 
-    try {
-      await this.execute("ALTER TABLE user_settings ADD COLUMN personal_email TEXT");
-    } catch (e) { /* ignore if exists */ }
-    try {
-      await this.execute("ALTER TABLE user_settings ADD COLUMN technical_reservations_email TEXT");
-    } catch (e) { /* ignore if exists */ }
-    try {
-      await this.execute("ALTER TABLE user_settings ADD COLUMN allow_manual_completion INTEGER DEFAULT 1");
-    } catch (e) { /* ignore if exists */ }
-    try {
-      await this.execute("ALTER TABLE user_settings ADD COLUMN require_details_to_close INTEGER DEFAULT 0");
-    } catch (e) { /* ignore if exists */ }
-    try {
-      await this.execute("ALTER TABLE user_settings ADD COLUMN hold_minutes INTEGER DEFAULT 15");
-    } catch (e) { /* ignore if exists */ }
-    try {
-      await this.execute("ALTER TABLE bookings ADD COLUMN policy_snapshot TEXT");
-    } catch (e) { /* ignore if exists */ }
-    try {
-      await this.execute("ALTER TABLE bookings ADD COLUMN deposit_paid_at INTEGER");
-    } catch (e) { /* ignore if exists */ }
-    try {
-      await this.execute("ALTER TABLE bookings ADD COLUMN remaining_paid_at INTEGER");
-    } catch (e) { /* ignore if exists */ }
-    try {
-      await this.execute("ALTER TABLE bookings ADD COLUMN payment_status TEXT");
-    } catch (e) { /* ignore if exists */ }
-    try {
-      await this.execute("ALTER TABLE bookings ADD COLUMN payment_notes TEXT");
-    } catch (e) { /* ignore if exists */ }
+      try {
+        await this.execute("ALTER TABLE user_settings ADD COLUMN personal_email TEXT");
+      } catch (e) { /* ignore if exists */ }
+      try {
+        await this.execute("ALTER TABLE user_settings ADD COLUMN technical_reservations_email TEXT");
+      } catch (e) { /* ignore if exists */ }
+      try {
+        await this.execute("ALTER TABLE user_settings ADD COLUMN allow_manual_completion INTEGER DEFAULT 1");
+      } catch (e) { /* ignore if exists */ }
+      try {
+        await this.execute("ALTER TABLE user_settings ADD COLUMN require_details_to_close INTEGER DEFAULT 0");
+      } catch (e) { /* ignore if exists */ }
+      try {
+        await this.execute("ALTER TABLE user_settings ADD COLUMN hold_minutes INTEGER DEFAULT 15");
+      } catch (e) { /* ignore if exists */ }
+      try {
+        await this.execute("ALTER TABLE bookings ADD COLUMN policy_snapshot TEXT");
+      } catch (e) { /* ignore if exists */ }
+      try {
+        await this.execute("ALTER TABLE bookings ADD COLUMN deposit_paid_at INTEGER");
+      } catch (e) { /* ignore if exists */ }
+      try {
+        await this.execute("ALTER TABLE bookings ADD COLUMN remaining_paid_at INTEGER");
+      } catch (e) { /* ignore if exists */ }
+      try {
+        await this.execute("ALTER TABLE bookings ADD COLUMN payment_status TEXT");
+      } catch (e) { /* ignore if exists */ }
+      try {
+        await this.execute("ALTER TABLE bookings ADD COLUMN payment_notes TEXT");
+      } catch (e) { /* ignore if exists */ }
 
-    // Website Publish Columns
-    try { await this.execute("ALTER TABLE websites ADD COLUMN last_exported_at INTEGER"); } catch (e) { }
-    try { await this.execute("ALTER TABLE websites ADD COLUMN last_export_hash TEXT"); } catch (e) { }
-    try { await this.execute("ALTER TABLE websites ADD COLUMN publish_notes TEXT"); } catch (e) { }
-  } catch (e) {
-    console.error("Error ensuring email ingest tables:", e);
+      // Website Publish Columns
+      try { await this.execute("ALTER TABLE websites ADD COLUMN last_exported_at INTEGER"); } catch (e) { }
+      try { await this.execute("ALTER TABLE websites ADD COLUMN last_export_hash TEXT"); } catch (e) { }
+      try { await this.execute("ALTER TABLE websites ADD COLUMN publish_notes TEXT"); } catch (e) { }
+    } catch (e) {
+      console.error("Error ensuring email ingest tables:", e);
+    }
   }
-}
 
 
 
   // --- CLEANING MODULE ---
 
-  async getCleaningTasks(startDate: string, endDate: string, apartmentId ?: string): Promise < CleaningTask[] > {
-  let sql = "SELECT * FROM cleaning_tasks WHERE due_date >= ? AND due_date <= ?";
-  const params: any[] = [startDate, endDate];
+  async getCleaningTasks(startDate: string, endDate: string, apartmentId?: string): Promise<CleaningTask[]> {
+    let sql = "SELECT * FROM cleaning_tasks WHERE due_date >= ? AND due_date <= ?";
+    const params: any[] = [startDate, endDate];
 
-  if(apartmentId) {
-    sql += " AND apartment_id = ?";
-    params.push(apartmentId);
-  }
+    if (apartmentId) {
+      sql += " AND apartment_id = ?";
+      params.push(apartmentId);
+    }
 
     sql += " ORDER BY due_date ASC, status ASC"; // Pending first? Or chronological.
 
-  const rows = await this.query(sql, params);
-  return rows.map(r => ({
-    ...r,
-    // Boolean mapping if any?
-  }));
-}
+    const rows = await this.query(sql, params);
+    return rows.map(r => ({
+      ...r,
+      // Boolean mapping if any?
+    }));
+  }
 
-  async getCleaningTaskById(id: string): Promise < CleaningTask | null > {
-  const rows = await this.query("SELECT * FROM cleaning_tasks WHERE id = ?", [id]);
-  return rows[0] || null;
-}
+  async getCleaningTaskById(id: string): Promise<CleaningTask | null> {
+    const rows = await this.query("SELECT * FROM cleaning_tasks WHERE id = ?", [id]);
+    return rows[0] || null;
+  }
 
-  async saveCleaningTask(t: CleaningTask): Promise < void> {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO cleaning_tasks (id, apartment_id, booking_id, due_date, status, assigned_to, notes, checklist_state_json, completed_at, signature_name, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-    [
-      t.id, t.apartment_id, t.booking_id || null, t.due_date, t.status,
-      t.assigned_to || null, t.notes || null, t.checklist_state_json || null,
-      t.completed_at || null, t.signature_name || null,
-      t.created_at, t.updated_at
-    ]
-  );
-}
+  async saveCleaningTask(t: CleaningTask): Promise<void> {
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO cleaning_tasks (id, apartment_id, booking_id, due_date, status, assigned_to, notes, checklist_state_json, completed_at, signature_name, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+      [
+        t.id, t.apartment_id, t.booking_id || null, t.due_date, t.status,
+        t.assigned_to || null, t.notes || null, t.checklist_state_json || null,
+        t.completed_at || null, t.signature_name || null,
+        t.created_at, t.updated_at
+      ]
+    );
+  }
 
-  async getCleaningTemplates(propertyId: string): Promise < CleaningTemplate[] > {
-  return await this.query("SELECT * FROM cleaning_templates WHERE property_id = ?", [propertyId]);
-}
+  async getCleaningTemplates(propertyId: string): Promise<CleaningTemplate[]> {
+    return await this.query("SELECT * FROM cleaning_templates WHERE property_id = ?", [propertyId]);
+  }
 
-  async saveCleaningTemplate(t: CleaningTemplate): Promise < void> {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO cleaning_templates (id, property_id, title, items_json, created_at) VALUES (?,?,?,?,?)",
-    [t.id, t.property_id, t.title, t.items_json, t.created_at]
-  );
-}
+  async saveCleaningTemplate(t: CleaningTemplate): Promise<void> {
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO cleaning_templates (id, property_id, title, items_json, created_at) VALUES (?,?,?,?,?)",
+      [t.id, t.property_id, t.title, t.items_json, t.created_at]
+    );
+  }
 
   // --- WEB BOOKING HOLDS ---
 
-  async createWebHold(draft: any, holdMinutes: number = 15): Promise < ProvisionalBooking > {
-  const expiresAt = Date.now() + (holdMinutes * 60 * 1000);
-  const hold: ProvisionalBooking = {
-    id: crypto.randomUUID(),
-    provider: 'DIRECT_WEB', // Using 'DIRECT_WEB' literal, need to update EmailProvider type if strict? 
-    // Actually I updated ProvisionalBooking provider type to allow 'DIRECT_WEB'
-    status: 'HOLD',
-    source: 'WEB_CHECKOUT',
-    created_at: Date.now(),
-    updated_at: Date.now(),
-    expires_at: expiresAt,
+  async createWebHold(draft: any, holdMinutes: number = 15): Promise<ProvisionalBooking> {
+    const expiresAt = Date.now() + (holdMinutes * 60 * 1000);
+    const hold: ProvisionalBooking = {
+      id: crypto.randomUUID(),
+      provider: 'DIRECT_WEB', // Using 'DIRECT_WEB' literal, need to update EmailProvider type if strict? 
+      // Actually I updated ProvisionalBooking provider type to allow 'DIRECT_WEB'
+      status: 'HOLD',
+      source: 'WEB_CHECKOUT',
+      created_at: Date.now(),
+      updated_at: Date.now(),
+      expires_at: expiresAt,
 
-    start_date: draft.check_in,
-    end_date: draft.check_out,
-    guest_name: draft.guest_name || 'Web Guest',
-    pax_adults: draft.pax_adults || 2,
-    total_price: draft.total_price || 0,
-    currency: draft.currency || 'EUR',
+      start_date: draft.check_in,
+      end_date: draft.check_out,
+      guest_name: draft.guest_name || 'Web Guest',
+      pax_adults: draft.pax_adults || 2,
+      total_price: draft.total_price || 0,
+      currency: draft.currency || 'EUR',
 
-    apartment_hint: draft.apartment_name, // Optional context
+      apartment_hint: draft.apartment_name, // Optional context
 
-    // Persist logic handled by saveProvisionalBooking usually, 
-    // but we might want bespoke save to ensure it doesn't conflict?
-    // saveProvisionalBooking is generic. Let's use it.
-  } as any; // Cast for now as 'DIRECT_WEB' might conflict if we didn't fully update types globally yet (e.g. EmailProvider)
-  // Actually I updated ProvisionalBooking interface.
+      // Persist logic handled by saveProvisionalBooking usually, 
+      // but we might want bespoke save to ensure it doesn't conflict?
+      // saveProvisionalBooking is generic. Let's use it.
+    } as any; // Cast for now as 'DIRECT_WEB' might conflict if we didn't fully update types globally yet (e.g. EmailProvider)
+    // Actually I updated ProvisionalBooking interface.
 
-  // We need to save it. 
-  // BUT saveProvisionalBooking uses 'provider' logic. 
-  // Let's rely on generic insert/update if possible or reuse saveProvisionalBooking logic.
-  await this.saveProvisionalBooking(hold);
-  return hold;
-}
-
-  async expireHolds(): Promise < number > {
-  const now = Date.now();
-  // Only expire HOLD status
-  const result = await this.executeWithParams(
-    `UPDATE bookings SET status = 'cancelled' WHERE provisional_id IS NOT NULL AND status = 'pending' AND JSON_EXTRACT(policy_snapshot, '$.expires_at') < ?`,
-    [now]
-  );
-  // Return rows affected if possible? sqlite execute returns result usually.
-  // If not, we assume it worked.
-  return 0;
-}
-
-  async confirmWebBooking(holdId: string, instructions ?: string): Promise < void> {
-  const status = instructions ? 'PENDING_CONFIRMATION' : 'CONFIRMED';
-  await this.executeWithParams(
-    `UPDATE bookings SET status = ? WHERE provisional_id = ?`,
-    ['pending', holdId]
-  );
-  // Ideally we'd update policy_snapshot too, but for confirmation the main status is enough.
-  // If more complex metadata needs to be updated, we should fetch, modify, and save.
-}
-
-  async finalizeWebBooking(holdId: string): Promise < Booking > {
-  // 1. Get Hold
-  const results = await this.getProvisionalBookings();
-  const hold = results.find(p => p.id === holdId);
-  if(!hold) throw new Error("La reserva provisional no existe o ha expirado.");
-
-  // 2. Resolve Apartment
-  // Assuming apartment_hint holds the apartment ID in this context for DIRECT_WEB?
-  // Or we need to resolve it. If it's a direct web hold, usually we set apartment_hint to the apt name or ID.
-  // Let's assume we can match it by name or ID.
-  const apartments = await this.query("SELECT * FROM apartments");
-  const apartment = apartments.find((a: any) => a.id === hold.apartment_hint || a.name === hold.apartment_hint);
-
-  if(!apartment) throw new Error(`Apartamento no válido: ${hold.apartment_hint}`);
-
-  // 3. Conflict Check
-  const bookings = await this.getBookings();
-  const isConflict = bookings.some(b =>
-    b.apartment_id === apartment.id &&
-    b.status !== 'cancelled' &&
-    ((b.check_in < hold.end_date! && b.check_out > hold.start_date!))
-  );
-
-  if(isConflict) {
-    await this.cancelProvisionalBooking(holdId, "Conflict during confirmation", { error: "Double booking prevented" });
-    throw new Error("Fechas ya no disponibles. Por favor reinicie la reserva.");
+    // We need to save it. 
+    // BUT saveProvisionalBooking uses 'provider' logic. 
+    // Let's rely on generic insert/update if possible or reuse saveProvisionalBooking logic.
+    await this.saveProvisionalBooking(hold);
+    return hold;
   }
+
+  async expireHolds(): Promise<number> {
+    const now = Date.now();
+    // Only expire HOLD status
+    const result = await this.executeWithParams(
+      `UPDATE bookings SET status = 'cancelled' WHERE provisional_id IS NOT NULL AND status = 'pending' AND JSON_EXTRACT(policy_snapshot, '$.expires_at') < ?`,
+      [now]
+    );
+    // Return rows affected if possible? sqlite execute returns result usually.
+    // If not, we assume it worked.
+    return 0;
+  }
+
+  async confirmWebBooking(holdId: string, instructions?: string): Promise<void> {
+    const status = instructions ? 'PENDING_CONFIRMATION' : 'CONFIRMED';
+    await this.executeWithParams(
+      `UPDATE bookings SET status = ? WHERE provisional_id = ?`,
+      ['pending', holdId]
+    );
+    // Ideally we'd update policy_snapshot too, but for confirmation the main status is enough.
+    // If more complex metadata needs to be updated, we should fetch, modify, and save.
+  }
+
+  async finalizeWebBooking(holdId: string): Promise<Booking> {
+    // 1. Get Hold
+    const results = await this.getProvisionalBookings();
+    const hold = results.find(p => p.id === holdId);
+    if (!hold) throw new Error("La reserva provisional no existe o ha expirado.");
+
+    // 2. Resolve Apartment
+    // Assuming apartment_hint holds the apartment ID in this context for DIRECT_WEB?
+    // Or we need to resolve it. If it's a direct web hold, usually we set apartment_hint to the apt name or ID.
+    // Let's assume we can match it by name or ID.
+    const apartments = await this.query("SELECT * FROM apartments");
+    const apartment = apartments.find((a: any) => a.id === hold.apartment_hint || a.name === hold.apartment_hint);
+
+    if (!apartment) throw new Error(`Apartamento no válido: ${hold.apartment_hint}`);
+
+    // 3. Conflict Check
+    const bookings = await this.getBookings();
+    const isConflict = bookings.some(b =>
+      b.apartment_id === apartment.id &&
+      b.status !== 'cancelled' &&
+      ((b.check_in < hold.end_date! && b.check_out > hold.start_date!))
+    );
+
+    if (isConflict) {
+      await this.cancelProvisionalBooking(holdId, "Conflict during confirmation", { error: "Double booking prevented" });
+      throw new Error("Fechas ya no disponibles. Por favor reinicie la reserva.");
+    }
 
     // 4. Policy Snapshot
     const policy = await this.resolveBookingPolicy(apartment.id);
-  const draft = {
-    check_in: hold.start_date!,
-    check_out: hold.end_date!,
-    total_price: hold.total_price || 0,
-    guest_name: hold.guest_name,
-    pax_adults: hold.pax_adults,
-    currency: hold.currency
-  };
-  const breakdown = checkoutService.computeCheckout(draft, policy);
+    const draft = {
+      check_in: hold.start_date!,
+      check_out: hold.end_date!,
+      total_price: hold.total_price || 0,
+      guest_name: hold.guest_name,
+      pax_adults: hold.pax_adults,
+      currency: hold.currency
+    };
+    const breakdown = checkoutService.computeCheckout(draft, policy);
 
-  const policySnapshot = JSON.stringify({
-    policy_id: policy.id,
-    mode: policy.payment_mode,
-    breakdown: breakdown,
-    captured_at: Date.now()
-  });
+    const policySnapshot = JSON.stringify({
+      policy_id: policy.id,
+      mode: policy.payment_mode,
+      breakdown: breakdown,
+      captured_at: Date.now()
+    });
 
-  // 5. Payment Status Logic
-  let paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID' = 'PENDING';
-  if(policy.payment_mode === 'PAY_ON_ARRIVAL') {
-  paymentStatus = 'PENDING';
-} else if (policy.payment_mode === 'DEPOSIT_ONLY') {
-  // If we are confirming, we assume the deposit is handled or we mark as pending?
-  // User said: "Si payment_mode = DEPOSIT_ONLY: marcar depósito como DUE"
-  // So we start as PENDING mostly.
-  paymentStatus = 'PENDING';
-}
-// If FULL_PREPAY, also PENDING until we mark as paid? Or if Stripe, maybe PAID?
-// User said "sin integraciones externas de pago por ahora". So always PENDING.
+    // 5. Payment Status Logic
+    let paymentStatus: 'PENDING' | 'PARTIAL' | 'PAID' = 'PENDING';
+    if (policy.payment_mode === 'PAY_ON_ARRIVAL') {
+      paymentStatus = 'PENDING';
+    } else if (policy.payment_mode === 'DEPOSIT_ONLY') {
+      // If we are confirming, we assume the deposit is handled or we mark as pending?
+      // User said: "Si payment_mode = DEPOSIT_ONLY: marcar depósito como DUE"
+      // So we start as PENDING mostly.
+      paymentStatus = 'PENDING';
+    }
+    // If FULL_PREPAY, also PENDING until we mark as paid? Or if Stripe, maybe PAID?
+    // User said "sin integraciones externas de pago por ahora". So always PENDING.
 
-// 6. Create Booking
-const newBooking: Booking = {
-  id: crypto.randomUUID(),
-  property_id: apartment.property_id,
-  apartment_id: apartment.id,
-  traveler_id: hold.id, // Use hold ID as temp traveler ID or create one?
-  // Let's create a new ID for the booking.
-  // Store logic might expect a real traveler_id from travelers table?
-  // For now, let's use a placeholder string or create a traveler record.
+    // 6. Create Booking
+    const newBooking: Booking = {
+      id: crypto.randomUUID(),
+      property_id: apartment.property_id,
+      apartment_id: apartment.id,
+      traveler_id: hold.id, // Use hold ID as temp traveler ID or create one?
+      // Let's create a new ID for the booking.
+      // Store logic might expect a real traveler_id from travelers table?
+      // For now, let's use a placeholder string or create a traveler record.
 
-  check_in: hold.start_date!,
-  check_out: hold.end_date!,
-  status: 'confirmed',
-  total_price: hold.total_price || 0,
-  guests: hold.pax_adults || 1,
-  source: 'DIRECT_WEB',
-  created_at: Date.now(),
-  guest_name: hold.guest_name,
-  provisional_id: hold.id,
-  enrichment_status: 'COMPLETE',
-  policy_snapshot: policySnapshot,
-  payment_status: paymentStatus,
-  payment_notes: "Reserva Web Confirmada (Directa)"
-};
+      check_in: hold.start_date!,
+      check_out: hold.end_date!,
+      status: 'confirmed',
+      total_price: hold.total_price || 0,
+      guests: hold.pax_adults || 1,
+      source: 'DIRECT_WEB',
+      created_at: Date.now(),
+      guest_name: hold.guest_name,
+      provisional_id: hold.id,
+      enrichment_status: 'COMPLETE',
+      policy_snapshot: policySnapshot,
+      payment_status: paymentStatus,
+      payment_notes: "Reserva Web Confirmada (Directa)"
+    };
 
-await this.saveBooking(newBooking);
+    await this.saveBooking(newBooking);
 
-// 7. Delete Provisional
-await this.deleteProvisionalBooking(holdId);
+    // 7. Delete Provisional
+    await this.deleteProvisionalBooking(holdId);
 
-console.log(`[DIRECT_WEB] Booking Confirmed: ${newBooking.id} for ${apartment.name}`);
+    console.log(`[DIRECT_WEB] Booking Confirmed: ${newBooking.id} for ${apartment.name}`);
 
-return newBooking;
+    return newBooking;
   }
 
-  async cancelProvisionalBooking(id: string, reason: string, outcome: any): Promise < void> {
-  await this.executeWithParams(
-    `UPDATE bookings SET status = 'cancelled' WHERE id = ? OR provisional_id = ?`,
-    [id, id]
-  );
-}
+  async cancelProvisionalBooking(id: string, reason: string, outcome: any): Promise<void> {
+    await this.executeWithParams(
+      `UPDATE bookings SET status = 'cancelled' WHERE id = ? OR provisional_id = ?`,
+      [id, id]
+    );
+  }
 
   // --- BOOKING POLICIES RESOLUTION ---
 
-  async saveBookingPolicy(policy: BookingPolicy): Promise < void> {
-  await this.executeWithParams(
-    `INSERT OR REPLACE INTO booking_policies (
+  async saveBookingPolicy(policy: BookingPolicy): Promise<void> {
+    await this.executeWithParams(
+      `INSERT OR REPLACE INTO booking_policies (
         id, scope_type, scope_id, currency, payment_mode, deposit_type,
         deposit_value, deposit_due, remaining_due, accepted_methods,
         require_security_deposit, security_deposit_amount, security_deposit_method,
         cancellation_policy_type, cancellation_rules, no_show_policy,
         created_at, updated_at
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    [
-      policy.id, policy.scope_type, policy.scope_id, policy.currency,
-      policy.payment_mode, policy.deposit_type, policy.deposit_value,
-      policy.deposit_due, policy.remaining_due,
-      JSON.stringify(policy.accepted_methods),
-      policy.require_security_deposit ? 1 : 0,
-      policy.security_deposit_amount || 0,
-      policy.security_deposit_method,
-      policy.cancellation_policy_type,
-      JSON.stringify(policy.cancellation_rules || []),
-      JSON.stringify(policy.no_show_policy || {}),
-      policy.created_at, policy.updated_at
-    ]
-  );
-}
-
-  async getBookingPolicy(scopeType: PolicyScope, scopeId: string): Promise < BookingPolicy | null > {
-  const res = await this.query(
-    "SELECT * FROM booking_policies WHERE scope_type = ? AND scope_id = ?",
-    [scopeType, scopeId]
-  );
-  if(!res.length) return null;
-  const row = res[0];
-  return {
-    ...row,
-    accepted_methods: JSON.parse(row.accepted_methods || '[]'),
-    cancellation_rules: JSON.parse(row.cancellation_rules || '[]'),
-    no_show_policy: JSON.parse(row.no_show_policy || '{}'),
-    require_security_deposit: row.require_security_deposit === 1
-  } as BookingPolicy;
-}
-
-  async resolveBookingPolicy(apartmentId ?: string): Promise < BookingPolicy > {
-  // 1. Try Apartment specific
-  if(apartmentId) {
-    const aptPolicy = await this.getBookingPolicy('APARTMENT', apartmentId);
-    if (aptPolicy) return aptPolicy;
+      [
+        policy.id, policy.scope_type, policy.scope_id, policy.currency,
+        policy.payment_mode, policy.deposit_type, policy.deposit_value,
+        policy.deposit_due, policy.remaining_due,
+        JSON.stringify(policy.accepted_methods),
+        policy.require_security_deposit ? 1 : 0,
+        policy.security_deposit_amount || 0,
+        policy.security_deposit_method,
+        policy.cancellation_policy_type,
+        JSON.stringify(policy.cancellation_rules || []),
+        JSON.stringify(policy.no_show_policy || {}),
+        policy.created_at, policy.updated_at
+      ]
+    );
   }
+
+  async getBookingPolicy(scopeType: PolicyScope, scopeId: string): Promise<BookingPolicy | null> {
+    const res = await this.query(
+      "SELECT * FROM booking_policies WHERE scope_type = ? AND scope_id = ?",
+      [scopeType, scopeId]
+    );
+    if (!res.length) return null;
+    const row = res[0];
+    return {
+      ...row,
+      accepted_methods: JSON.parse(row.accepted_methods || '[]'),
+      cancellation_rules: JSON.parse(row.cancellation_rules || '[]'),
+      no_show_policy: JSON.parse(row.no_show_policy || '{}'),
+      require_security_deposit: row.require_security_deposit === 1
+    } as BookingPolicy;
+  }
+
+  async resolveBookingPolicy(apartmentId?: string): Promise<BookingPolicy> {
+    // 1. Try Apartment specific
+    if (apartmentId) {
+      const aptPolicy = await this.getBookingPolicy('APARTMENT', apartmentId);
+      if (aptPolicy) return aptPolicy;
+    }
 
     // 2. Try Property specific (using active property or inferring from apartment)
     // For now, let's assume we want the default property policy if no specific apartment is gathered
     // Or we should look up the property_id for the apartment.
     let propertyId = 'prop_default';
-  if(apartmentId) {
-    const apt = (await this.query("SELECT property_id FROM apartments WHERE id = ?", [apartmentId]))[0];
-    if (apt) propertyId = apt.property_id;
-  }
+    if (apartmentId) {
+      const apt = (await this.query("SELECT property_id FROM apartments WHERE id = ?", [apartmentId]))[0];
+      if (apt) propertyId = apt.property_id;
+    }
 
     const propPolicy = await this.getBookingPolicy('PROPERTY', propertyId);
-  if(propPolicy) return propPolicy;
+    if (propPolicy) return propPolicy;
 
-  // 3. Fallback to Default
-  return DEFAULT_POLICY;
-}
+    // 3. Fallback to Default
+    return DEFAULT_POLICY;
+  }
 
 
 
   // --- MAINTENANCE MODULE ---
 
-  async getMaintenanceIssues(status ?: string, apartmentId ?: string): Promise < MaintenanceIssue[] > {
-  let sql = "SELECT * FROM maintenance_issues WHERE 1=1";
-  const params: any[] = [];
+  async getMaintenanceIssues(status?: string, apartmentId?: string): Promise<MaintenanceIssue[]> {
+    let sql = "SELECT * FROM maintenance_issues WHERE 1=1";
+    const params: any[] = [];
 
-  if(status) {
-    if (status === 'OPEN_PENDING') {
-      sql += " AND status != 'RESOLVED'";
-    } else {
-      sql += " AND status = ?";
-      params.push(status);
+    if (status) {
+      if (status === 'OPEN_PENDING') {
+        sql += " AND status != 'RESOLVED'";
+      } else {
+        sql += " AND status = ?";
+        params.push(status);
+      }
     }
-  }
 
-    if(apartmentId) {
-    sql += " AND apartment_id = ?";
-    params.push(apartmentId);
-  }
+    if (apartmentId) {
+      sql += " AND apartment_id = ?";
+      params.push(apartmentId);
+    }
 
     sql += " ORDER BY created_at DESC";
-  return await this.query(sql, params);
-}
+    return await this.query(sql, params);
+  }
 
-  async getMaintenanceIssueById(id: string): Promise < MaintenanceIssue | null > {
-  const res = await this.query("SELECT * FROM maintenance_issues WHERE id = ?", [id]);
-  return res.length > 0 ? res[0] : null;
-}
+  async getMaintenanceIssueById(id: string): Promise<MaintenanceIssue | null> {
+    const res = await this.query("SELECT * FROM maintenance_issues WHERE id = ?", [id]);
+    return res.length > 0 ? res[0] : null;
+  }
 
-  async saveMaintenanceIssue(issue: MaintenanceIssue): Promise < void> {
-  const exists = await this.getMaintenanceIssueById(issue.id);
-  if(exists) {
-    await this.executeWithParams(
-      `UPDATE maintenance_issues SET 
+  async saveMaintenanceIssue(issue: MaintenanceIssue): Promise<void> {
+    const exists = await this.getMaintenanceIssueById(issue.id);
+    if (exists) {
+      await this.executeWithParams(
+        `UPDATE maintenance_issues SET 
            title=?, description=?, priority=?, status=?, 
            assigned_to=?, resolved_at=?, resolution_notes=?, signature_name=?, photos_json=? 
          WHERE id=?`,
-      [
-        issue.title, issue.description, issue.priority, issue.status,
-        issue.assigned_to, issue.resolved_at, issue.resolution_notes, issue.signature_name, issue.photos_json,
-        issue.id
-      ]
-    );
-  } else {
-    await this.executeWithParams(
-      `INSERT INTO maintenance_issues (
+        [
+          issue.title, issue.description, issue.priority, issue.status,
+          issue.assigned_to, issue.resolved_at, issue.resolution_notes, issue.signature_name, issue.photos_json,
+          issue.id
+        ]
+      );
+    } else {
+      await this.executeWithParams(
+        `INSERT INTO maintenance_issues (
            id, apartment_id, title, description, priority, status, 
            created_at, created_by, assigned_to, resolved_at, resolution_notes, signature_name, photos_json
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        issue.id, issue.apartment_id, issue.title, issue.description, issue.priority, issue.status,
-        issue.created_at, issue.created_by, issue.assigned_to, issue.resolved_at, issue.resolution_notes, issue.signature_name, issue.photos_json
-      ]
+        [
+          issue.id, issue.apartment_id, issue.title, issue.description, issue.priority, issue.status,
+          issue.created_at, issue.created_by, issue.assigned_to, issue.resolved_at, issue.resolution_notes, issue.signature_name, issue.photos_json
+        ]
+      );
+    }
+  }
+
+  async getMaintenancePhotos(issueId: string): Promise<MaintenancePhoto[]> {
+    return await this.query("SELECT * FROM maintenance_photos WHERE issue_id = ?", [issueId]);
+  }
+
+  async saveMaintenancePhoto(photo: MaintenancePhoto): Promise<void> {
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO maintenance_photos (id, issue_id, media_id, created_at) VALUES (?, ?, ?, ?)",
+      [photo.id, photo.issue_id, photo.media_id, photo.created_at]
     );
   }
-}
 
-  async getMaintenancePhotos(issueId: string): Promise < MaintenancePhoto[] > {
-  return await this.query("SELECT * FROM maintenance_photos WHERE issue_id = ?", [issueId]);
-}
+  async getMarketingEmailTemplates(): Promise<MarketingEmailTemplate[]> {
+    return await this.query("SELECT * FROM marketing_email_templates ORDER BY created_at DESC");
+  }
 
-  async saveMaintenancePhoto(photo: MaintenancePhoto): Promise < void> {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO maintenance_photos (id, issue_id, media_id, created_at) VALUES (?, ?, ?, ?)",
-    [photo.id, photo.issue_id, photo.media_id, photo.created_at]
-  );
-}
+  async getMarketingEmailTemplateById(id: string): Promise<MarketingEmailTemplate | null> {
+    const rows = await this.query("SELECT * FROM marketing_email_templates WHERE id = ?", [id]);
+    return rows[0] || null;
+  }
 
-  async getMarketingEmailTemplates(): Promise < MarketingEmailTemplate[] > {
-  return await this.query("SELECT * FROM marketing_email_templates ORDER BY created_at DESC");
-}
+  async saveMarketingEmailTemplate(t: MarketingEmailTemplate): Promise<void> {
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO marketing_email_templates (id, name, template_spec_json, created_at, updated_at) VALUES (?,?,?,?,?)",
+      [t.id, t.name, t.template_spec_json, t.created_at, t.updated_at]
+    );
+    notifyDataChanged('marketing_templates');
+  }
 
-  async getMarketingEmailTemplateById(id: string): Promise < MarketingEmailTemplate | null > {
-  const rows = await this.query("SELECT * FROM marketing_email_templates WHERE id = ?", [id]);
-  return rows[0] || null;
-}
+  async deleteMarketingEmailTemplate(id: string): Promise<void> {
+    await this.executeWithParams("DELETE FROM marketing_email_templates WHERE id = ?", [id]);
+    notifyDataChanged('marketing_templates');
+  }
 
-  async saveMarketingEmailTemplate(t: MarketingEmailTemplate): Promise < void> {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO marketing_email_templates (id, name, template_spec_json, created_at, updated_at) VALUES (?,?,?,?,?)",
-    [t.id, t.name, t.template_spec_json, t.created_at, t.updated_at]
-  );
-  notifyDataChanged('marketing_templates');
-}
-
-  async deleteMarketingEmailTemplate(id: string): Promise < void> {
-  await this.executeWithParams("DELETE FROM marketing_email_templates WHERE id = ?", [id]);
-  notifyDataChanged('marketing_templates');
-}
-
-  async duplicateMarketingEmailTemplate(id: string): Promise < void> {
-  const original = await this.getMarketingEmailTemplateById(id);
-  if(!original) return;
-  const copy: MarketingEmailTemplate = {
-    ...original,
-    id: crypto.randomUUID(),
-    name: `${original.name} (Copia)`,
-    created_at: Date.now(),
-    updated_at: Date.now()
-  };
-  await this.saveMarketingEmailTemplate(copy);
-}
+  async duplicateMarketingEmailTemplate(id: string): Promise<void> {
+    const original = await this.getMarketingEmailTemplateById(id);
+    if (!original) return;
+    const copy: MarketingEmailTemplate = {
+      ...original,
+      id: crypto.randomUUID(),
+      name: `${original.name} (Copia)`,
+      created_at: Date.now(),
+      updated_at: Date.now()
+    };
+    await this.saveMarketingEmailTemplate(copy);
+  }
 
   async seedMarketingEmailTemplates() {
-  try {
-    logger.log("[SEED] Checking for existing templates...");
-    const existing = await this.getMarketingEmailTemplates();
-    if (existing.length > 0) {
-      logger.log(`[SEED] Found ${existing.length} templates. Skipping seeds.`);
-      return;
-    }
-
-    logger.log("[SEED] No templates found. Seeding 4 base templates...");
-    const baseTemplates = [
-      {
-        name: "Cumpleaños - Familiar",
-        spec: {
-          header: { business_name: "RentikPro" },
-          hero: { title: "¡Feliz Cumpleaños!", subtitle: "Queremos celebrar este día especial contigo." },
-          body: { text: "Hola {{nombre}},\n\nTodo el equipo de RentikPro te desea un muy feliz cumpleaños. Esperamos que pases un día fantástico rodeado de tus seres queridos." },
-          offer: { badge_text: "REGALO", detail_text: "Usa el código BDAY10 para un 10% de descuento en tu próxima estancia.", enabled: true },
-          cta: { button_text: "Reservar con Regalo", url: "https://rentik.pro", enabled: true },
-          footer: { phone: "+34 600 000 000", social_links: ["Instagram", "Facebook"], unsubscription_notice: true }
-        }
-      },
-      {
-        name: "Escapada Romántica",
-        spec: {
-          header: { business_name: "RentikPro" },
-          hero: { title: "Momentos para Dos", subtitle: "Sorprende a esa persona especial con una escapada inolvidable." },
-          body: { text: "Descubre nuestros apartamentos más románticos, diseñados para crear recuerdos que durarán siempre. Desde cenas a la luz de las velas hasta paseos al atardecer." },
-          offer: { badge_text: "PACK ROMANCE", detail_text: "Incluye botella de cava y bombones de bienvenida.", enabled: true },
-          cta: { button_text: "Ver Pack Romántico", url: "https://rentik.pro/romance", enabled: true },
-          footer: { phone: "+34 600 000 000", social_links: ["Instagram"], unsubscription_notice: true }
-        }
-      },
-      {
-        name: "Última hora - Descuento",
-        spec: {
-          header: { business_name: "RentikPro" },
-          hero: { title: "¡Oferta Relámpago!", subtitle: "Solo este fin de semana. ¿Te lo vas a perder?" },
-          body: { text: "A veces los mejores planes son los que no se planean. Aprovecha nuestras tarifas de última hora y escápate hoy mismo." },
-          offer: { badge_text: "20% OFF", detail_text: "Descuento directo aplicado en las fechas seleccionadas.", enabled: true },
-          cta: { button_text: "¡Aprovechar Oferta!", url: "https://rentik.pro/last-minute", enabled: true },
-          footer: { phone: "+34 600 000 000", social_links: [], unsubscription_notice: true }
-        }
-      },
-      {
-        name: "Repetidores - Gracias",
-        spec: {
-          header: { business_name: "RentikPro" },
-          hero: { title: "Gracias por volver", subtitle: "Es un placer tenerte de nuevo con nosotros." },
-          body: { text: "Hola {{nombre}},\n\nSabemos que tienes muchas opciones, por eso valoramos enormemente que vuelvas a confiar en RentikPro para tu estancia. ¡Bienvenido a casa de nuevo!" },
-          offer: { badge_text: "CLIENTE VIP", detail_text: "Como cliente recurrente, tienes un late check-out gratuito en esta estancia.", enabled: true },
-          cta: { button_text: "Gestionar Reserva", url: "https://rentik.pro/my-booking", enabled: true },
-          footer: { phone: "+34 600 000 000", social_links: ["Instagram", "Twitter"], unsubscription_notice: true }
-        }
+    try {
+      logger.log("[SEED] Checking for existing templates...");
+      const existing = await this.getMarketingEmailTemplates();
+      if (existing.length > 0) {
+        logger.log(`[SEED] Found ${existing.length} templates. Skipping seeds.`);
+        return;
       }
-    ];
 
-    for (const bt of baseTemplates) {
-      const t: MarketingEmailTemplate = {
-        id: crypto.randomUUID(),
-        name: bt.name,
-        template_spec_json: JSON.stringify(bt.spec),
-        created_at: Date.now(),
-        updated_at: Date.now()
+      logger.log("[SEED] No templates found. Seeding 4 base templates...");
+      const baseTemplates = [
+        {
+          name: "Cumpleaños - Familiar",
+          spec: {
+            header: { business_name: "RentikPro" },
+            hero: { title: "¡Feliz Cumpleaños!", subtitle: "Queremos celebrar este día especial contigo." },
+            body: { text: "Hola {{nombre}},\n\nTodo el equipo de RentikPro te desea un muy feliz cumpleaños. Esperamos que pases un día fantástico rodeado de tus seres queridos." },
+            offer: { badge_text: "REGALO", detail_text: "Usa el código BDAY10 para un 10% de descuento en tu próxima estancia.", enabled: true },
+            cta: { button_text: "Reservar con Regalo", url: "https://rentik.pro", enabled: true },
+            footer: { phone: "+34 600 000 000", social_links: ["Instagram", "Facebook"], unsubscription_notice: true }
+          }
+        },
+        {
+          name: "Escapada Romántica",
+          spec: {
+            header: { business_name: "RentikPro" },
+            hero: { title: "Momentos para Dos", subtitle: "Sorprende a esa persona especial con una escapada inolvidable." },
+            body: { text: "Descubre nuestros apartamentos más románticos, diseñados para crear recuerdos que durarán siempre. Desde cenas a la luz de las velas hasta paseos al atardecer." },
+            offer: { badge_text: "PACK ROMANCE", detail_text: "Incluye botella de cava y bombones de bienvenida.", enabled: true },
+            cta: { button_text: "Ver Pack Romántico", url: "https://rentik.pro/romance", enabled: true },
+            footer: { phone: "+34 600 000 000", social_links: ["Instagram"], unsubscription_notice: true }
+          }
+        },
+        {
+          name: "Última hora - Descuento",
+          spec: {
+            header: { business_name: "RentikPro" },
+            hero: { title: "¡Oferta Relámpago!", subtitle: "Solo este fin de semana. ¿Te lo vas a perder?" },
+            body: { text: "A veces los mejores planes son los que no se planean. Aprovecha nuestras tarifas de última hora y escápate hoy mismo." },
+            offer: { badge_text: "20% OFF", detail_text: "Descuento directo aplicado en las fechas seleccionadas.", enabled: true },
+            cta: { button_text: "¡Aprovechar Oferta!", url: "https://rentik.pro/last-minute", enabled: true },
+            footer: { phone: "+34 600 000 000", social_links: [], unsubscription_notice: true }
+          }
+        },
+        {
+          name: "Repetidores - Gracias",
+          spec: {
+            header: { business_name: "RentikPro" },
+            hero: { title: "Gracias por volver", subtitle: "Es un placer tenerte de nuevo con nosotros." },
+            body: { text: "Hola {{nombre}},\n\nSabemos que tienes muchas opciones, por eso valoramos enormemente que vuelvas a confiar en RentikPro para tu estancia. ¡Bienvenido a casa de nuevo!" },
+            offer: { badge_text: "CLIENTE VIP", detail_text: "Como cliente recurrente, tienes un late check-out gratuito en esta estancia.", enabled: true },
+            cta: { button_text: "Gestionar Reserva", url: "https://rentik.pro/my-booking", enabled: true },
+            footer: { phone: "+34 600 000 000", social_links: ["Instagram", "Twitter"], unsubscription_notice: true }
+          }
+        }
+      ];
+
+      for (const bt of baseTemplates) {
+        const t: MarketingEmailTemplate = {
+          id: crypto.randomUUID(),
+          name: bt.name,
+          template_spec_json: JSON.stringify(bt.spec),
+          created_at: Date.now(),
+          updated_at: Date.now()
+        };
+        await this.saveMarketingEmailTemplate(t);
+        logger.log(`[SEED] Template seeded: ${bt.name}`);
+      }
+      logger.log("[SEED] All base templates seeded successfully.");
+    } catch (err) {
+      logger.error("[SEED] Error during seeding:", err);
+    }
+  }
+
+  async saveMarketingEmailLog(log: MarketingEmailLog): Promise<void> {
+    const projectId = localStorage.getItem('active_project_id');
+    await this.executeWithParams(
+      "INSERT INTO marketing_email_logs (id, campaign_id, to_email, status, error_message, created_at, project_id) VALUES (?,?,?,?,?,?,?)",
+      [log.id, log.campaign_id, log.to_email, log.status, log.error_message || null, log.created_at, projectId]
+    );
+  }
+
+  async getMarketingEmailLogs(campaignId: string): Promise<MarketingEmailLog[]> {
+    const projectId = localStorage.getItem('active_project_id');
+    await this.ensureInitialized();
+    if (!this.db) return [];
+    const rows = await this.query(
+      `SELECT * FROM marketing_email_logs WHERE campaign_id = ? AND project_id = ? ORDER BY created_at DESC`,
+      [campaignId, projectId]
+    );
+    return rows.map((r: any) => ({
+      id: r.id,
+      campaign_id: r.campaign_id,
+      to_email: r.to_email,
+      status: r.status,
+      error_message: r.error_message,
+      created_at: r.created_at
+    }));
+  }
+  async getCampaigns(): Promise<MarketingCampaign[]> {
+    const projectId = localStorage.getItem('active_project_id');
+    const rows = await this.query("SELECT * FROM marketing_campaigns WHERE project_id = ?", [projectId]);
+    return rows.map((r: any) => ({
+      ...r,
+      enabled: r.enabled === 1
+    }));
+  }
+
+  async saveCampaign(c: MarketingCampaign): Promise<void> {
+    const projectId = localStorage.getItem('active_project_id');
+
+    // Hardening: Dynamic SQL based on detected schema (F3 hardening)
+    if (this.schemaFlags.marketing_email_template_id) {
+      await this.executeWithParams(
+        "INSERT OR REPLACE INTO marketing_campaigns (id, type, name, automation_level, template_id, email_template_id, enabled, config_json, created_at, project_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        [c.id, c.type, c.name, c.automation_level, c.template_id || null, c.email_template_id || null, c.enabled ? 1 : 0, c.config_json || null, c.created_at, projectId]
+      );
+    } else {
+      await this.executeWithParams(
+        "INSERT OR REPLACE INTO marketing_campaigns (id, type, name, automation_level, template_id, enabled, config_json, created_at, project_id) VALUES (?,?,?,?,?,?,?,?,?)",
+        [c.id, c.type, c.name, c.automation_level, c.template_id || null, c.enabled ? 1 : 0, c.config_json || null, c.created_at, projectId]
+      );
+    }
+  }
+
+  async getTravelersMarketingData(): Promise<any[]> {
+    const projectId = localStorage.getItem('active_project_id');
+    const [travelers, allBookings] = await Promise.all([
+      this.query("SELECT * FROM travelers WHERE project_id = ? OR project_id IS NULL", [projectId]),
+      this.query("SELECT * FROM bookings WHERE project_id = ? AND status IN ('confirmed', 'completed')", [projectId])
+    ]);
+
+    // Group bookings by traveler_id for quick access
+    const bookingsByTravelerId = new Map<string, any[]>();
+    allBookings.forEach((b: any) => {
+      if (!bookingsByTravelerId.has(b.traveler_id)) {
+        bookingsByTravelerId.set(b.traveler_id, []);
+      }
+      bookingsByTravelerId.get(b.traveler_id)?.push(b);
+    });
+
+    // Group bookings by Signature (identity)
+    const signatureToBookings = new Map<string, any[]>();
+    travelers.forEach((t: any) => {
+      const sig = guestService.getGuestSignature(t);
+      if (sig === 'unknown') return;
+
+      const travelerBookings = bookingsByTravelerId.get(t.id) || [];
+      if (!signatureToBookings.has(sig)) {
+        signatureToBookings.set(sig, []);
+      }
+      signatureToBookings.get(sig)?.push(...travelerBookings);
+    });
+
+    // Enrich travelers using their signature stats
+    const enriched = travelers.map((t: any) => {
+      const sig = guestService.getGuestSignature(t);
+      const signatureBookings = sig !== 'unknown' ? signatureToBookings.get(sig) || [] : (bookingsByTravelerId.get(t.id) || []);
+
+      // Remove duplicate bookings (if any, although unlikely)
+      const uniqueBookings = Array.from(new Map(signatureBookings.map(b => [b.id, b])).values());
+      const confirmed = uniqueBookings.filter((b: any) => b.status === 'confirmed' || b.status === 'completed');
+
+      let lastCheckout = null;
+      if (confirmed.length > 0) {
+        const sorted = confirmed.sort((a: any, b: any) => new Date(b.check_out).getTime() - new Date(a.check_out).getTime());
+        lastCheckout = sorted[0].check_out;
+      }
+
+      return {
+        ...t,
+        total_stays: confirmed.length,
+        last_checkout: lastCheckout,
+        total_spent: confirmed.reduce((sum: number, b: any) => sum + (b.total_price || 0), 0)
       };
-      await this.saveMarketingEmailTemplate(t);
-      logger.log(`[SEED] Template seeded: ${bt.name}`);
-    }
-    logger.log("[SEED] All base templates seeded successfully.");
-  } catch (err) {
-    logger.error("[SEED] Error during seeding:", err);
-  }
-}
+    });
 
-  async saveMarketingEmailLog(log: MarketingEmailLog): Promise < void> {
-  const projectId = localStorage.getItem('active_project_id');
-  await this.executeWithParams(
-    "INSERT INTO marketing_email_logs (id, campaign_id, to_email, status, error_message, created_at, project_id) VALUES (?,?,?,?,?,?,?)",
-    [log.id, log.campaign_id, log.to_email, log.status, log.error_message || null, log.created_at, projectId]
-  );
-}
-
-  async getMarketingEmailLogs(campaignId: string): Promise < MarketingEmailLog[] > {
-  const projectId = localStorage.getItem('active_project_id');
-  await this.ensureInitialized();
-  if(!this.db) return [];
-  const rows = await this.query(
-    `SELECT * FROM marketing_email_logs WHERE campaign_id = ? AND project_id = ? ORDER BY created_at DESC`,
-    [campaignId, projectId]
-  );
-  return rows.map((r: any) => ({
-    id: r.id,
-    campaign_id: r.campaign_id,
-    to_email: r.to_email,
-    status: r.status,
-    error_message: r.error_message,
-    created_at: r.created_at
-  }));
-}
-  async getCampaigns(): Promise < MarketingCampaign[] > {
-  const projectId = localStorage.getItem('active_project_id');
-  const rows = await this.query("SELECT * FROM marketing_campaigns WHERE project_id = ?", [projectId]);
-  return rows.map((r: any) => ({
-    ...r,
-    enabled: r.enabled === 1
-  }));
-}
-
-  async saveCampaign(c: MarketingCampaign): Promise < void> {
-  const projectId = localStorage.getItem('active_project_id');
-
-  // Hardening: Dynamic SQL based on detected schema (F3 hardening)
-  if(this.schemaFlags.marketing_email_template_id) {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO marketing_campaigns (id, type, name, automation_level, template_id, email_template_id, enabled, config_json, created_at, project_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    [c.id, c.type, c.name, c.automation_level, c.template_id || null, c.email_template_id || null, c.enabled ? 1 : 0, c.config_json || null, c.created_at, projectId]
-  );
-} else {
-  await this.executeWithParams(
-    "INSERT OR REPLACE INTO marketing_campaigns (id, type, name, automation_level, template_id, enabled, config_json, created_at, project_id) VALUES (?,?,?,?,?,?,?,?,?)",
-    [c.id, c.type, c.name, c.automation_level, c.template_id || null, c.enabled ? 1 : 0, c.config_json || null, c.created_at, projectId]
-  );
-}
+    return enriched;
   }
 
-  async getTravelersMarketingData(): Promise < any[] > {
-  const projectId = localStorage.getItem('active_project_id');
-  const [travelers, allBookings] = await Promise.all([
-    this.query("SELECT * FROM travelers WHERE project_id = ? OR project_id IS NULL", [projectId]),
-    this.query("SELECT * FROM bookings WHERE project_id = ? AND status IN ('confirmed', 'completed')", [projectId])
-  ]);
+  async generateBaseMovementsFromBookings(): Promise<number> {
+    await this.ensureInitialized();
+    if (!this.db) return 0;
 
-  // Group bookings by traveler_id for quick access
-  const bookingsByTravelerId = new Map<string, any[]>();
-  allBookings.forEach((b: any) => {
-    if (!bookingsByTravelerId.has(b.traveler_id)) {
-      bookingsByTravelerId.set(b.traveler_id, []);
-    }
-    bookingsByTravelerId.get(b.traveler_id)?.push(b);
-  });
-
-  // Group bookings by Signature (identity)
-  const signatureToBookings = new Map<string, any[]>();
-  travelers.forEach((t: any) => {
-    const sig = guestService.getGuestSignature(t);
-    if (sig === 'unknown') return;
-
-    const travelerBookings = bookingsByTravelerId.get(t.id) || [];
-    if (!signatureToBookings.has(sig)) {
-      signatureToBookings.set(sig, []);
-    }
-    signatureToBookings.get(sig)?.push(...travelerBookings);
-  });
-
-  // Enrich travelers using their signature stats
-  const enriched = travelers.map((t: any) => {
-    const sig = guestService.getGuestSignature(t);
-    const signatureBookings = sig !== 'unknown' ? signatureToBookings.get(sig) || [] : (bookingsByTravelerId.get(t.id) || []);
-
-    // Remove duplicate bookings (if any, although unlikely)
-    const uniqueBookings = Array.from(new Map(signatureBookings.map(b => [b.id, b])).values());
-    const confirmed = uniqueBookings.filter((b: any) => b.status === 'confirmed' || b.status === 'completed');
-
-    let lastCheckout = null;
-    if (confirmed.length > 0) {
-      const sorted = confirmed.sort((a: any, b: any) => new Date(b.check_out).getTime() - new Date(a.check_out).getTime());
-      lastCheckout = sorted[0].check_out;
-    }
-
-    return {
-      ...t,
-      total_stays: confirmed.length,
-      last_checkout: lastCheckout,
-      total_spent: confirmed.reduce((sum: number, b: any) => sum + (b.total_price || 0), 0)
-    };
-  });
-
-  return enriched;
-}
-
-  async generateBaseMovementsFromBookings(): Promise < number > {
-  await this.ensureInitialized();
-  if(!this.db) return 0;
-
-  // 1. Fetch confirmed bookings with price > 0
-  const bookings = await this.query(
-    `SELECT * FROM bookings WHERE status = 'confirmed' AND total_price > 0`
-  );
-
-  let createdCount = 0;
-  const now = Date.now();
-
-  for(const b of bookings) {
-    const importHash = `base_booking_${b.id}`;
-
-    // 2. Check for existing movement with this hash (idempotency)
-    const existing = await this.query(
-      "SELECT id FROM accounting_movements WHERE import_hash = ?",
-      [importHash]
+    // 1. Fetch confirmed bookings with price > 0
+    const bookings = await this.query(
+      `SELECT * FROM bookings WHERE status = 'confirmed' AND total_price > 0`
     );
 
-    if (existing.length === 0) {
-      // 3. Create movement
-      const movement: AccountingMovement = {
-        id: crypto.randomUUID(),
-        date: b.check_in,
-        type: 'income',
-        category: 'Reserva',
-        concept: `Reserva: ${b.guest_name || 'Huésped'}`,
-        apartment_id: b.apartment_id,
-        reservation_id: b.id,
-        traveler_id: b.traveler_id,
-        platform: b.source || 'Directo',
-        amount_gross: b.total_price,
-        commission: 0,
-        vat: 0,
-        amount_net: b.total_price,
-        payment_method: 'Transferencia',
-        accounting_bucket: 'A',
-        import_hash: importHash,
-        created_at: now,
-        updated_at: now
-      };
+    let createdCount = 0;
+    const now = Date.now();
 
-      await this.saveMovement(movement);
-      createdCount++;
+    for (const b of bookings) {
+      const importHash = `base_booking_${b.id}`;
+
+      // 2. Check for existing movement with this hash (idempotency)
+      const existing = await this.query(
+        "SELECT id FROM accounting_movements WHERE import_hash = ?",
+        [importHash]
+      );
+
+      if (existing.length === 0) {
+        // 3. Create movement
+        const movement: AccountingMovement = {
+          id: crypto.randomUUID(),
+          date: b.check_in,
+          type: 'income',
+          category: 'Reserva',
+          concept: `Reserva: ${b.guest_name || 'Huésped'}`,
+          apartment_id: b.apartment_id,
+          reservation_id: b.id,
+          traveler_id: b.traveler_id,
+          platform: b.source || 'Directo',
+          amount_gross: b.total_price,
+          commission: 0,
+          vat: 0,
+          amount_net: b.total_price,
+          payment_method: 'Transferencia',
+          accounting_bucket: 'A',
+          import_hash: importHash,
+          created_at: now,
+          updated_at: now
+        };
+
+        await this.saveMovement(movement);
+        createdCount++;
+      }
     }
-  }
 
-    if(createdCount > 0) {
-  notifyDataChanged('accounting');
-}
+    if (createdCount > 0) {
+      notifyDataChanged('accounting');
+    }
 
-return createdCount;
+    return createdCount;
   }
 }

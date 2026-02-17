@@ -1029,27 +1029,6 @@ document.getElementById('bookingForm').addEventListener('submit', (e) => {
                   </div>
                )
 
-            case 'contact':
-               return (
-                  <div key={idx} className="p-8 bg-slate-50 flex flex-col items-center justify-center text-center">
-                     {(s.content.image || s.content.cover_image) && (
-                        <img src={resolveMedia(s.content.image || s.content.cover_image)} className="w-24 h-24 rounded-full object-cover mb-4 shadow-lg" />
-                     )}
-                     <h3 className="font-bold text-2xl text-slate-800 mb-2">Contáctanos</h3>
-                     <div className="space-y-2 mt-4">
-                        {s.content.email && (
-                           <a href={`mailto:${s.content.email}`} className="block text-indigo-600 font-bold hover:underline">
-                              {s.content.email}
-                           </a>
-                        )}
-                        {s.content.phone && (
-                           <a href={`tel:${s.content.phone}`} className="block text-slate-600 font-medium hover:text-indigo-600">
-                              {s.content.phone}
-                           </a>
-                        )}
-                     </div>
-                  </div>
-               );
             default: // Text / Generic
                return (
                   <div key={idx} className="p-6 bg-white relative overflow-hidden">
