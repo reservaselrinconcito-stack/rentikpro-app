@@ -202,6 +202,8 @@ export interface Booking {
   payments?: Payment[];
   booking_key?: string; // Unique key for consolidation (MINI-BLOQUE A4)
   project_id?: string;
+  field_sources?: string; // JSON: {field: module}
+  updated_at?: number;
 }
 
 export interface Stay {

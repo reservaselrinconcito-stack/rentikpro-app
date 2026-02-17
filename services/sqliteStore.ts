@@ -56,7 +56,9 @@ export class SQLiteStore implements IDataStore {
     calendar_project_id: false,
     calendar_ical_uid: false,
     marketing_email_template_id: false,
-    accounting_stay_metadata: false
+    accounting_stay_metadata: false,
+    bookings_field_sources: false,
+    bookings_updated_at: false
   };
 
 
@@ -233,6 +235,8 @@ export class SQLiteStore implements IDataStore {
       this.schemaFlags.bookings_event_state = bInfo.some((c: any) => c.name === 'event_state');
       this.schemaFlags.bookings_provisional_id = bInfo.some((c: any) => c.name === 'provisional_id');
       this.schemaFlags.bookings_payments = bInfo.some((c: any) => c.name === 'payments_json');
+      this.schemaFlags.bookings_field_sources = bInfo.some((c: any) => c.name === 'field_sources');
+      this.schemaFlags.bookings_updated_at = bInfo.some((c: any) => c.name === 'updated_at');
 
       const aInfo = await this.query("PRAGMA table_info(accounting_movements)");
       this.schemaFlags.accounting_payment_id = aInfo.some((c: any) => c.name === 'payment_id');
@@ -298,6 +302,8 @@ export class SQLiteStore implements IDataStore {
     await this.ensureColumn("bookings", "project_id", "TEXT");
     await this.ensureColumn("accounting_movements", "project_id", "TEXT");
     await this.ensureColumn("accounting_movements", "property_id", "TEXT");
+    await this.ensureColumn("bookings", "field_sources", "TEXT");
+    await this.ensureColumn("bookings", "updated_at", "INTEGER");
     await this.ensureColumn("accounting_movements", "check_in", "TEXT");
     await this.ensureColumn("accounting_movements", "check_out", "TEXT");
     await this.ensureColumn("accounting_movements", "guests", "INTEGER");
@@ -481,6 +487,8 @@ export class SQLiteStore implements IDataStore {
     );`);
 
     await this.safeMigration("ALTER TABLE bookings ADD COLUMN payments_json TEXT", "Add payments_json to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN field_sources TEXT", "Add field_sources to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN updated_at INTEGER", "Add updated_at to bookings");
     await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN payment_id TEXT", "Add payment_id to accounting_movements");
 
     // Booking Policies (Inheritable)
@@ -1041,6 +1049,9 @@ export class SQLiteStore implements IDataStore {
     const { checkOut: validCheckOut } = ensureValidStay(b.check_in, b.check_out);
     b.check_out = validCheckOut;
 
+    // Always update timestamp on write
+    b.updated_at = Date.now();
+
     const values: any[] = [
       b.id, b.property_id, b.apartment_id, b.traveler_id, b.check_in, b.check_out, b.status, b.total_price, b.guests, b.source,
       b.external_ref || null, b.created_at, b.conflict_detected ? 1 : 0, b.linked_event_id || null, b.rate_plan_id || null, b.summary || null, b.guest_name || null,
@@ -1067,45 +1078,23 @@ export class SQLiteStore implements IDataStore {
       values.push((b as any).event_kind || null);
     }
 
+    if (this.schemaFlags.bookings_field_sources) {
+      columns.push('field_sources');
+      values.push(b.field_sources || null);
+    }
+
+    if (this.schemaFlags.bookings_updated_at) {
+      columns.push('updated_at');
+      values.push(b.updated_at || null);
+    }
+
     const placeholders = columns.map(() => '?').join(',');
     const sql = `INSERT OR REPLACE INTO bookings (${columns.join(',')}) VALUES (${placeholders})`;
 
     await this.executeWithParams(sql, values);
 
-    // --- CANONICAL RULE: Sync to Accounting (Source of Truth) ---
-    const movement: AccountingMovement = {
-      id: crypto.randomUUID(),
-      date: b.check_in,
-      type: 'income',
-      category: 'Alojamiento',
-      concept: b.guest_name || b.summary || 'Reserva Manual',
-      apartment_id: b.apartment_id,
-      reservation_id: b.id,
-      platform: b.source || 'manual',
-      amount_gross: b.total_price || 0,
-      amount_net: b.total_price || 0,
-      commission: 0,
-      vat: 0,
-      payment_method: 'Manual',
-      accounting_bucket: 'A',
-      project_id: b.project_id || undefined,
-      property_id: b.property_id || undefined,
-      check_in: b.check_in,
-      check_out: b.check_out,
-      guests: b.guests || 1,
-      source_event_type: 'STAY_RESERVATION',
-      event_state: b.status === 'confirmed' ? 'confirmed' : 'provisional',
-      movement_key: `booking-${b.id}`,
-      created_at: b.created_at || Date.now(),
-      updated_at: Date.now()
-    };
-
-    const existingMv = await this.getMovementByKey(movement.movement_key!);
-    if (existingMv) {
-      movement.id = existingMv.id;
-      movement.created_at = existingMv.created_at;
-    }
-    await this.saveMovement(movement);
+    // We call the sync function which now handles all accounting for the booking
+    await this.syncAccountingMovementsFromBooking(b);
 
     // MINI-BLOQUE B3: Trigger auto-publish if confirmed
     if (b.status === 'confirmed') {
@@ -1115,6 +1104,147 @@ export class SQLiteStore implements IDataStore {
     }
 
     notifyDataChanged('bookings');
+  }
+
+  async getBooking(id: string): Promise<Booking | null> {
+    const rows = await this.query("SELECT * FROM bookings WHERE id = ?", [id]);
+    if (rows.length === 0) return null;
+    const b = rows[0];
+    let payments = [];
+    try {
+      payments = b.payments_json ? JSON.parse(b.payments_json) : [];
+    } catch (e) {
+      console.warn("Error parsing payments_json", e);
+    }
+    return {
+      ...b,
+      payments,
+      conflict_detected: !!b.conflict_detected
+    };
+  }
+
+  async updateReservation(id: string, patch: Partial<Booking>, sourceModule: string): Promise<Booking> {
+    const existing = await this.getBooking(id);
+    if (!existing) throw new Error(`Booking ${id} not found`);
+
+    const updated = { ...existing, ...patch, updated_at: Date.now() };
+
+    // Update field_sources
+    let sources: Record<string, string> = {};
+    if (this.schemaFlags.bookings_field_sources) {
+      try {
+        sources = existing.field_sources ? JSON.parse(existing.field_sources) : {};
+      } catch (e) { }
+
+      Object.keys(patch).forEach(key => {
+        // Only track fields that are part of the Booking interface
+        sources[key] = sourceModule;
+      });
+      updated.field_sources = JSON.stringify(sources);
+    }
+
+    await this.saveBooking(updated);
+    return updated;
+  }
+
+  async upsertPayment(bookingId: string, payment: any, sourceModule: string): Promise<Booking> {
+    const booking = await this.getBooking(bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    let payments = booking.payments || [];
+    const idx = payments.findIndex((p: any) => p.id === payment.id);
+    if (idx >= 0) {
+      payments[idx] = { ...payments[idx], ...payment };
+    } else {
+      payments.push(payment);
+    }
+
+    const updated = await this.updateReservation(bookingId, { payments }, sourceModule);
+
+    // Sync accounting movements
+    await this.syncAccountingMovementsFromBooking(updated);
+
+    return updated;
+  }
+
+  async upsertGuestData(bookingId: string, guestPatch: any, sourceModule: string): Promise<Booking> {
+    return this.updateReservation(bookingId, guestPatch, sourceModule);
+  }
+
+  async syncAccountingMovementsFromBooking(b: Booking): Promise<void> {
+    if (!this.schemaFlags.accounting_payment_id) return;
+
+    const allMovements = await this.getMovements('ALL');
+    const reservationMovements = allMovements.filter(m => m.reservation_id === b.id);
+
+    if (b.status === 'confirmed') {
+      const traveler = b.traveler_id ? await this.getTravelerById(b.traveler_id) : null;
+      const travelerName = traveler ? `${traveler.nombre} ${traveler.apellidos || ''}`.trim() : b.guest_name || 'Huésped';
+
+      // Process each payment
+      for (const p of (b.payments || [])) {
+        const existingMov = reservationMovements.find(m => m.payment_id === p.id);
+
+        if (p.status === 'pagado') {
+          const concept = `Pago ${p.type} - ${travelerName} (${p.date})`;
+          const bucket = p.method?.toLowerCase() === 'efectivo' ? 'B' : 'A';
+
+          if (existingMov) {
+            existingMov.amount_gross = p.amount;
+            existingMov.amount_net = p.amount;
+            existingMov.date = p.date;
+            existingMov.payment_method = p.method;
+            existingMov.accounting_bucket = bucket;
+            existingMov.concept = concept;
+            existingMov.updated_at = Date.now();
+            await this.saveMovement(existingMov);
+          } else {
+            const newMov: AccountingMovement = {
+              id: crypto.randomUUID(),
+              date: p.date,
+              type: 'income',
+              category: 'Alquiler',
+              concept: concept,
+              apartment_id: b.apartment_id,
+              reservation_id: b.id,
+              traveler_id: b.traveler_id,
+              amount_gross: p.amount,
+              vat: 0,
+              commission: 0,
+              amount_net: p.amount,
+              payment_method: p.method,
+              accounting_bucket: bucket,
+              platform: b.source,
+              payment_id: p.id,
+              import_hash: btoa(b.id + p.id + Date.now()).slice(0, 24),
+              created_at: Date.now(),
+              updated_at: Date.now()
+            };
+            await this.saveMovement(newMov);
+          }
+        } else if (existingMov) {
+          // If payment became 'pendiente' but was 'pagado' before, delete it
+          await this.deleteMovement(existingMov.id);
+        }
+      }
+
+      // Clean up movements for payments that no longer exist
+      for (const m of reservationMovements) {
+        if (m.payment_id && !(b.payments || []).some(p => p.id === m.payment_id)) {
+          await this.deleteMovement(m.id);
+        }
+        // Legacy cleanup: delete movements without payment_id if they are related to booking payments
+        // (Be careful here, saveBooking also creates a movement without payment_id)
+        // For now, we only clean up if it's strictly a payment-related movement that lost its payment reference
+      }
+    } else {
+      // Not confirmed: delete all payment movements
+      for (const m of reservationMovements) {
+        if (m.payment_id) {
+          await this.deleteMovement(m.id);
+        }
+      }
+    }
   }
 
   async deleteBooking(id: string): Promise<void> {

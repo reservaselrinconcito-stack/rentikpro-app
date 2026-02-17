@@ -436,13 +436,21 @@ export class SyncEngine {
           // PROMOTE or UPDATE existing
           booking.conflict_detected = isConflict;
           if (booking.status === 'cancelled' || booking.status === 'blocked') booking.status = currentKind === 'BLOCK' ? 'blocked' : 'confirmed';
-          // Update details
+
+          // --- ANTI-OVERWRITE LOGIC ---
+          let sources: Record<string, string> = {};
+          try {
+            sources = booking.field_sources ? JSON.parse(booking.field_sources) : {};
+          } catch (e) { }
+
+          if (sources['check_in'] !== 'MANUAL') booking.check_in = evt.start_date;
+          if (sources['check_out'] !== 'MANUAL') booking.check_out = evt.end_date;
+          if (sources['guest_name'] !== 'MANUAL') booking.guest_name = details.guestName || undefined;
+          if (sources['total_price'] !== 'MANUAL') booking.total_price = details.price > 0 ? details.price : booking.total_price;
+          // --- END ANTI-OVERWRITE ---
+
           booking.summary = evt.summary;
-          booking.guest_name = details.guestName || undefined;
-          booking.total_price = details.price > 0 ? details.price : booking.total_price;
           booking.source = displaySource;
-          booking.check_in = evt.start_date;
-          booking.check_out = evt.end_date;
           booking.event_kind = currentKind;
           booking.event_origin = 'ical';
           booking.event_state = 'confirmed';
@@ -473,13 +481,20 @@ export class SyncEngine {
       // WON PRIORITY (No collision with higher/equal)
       if (booking) {
         if (booking.status === 'cancelled' || booking.status === 'blocked') booking.status = currentKind === 'BLOCK' ? 'blocked' : 'confirmed';
-        if (booking.check_in !== evt.start_date || booking.check_out !== evt.end_date) {
-          booking.check_in = evt.start_date;
-          booking.check_out = evt.end_date;
-        }
+
+        // --- ANTI-OVERWRITE LOGIC ---
+        let sources: Record<string, string> = {};
+        try {
+          sources = booking.field_sources ? JSON.parse(booking.field_sources) : {};
+        } catch (e) { }
+
+        if (sources['check_in'] !== 'MANUAL') booking.check_in = evt.start_date;
+        if (sources['check_out'] !== 'MANUAL') booking.check_out = evt.end_date;
+        if (sources['guest_name'] !== 'MANUAL') booking.guest_name = details.guestName || undefined;
+        if (sources['total_price'] !== 'MANUAL') booking.total_price = details.price > 0 ? details.price : booking.total_price;
+        // --- END ANTI-OVERWRITE ---
+
         booking.summary = evt.summary; // Update summary
-        booking.guest_name = details.guestName || undefined;
-        booking.total_price = details.price > 0 ? details.price : booking.total_price;
         booking.source = displaySource;
         booking.conflict_detected = false;
         booking.event_kind = currentKind;

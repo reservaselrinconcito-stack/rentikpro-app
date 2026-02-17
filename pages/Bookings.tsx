@@ -395,78 +395,15 @@ export const Bookings: React.FC = () => {
         }
       }
 
-      await store.saveBooking(b);
-
-      // INTEGRACIÓN CONTABLE MULTI-PAGO
-      const allMovements = await store.getMovements('ALL');
-      const reservationMovements = allMovements.filter(m => m.reservation_id === b.id);
-
-      if (b.status === 'confirmed' && isConfirmedBooking(b)) {
-        const travelerName = travelers.find(t => t.id === b.traveler_id)?.nombre || b.guest_name || 'Huésped';
-
-        // Process each payment
-        for (const p of (b.payments || [])) {
-          const existingMov = reservationMovements.find(m => m.payment_id === p.id);
-
-          if (p.status === 'pagado') {
-            const concept = `Pago ${p.type} - ${travelerName} (${p.date})`;
-            const bucket = p.method.toLowerCase() === 'efectivo' ? 'B' : 'A';
-
-            if (existingMov) {
-              existingMov.amount_gross = p.amount;
-              existingMov.amount_net = p.amount;
-              existingMov.date = p.date;
-              existingMov.payment_method = p.method;
-              existingMov.accounting_bucket = bucket;
-              existingMov.concept = concept;
-              existingMov.updated_at = Date.now();
-              await store.saveMovement(existingMov);
-            } else {
-              const newMov: AccountingMovement = {
-                id: crypto.randomUUID(),
-                date: p.date,
-                type: 'income',
-                category: 'Alquiler',
-                concept: concept,
-                apartment_id: b.apartment_id,
-                reservation_id: b.id,
-                traveler_id: b.traveler_id,
-                amount_gross: p.amount,
-                vat: 0,
-                commission: 0,
-                amount_net: p.amount,
-                payment_method: p.method,
-                accounting_bucket: bucket,
-                platform: b.source,
-                payment_id: p.id,
-                import_hash: btoa(b.id + p.id + Date.now()).slice(0, 24),
-                created_at: Date.now(),
-                updated_at: Date.now()
-              };
-              await store.saveMovement(newMov);
-            }
-          } else if (existingMov) {
-            // If payment became 'pendiente' but was 'pagado' before, delete it
-            await store.deleteMovement(existingMov.id);
-          }
-        }
-
-        // Clean up movements for payments that no longer exist
-        for (const m of reservationMovements) {
-          if (m.payment_id && !(b.payments || []).some(p => p.id === m.payment_id)) {
-            await store.deleteMovement(m.id);
-          }
-          // Legacy cleanup: delete movements without payment_id
-          if (!m.payment_id) {
-            await store.deleteMovement(m.id);
-          }
-        }
+      if (editingBookingId) {
+        await store.updateReservation(editingBookingId, b, 'MANUAL');
       } else {
-        // Not confirmed or is a block: delete all movements
-        for (const m of reservationMovements) {
-          await store.deleteMovement(m.id);
-        }
+        await store.saveBooking(b);
       }
+
+      // The store now handles accounting sync automatically (or we call it here if we prefer)
+      // Since I will make syncAccountingMovementsFromBooking public and call it from saveBooking/updateReservation,
+      // we don't need any of the code below.
 
       await projectManager.saveProject();
       notifyDataChanged();
