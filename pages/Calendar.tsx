@@ -84,8 +84,8 @@ const CalendarContent: React.FC = () => {
     console.debug(`[Calendar] query_source=ACCOUNTING_TRUTH project_id=${activeProjectId} selected_prop=${selectedPropertyId}`);
 
     try {
-      const [accountingBookings, pList, tList, aList] = await Promise.all([
-        store.getBookingsFromAccounting(),
+      const [allBookings, pList, tList, aList] = await Promise.all([
+        store.getBookings(),
         store.getProperties(),
         store.getTravelers(),
         store.getAllApartments()
@@ -95,9 +95,9 @@ const CalendarContent: React.FC = () => {
       setTravelers(tList);
       setApartments(aList);
 
-      console.debug(`[Calendar] Source of Truth: ACCOUNTING. Result: ${accountingBookings.length} bookings.`);
+      console.debug(`[Calendar] Source of Truth: BOOKINGS. Result: ${allBookings.length} bookings.`);
 
-      setBookings(accountingBookings);
+      setBookings(allBookings);
       setDataSource('internal');
     } catch (err) {
       console.error("Error cargando calendario:", err);
@@ -157,10 +157,10 @@ const CalendarContent: React.FC = () => {
       let placed = false;
       // Buscar el primer slot donde quepa esta reserva
       for (let i = 0; i < slots.length; i++) {
-        // CAMBIO CLAVE: Para que se solapen visualmente en el día de cambio,
-        // la nueva reserva solo cabe en el slot si su entrada es ESTRICTAMENTE MAYOR 
-        // que la salida de la anterior. Si es IGUAL (mismo día), hay colisión y debe bajar de línea.
-        if (b.check_in > slots[i]) {
+        // CAMBIO CLAVE (Block 9): Para que se solapen visualmente en el día de cambio,
+        // la nueva reserva cabe en el slot si su entrada es MAYOR O IGUAL 
+        // que la salida de la anterior. 
+        if (b.check_in >= slots[i]) {
           mapping.set(b.id, i);
           slots[i] = b.check_out;
           placed = true;
@@ -181,8 +181,9 @@ const CalendarContent: React.FC = () => {
     const dStr = toDateStr(date);
     return displayBookings.filter(b => {
       if (selectedPropertyId !== 'all' && b.property_id !== selectedPropertyId) return false;
-      // REGLA CANÓNICA: El día de salida se incluye en la visualización
-      return dStr >= b.check_in && dStr <= b.check_out;
+      // REGLA CANÓNICA (Block 9): El día de salida es EXCLUSIVO (checkout)
+      // Si entra el 20 y sale el 22, pinta 20 y 21. El 22 queda libre.
+      return dStr >= b.check_in && dStr < b.check_out;
     });
   };
 
@@ -333,7 +334,10 @@ const CalendarContent: React.FC = () => {
                         const traveler = travelers.find(t => t.id === b.traveler_id);
 
                         const isStart = b.check_in === day.dateStr;
-                        const isEnd = b.check_out === day.dateStr;
+                        // isLastNight (Block 9): The bar ends visually the day before check_out
+                        const nextDay = new Date(day.date);
+                        nextDay.setDate(nextDay.getDate() + 1);
+                        const isEnd = toDateStr(nextDay) === b.check_out;
 
                         let roundedClass = 'rounded-md';
                         let marginClass = 'mx-1';

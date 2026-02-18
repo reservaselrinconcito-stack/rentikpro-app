@@ -81,121 +81,116 @@ export const processImage = async (imageFile: File | string, onProgress: (p: num
     }
   });
 
-  try {
-    await worker.load();
-    await worker.loadLanguage('spa+eng');
-    await worker.initialize('spa+eng');
-    const { data: { text } } = await worker.recognize(processedImage);
-    await worker.terminate();
+  await worker.load();
+  await worker.loadLanguage('spa+eng');
+  await worker.initialize('spa+eng');
+  const { data: { text } } = await worker.recognize(processedImage);
+  await worker.terminate();
 
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
 
-    let data: ScannedData = {
-      nombre: '',
-      apellidos: '',
-      documento: '',
-      tipo_documento: 'OTRO',
-      fecha_nacimiento: '',
-      raw_text: text
-    };
+  let data: ScannedData = {
+    nombre: '',
+    apellidos: '',
+    documento: '',
+    tipo_documento: 'OTRO',
+    fecha_nacimiento: '',
+    raw_text: text
+  };
 
-    // 3. Lógica de Parsing (MRZ - Machine Readable Zone)
-    // Busca líneas que contienen muchos '<<<<'
-    const mrzLines = lines.filter(l => l.includes('<<'));
+  // 3. Lógica de Parsing (MRZ - Machine Readable Zone)
+  // Busca líneas que contienen muchos '<<<<'
+  const mrzLines = lines.filter(l => l.includes('<<'));
 
-    if (mrzLines.length >= 2) {
-      // Probablemente Pasaporte (2 líneas) o DNI 3.0 (3 líneas)
-      // Pasaporte Línea 1: P<ESPAPELLIDO<<NOMBRE<<<<<<<<
-      // DNI Línea 1: IDESP...
+  if (mrzLines.length >= 2) {
+    // Probablemente Pasaporte (2 líneas) o DNI 3.0 (3 líneas)
+    // Pasaporte Línea 1: P<ESPAPELLIDO<<NOMBRE<<<<<<<<
+    // DNI Línea 1: IDESP...
 
-      const line1 = cleanText(mrzLines[0]);
-      const line2 = cleanText(mrzLines[1]);
+    const line1 = cleanText(mrzLines[0]);
+    const line2 = cleanText(mrzLines[1]);
 
-      // Tipo Documento
-      if (line1.startsWith('P')) data.tipo_documento = 'PASAPORTE';
-      else if (line1.startsWith('I') || line1.startsWith('A') || line1.startsWith('C')) data.tipo_documento = 'DNI';
+    // Tipo Documento
+    if (line1.startsWith('P')) data.tipo_documento = 'PASAPORTE';
+    else if (line1.startsWith('I') || line1.startsWith('A') || line1.startsWith('C')) data.tipo_documento = 'DNI';
 
-      // Extracción Pasaporte (Formato TD3)
-      if (data.tipo_documento === 'PASAPORTE') {
-        // Nombre y Apellido
-        const nameParts = line1.substring(5).split('<<');
-        data.apellidos = nameParts[0].replace(/</g, ' ').trim();
-        data.nombre = nameParts[1]?.replace(/</g, ' ').trim() || '';
+    // Extracción Pasaporte (Formato TD3)
+    if (data.tipo_documento === 'PASAPORTE') {
+      // Nombre y Apellido
+      const nameParts = line1.substring(5).split('<<');
+      data.apellidos = nameParts[0].replace(/</g, ' ').trim();
+      data.nombre = nameParts[1]?.replace(/</g, ' ').trim() || '';
 
-        // Número documento (Line 2, chars 0-9)
-        data.documento = line2.substring(0, 9).replace(/</g, '');
+      // Número documento (Line 2, chars 0-9)
+      data.documento = line2.substring(0, 9).replace(/</g, '');
 
-        // Nacionalidad (Line 1, chars 2-5)
-        data.nacionalidad = line1.substring(2, 5).replace(/</g, '');
+      // Nacionalidad (Line 1, chars 2-5)
+      data.nacionalidad = line1.substring(2, 5).replace(/</g, '');
 
-        // Fecha Nacimiento (Line 2, chars 13-19, YYMMDD)
-        data.fecha_nacimiento = parseMRZDate(line2.substring(13, 19));
+      // Fecha Nacimiento (Line 2, chars 13-19, YYMMDD)
+      data.fecha_nacimiento = parseMRZDate(line2.substring(13, 19));
 
-        // Sexo (Line 2, char 20)
-        data.sexo = line2.charAt(20);
+      // Sexo (Line 2, char 20)
+      data.sexo = line2.charAt(20);
 
-        // Caducidad (Line 2, chars 21-27)
-        data.fecha_caducidad = parseMRZDate(line2.substring(21, 27), true);
+      // Caducidad (Line 2, chars 21-27)
+      data.fecha_caducidad = parseMRZDate(line2.substring(21, 27), true);
+    }
+    // Extracción ID Card (Formato TD1 - DNI Español reverso)
+    else if (data.tipo_documento === 'DNI') {
+      // IDESP...
+      // Line 1: IDESP{NUMERO}<{CHECK}<<<<<<<<<<
+      // Line 2: {YYMMDD}(Nacimiento){CHECK}{SEXO}{YYMMDD}(Caducidad)...
+      // Line 3: {APELLIDOS}<<{NOMBRE}
+
+      // Nota: El orden de líneas en OCR a veces baila. Buscamos patrones.
+
+      // Intentar encontrar línea de nombres (contiene << y letras)
+      const nameLine = mrzLines.find(l => l.includes('<<') && !l.match(/\d{6}/));
+      if (nameLine) {
+        const parts = cleanText(nameLine).split('<<');
+        data.apellidos = parts[0].replace(/</g, ' ').trim();
+        data.nombre = parts[1]?.replace(/</g, ' ').trim() || '';
       }
-      // Extracción ID Card (Formato TD1 - DNI Español reverso)
-      else if (data.tipo_documento === 'DNI') {
-        // IDESP...
-        // Line 1: IDESP{NUMERO}<{CHECK}<<<<<<<<<<
-        // Line 2: {YYMMDD}(Nacimiento){CHECK}{SEXO}{YYMMDD}(Caducidad)...
-        // Line 3: {APELLIDOS}<<{NOMBRE}
 
-        // Nota: El orden de líneas en OCR a veces baila. Buscamos patrones.
+      // Intentar encontrar número DNI
+      // DNI Español suele empezar por IDESP seguido del numero
+      const idLine = mrzLines.find(l => l.includes('IDESP'));
+      if (idLine) {
+        data.documento = cleanText(idLine).substring(5, 14);
+        data.nacionalidad = 'ESP';
+      }
 
-        // Intentar encontrar línea de nombres (contiene << y letras)
-        const nameLine = mrzLines.find(l => l.includes('<<') && !l.match(/\d{6}/));
-        if (nameLine) {
-          const parts = cleanText(nameLine).split('<<');
-          data.apellidos = parts[0].replace(/</g, ' ').trim();
-          data.nombre = parts[1]?.replace(/</g, ' ').trim() || '';
-        }
-
-        // Intentar encontrar número DNI
-        // DNI Español suele empezar por IDESP seguido del numero
-        const idLine = mrzLines.find(l => l.includes('IDESP'));
-        if (idLine) {
-          data.documento = cleanText(idLine).substring(5, 14);
-          data.nacionalidad = 'ESP';
-        }
-
-        // Intentar encontrar fechas en la línea numérica
-        const dateLine = mrzLines.find(l => l.match(/\d{6}.{1}[MF<].{1}\d{6}/)); // Patron fecha nac + sexo + fecha cad
-        if (dateLine) {
-          const cleanL = cleanText(dateLine);
-          data.fecha_nacimiento = parseMRZDate(cleanL.substring(0, 6));
-          data.sexo = cleanL.charAt(7);
-          data.fecha_caducidad = parseMRZDate(cleanL.substring(8, 14), true);
-        }
+      // Intentar encontrar fechas en la línea numérica
+      const dateLine = mrzLines.find(l => l.match(/\d{6}.{1}[MF<].{1}\d{6}/)); // Patron fecha nac + sexo + fecha cad
+      if (dateLine) {
+        const cleanL = cleanText(dateLine);
+        data.fecha_nacimiento = parseMRZDate(cleanL.substring(0, 6));
+        data.sexo = cleanL.charAt(7);
+        data.fecha_caducidad = parseMRZDate(cleanL.substring(8, 14), true);
       }
     }
-
-    // 4. Fallback Regex (Si no hay MRZ claro, buscar patrones de DNI)
-    if (!data.documento) {
-      const dniRegex = /(\d{8})[- ]?([A-Z])/; // 12345678A
-      const nieRegex = /([XYZ])[- ]?(\d{7})[- ]?([A-Z])/; // X1234567A
-
-      const dniMatch = text.match(dniRegex);
-      const nieMatch = text.match(nieRegex);
-
-      if (nieMatch) {
-        data.documento = `${nieMatch[1]}${nieMatch[2]}${nieMatch[3]}`;
-        data.tipo_documento = 'DNI'; // NIE técnicamente es documento ID
-      } else if (dniMatch) {
-        data.documento = `${dniMatch[1]}${dniMatch[2]}`;
-        data.tipo_documento = 'DNI';
-      }
-    }
-
-    // Fallback Nombre: Si no hay MRZ, es muy difícil saber qué es nombre y qué es apellido.
-    // Dejamos vacío para que el usuario rellene, o intentamos buscar palabras en mayúsculas.
-
-    return data;
-  } catch (error) {
-    console.error("OCR Error:", error);
-    throw error;
   }
+
+  // 4. Fallback Regex (Si no hay MRZ claro, buscar patrones de DNI)
+  if (!data.documento) {
+    const dniRegex = /(\d{8})[- ]?([A-Z])/; // 12345678A
+    const nieRegex = /([XYZ])[- ]?(\d{7})[- ]?([A-Z])/; // X1234567A
+
+    const dniMatch = text.match(dniRegex);
+    const nieMatch = text.match(nieRegex);
+
+    if (nieMatch) {
+      data.documento = `${nieMatch[1]}${nieMatch[2]}${nieMatch[3]}`;
+      data.tipo_documento = 'DNI'; // NIE técnicamente es documento ID
+    } else if (dniMatch) {
+      data.documento = `${dniMatch[1]}${dniMatch[2]}`;
+      data.tipo_documento = 'DNI';
+    }
+  }
+
+  // Fallback Nombre: Si no hay MRZ, es muy difícil saber qué es nombre y qué es apellido.
+  // Dejamos vacío para que el usuario rellene, o intentamos buscar palabras en mayúsculas.
+
+  return data;
 };

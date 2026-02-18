@@ -1098,6 +1098,13 @@ export class SQLiteStore implements IDataStore {
     // We call the sync function which now handles all accounting for the booking
     await this.syncAccountingMovementsFromBooking(b);
 
+    // HOTFIX (Block 9): Sync to calendar_events for grid stability
+    try {
+      await this.upsertCalendarEventFromBooking(b);
+    } catch (e) {
+      console.warn("[SQLITE:SAVE] Failed to sync calendar event", e);
+    }
+
     // MINI-BLOQUE B3: Trigger auto-publish if confirmed
     if (b.status === 'confirmed') {
       window.dispatchEvent(new CustomEvent('rentikpro:ical-auto-publish', {
@@ -1456,6 +1463,35 @@ export class SQLiteStore implements IDataStore {
     const sql = `INSERT OR REPLACE INTO calendar_events (${columns.join(',')}) VALUES (${placeholders})`;
 
     await this.executeWithParams(sql, values);
+  }
+
+  /**
+   * HOTFIX (Block 9): Synchronizes a booking to the calendar_events table.
+   * This ensures the grid is always fresh even if loading from calendar_events.
+   */
+  async upsertCalendarEventFromBooking(b: Booking): Promise<void> {
+    const eventId = b.linked_event_id || `evt_${b.id}`;
+
+    const event: any = {
+      id: eventId,
+      connection_id: b.connection_id || 'manual',
+      external_uid: b.ical_uid || b.external_ref || b.id,
+      property_id: b.property_id,
+      apartment_id: b.apartment_id,
+      start_date: b.check_in,
+      end_date: b.check_out,
+      status: b.status || 'confirmed',
+      summary: b.guest_name || b.summary || 'Reserva Manual',
+      description: b.payment_notes || '',
+      created_at: b.created_at || Date.now(),
+      updated_at: Date.now(),
+      booking_id: b.id,
+      event_kind: (b as any).event_kind || (isProvisionalBlock(b) ? 'BLOCK' : 'BOOKING'),
+      event_state: b.status === 'confirmed' ? 'confirmed' : 'provisional',
+      project_id: b.project_id || localStorage.getItem('active_project_id') || undefined
+    };
+
+    await this.saveCalendarEvent(event as CalendarEvent);
   }
 
   async deleteCalendarEventsByConnection(connectionId: string): Promise<void> {
