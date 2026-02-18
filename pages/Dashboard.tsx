@@ -7,6 +7,7 @@ import { TrendingUp, Home, Calendar, Users, AlertTriangle, RefreshCw, CheckCircl
 import { useDataRefresh } from '../services/dataRefresher';
 import { APP_VERSION } from '../src/version';
 import { isConfirmedBooking, isSameDay, isOccupiedToday } from '../utils/bookingClassification';
+import { getBookingDisplayName } from '../utils/bookingDisplay';
 
 const StatCard = ({ label, value, icon: Icon, color, onClick }: { label: string, value: string | number, icon: any, color: string, onClick?: () => void }) => (
   <div
@@ -45,6 +46,8 @@ export const Dashboard: React.FC = () => {
     departuresToday: 0,
     activeToday: 0
   });
+
+  const [travelers, setTravelers] = useState<Traveler[]>([]);
 
   // -- NEW STATE FOR ENHANCEMENTS --
   const [upcomingArrivals, setUpcomingArrivals] = useState<(Booking & { apartment_name?: string })[]>([]);
@@ -88,6 +91,8 @@ export const Dashboard: React.FC = () => {
       revenue,
       travelers: travelers.length
     });
+
+    setTravelers(travelers);
 
     // 2. Channel Manager Stats
     if (!store) return;
@@ -298,7 +303,7 @@ export const Dashboard: React.FC = () => {
                       {b.event_state === 'provisional' && <div className="absolute inset-0 bg-amber-500/10 backdrop-blur-[1px]"></div>}
                     </div>
                     <div>
-                      <p className="font-bold text-slate-700 text-sm">{b.guest_name || <span className="text-slate-400 italic">Sin huésped (pendiente)</span>}</p>
+                      <p className="font-bold text-slate-700 text-sm">{getBookingDisplayName(b, travelers.find(t => t.id === b.traveler_id))}</p>
                       <p className="text-xs text-slate-500">{b.apartment_name} • {b.guests} pax</p>
                     </div>
                   </div>

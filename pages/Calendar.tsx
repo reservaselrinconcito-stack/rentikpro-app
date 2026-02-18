@@ -78,7 +78,7 @@ const CalendarContent: React.FC = () => {
     });
   }, []);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     const store = projectManager.getStore();
     const activeProjectId = localStorage.getItem('active_project_id');
 
@@ -103,7 +103,7 @@ const CalendarContent: React.FC = () => {
     } catch (err) {
       console.error("Error cargando calendario:", err);
     }
-  };
+  }, []);
 
   useEffect(() => { loadData(); }, []);
 
@@ -121,11 +121,24 @@ const CalendarContent: React.FC = () => {
 
   const openEventDetail = async (b: Booking) => {
     const store = projectManager.getStore();
-    // HOTFIX: Fetch fresh booking from DB to avoid staleness in projections
-    const fresh = await store.getBooking(b.id);
+    // FIX: Fetch fresh booking from DB to avoid staleness.
+    // If not found by id (iCal bookings use external_ref as id), try external_ref fallback.
+    let fresh = await store.getBooking(b.id);
+    if (!fresh && b.external_ref) {
+      fresh = await store.getBookingByExternalRef(b.external_ref);
+    }
     setViewingBooking(fresh || b);
     setIsViewModalOpen(true);
   };
+
+  // FIX: When bookings state refreshes (e.g. after a save), update the open detail modal
+  // so it always shows current data without requiring the user to close and reopen.
+  useEffect(() => {
+    if (isViewModalOpen && viewingBooking) {
+      const updated = bookings.find(b => b.id === viewingBooking.id);
+      if (updated) setViewingBooking(updated);
+    }
+  }, [bookings]);
 
   const { confirmed, provisionalNotCovered, provisionalCovered } = useMemo(() => {
     const cf = bookings.filter(b => b.status !== 'cancelled' && isConfirmedBooking(b));
@@ -176,7 +189,10 @@ const CalendarContent: React.FC = () => {
     });
 
     return mapping;
-  }, [bookings, selectedPropertyId]);
+    // FIX: deps must be [displayBookings] not [bookings] because the sorted array
+    // inside iterates displayBookings. Using [bookings] caused stale slot maps when
+    // displayBookings changed due to React batching.
+  }, [displayBookings, selectedPropertyId]);
 
   const getBookingsForDate = (date: Date) => {
     const dStr = toDateStr(date);

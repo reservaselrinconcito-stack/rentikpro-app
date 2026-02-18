@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Archive, Download, Upload, ShieldCheck, AlertCircle, RefreshCw, FileArchive, ArrowLeft, Terminal } from 'lucide-react';
-import { projectManager } from '../services/projectManager';
+import { ProjectManager, projectManager } from '../services/projectManager';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -35,8 +35,10 @@ export const BackupVault = () => {
             setLogs([]); // Clear previous logs
             addLog("Iniciando exportación de backup...");
             addLog("Generando archivo ZIP...");
-            await projectManager.exportFullBackupZip();
-            addLog("Descarga iniciada.");
+            const { blob, filename } = await projectManager.exportFullBackupZip();
+            // SAFARI FIX: call triggerDownload after async work completes
+            ProjectManager.triggerDownload(blob, filename);
+            addLog(`✅ Export generado: ${filename} (${(blob.size / 1024).toFixed(0)} KB)`);
             toast.success("Backup creado y descargado correctamente");
             setLastBackup(new Date().toLocaleString());
         } catch (e) {
@@ -47,6 +49,7 @@ export const BackupVault = () => {
             setIsExporting(false);
         }
     };
+
 
     const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];

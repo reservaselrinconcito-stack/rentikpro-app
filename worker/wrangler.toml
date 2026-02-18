@@ -2,3 +2,11 @@
 name = "rentikpro-cm-proxy"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
+[durable_objects]
+bindings = [
+  { name = "RATE_LIMITER", class_name = "PublicRateLimiterDO" }
+]
+
+[[migrations]]
+tag = "v1" # Adjust tag as needed
+new_classes = ["PublicRateLimiterDO"]

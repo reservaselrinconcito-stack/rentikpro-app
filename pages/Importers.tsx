@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { projectManager } from '../services/projectManager';
+import { ProjectManager, projectManager } from '../services/projectManager';
 import { notifyDataChanged, useDataRefresh } from '../services/dataRefresher';
 import { Booking, AccountingMovement } from '../types';
 import {
@@ -778,19 +778,18 @@ export const Importers = () => {
 
 
   const handleFullExport = async () => {
-    const date = new Date().toISOString().split('T')[0];
-    const filename = `rentikpro_full_backup_${date}.zip`;
-
-    if (!window.confirm(`Se va a generar una copia completa (BD + Config + Estructura): ${filename}\n\n¿Desea continuar?`)) {
+    if (!window.confirm(`Se va a generar una copia completa (BD + Config + Channel Manager).\n\n¿Desea continuar?`)) {
       return;
     }
 
     setIsProcessing(true);
-    addLog(`📦 Generando Backup Completo: ${filename}...`);
+    addLog(`📦 Generando Backup Completo...`);
     try {
-      await projectManager.exportFullBackupZip();
-      addLog(`✅ Exportación completada: ${filename}`);
-      // alert(`Backup descargado con éxito:\n${filename}`); // Browser handles download feedback usually, but alert is nice.
+      const { blob, filename } = await projectManager.exportFullBackupZip();
+      // SAFARI FIX: triggerDownload must be called after the async work is done.
+      // We use the static helper which appends the anchor to document.body.
+      ProjectManager.triggerDownload(blob, filename);
+      addLog(`✅ Export generado: ${filename} (${(blob.size / 1024).toFixed(0)} KB)`);
     } catch (e: any) {
       addLog(`❌ Error exportando: ${e.message}`);
       console.error(e);

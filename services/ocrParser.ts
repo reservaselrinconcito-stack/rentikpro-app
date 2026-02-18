@@ -69,8 +69,8 @@ export const processImage = async (imageFile: File | string, onProgress: (p: num
 
   const processedImage = await preprocessImage(imageFile);
 
-  // 2. Ejecutar Tesseract (OFFLINE CONFIG)
-  const worker = await Tesseract.createWorker({
+  // 2. Ejecutar Tesseract (OFFLINE CONFIG - v5)
+  const worker = await Tesseract.createWorker('spa+eng', 1, {
     workerPath: '/tesseract/worker.min.js',
     langPath: '/tesseract',
     corePath: '/tesseract/tesseract-core.wasm.js',
@@ -81,11 +81,15 @@ export const processImage = async (imageFile: File | string, onProgress: (p: num
     }
   });
 
-  await worker.load();
-  await worker.loadLanguage('spa+eng');
-  await worker.initialize('spa+eng');
-  const { data: { text } } = await worker.recognize(processedImage);
-  await worker.terminate();
+  // v5: Worker is already initialized
+
+  let text = '';
+  try {
+    const result = await worker.recognize(processedImage);
+    text = result.data.text;
+  } finally {
+    await worker.terminate();
+  }
 
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 5);
 

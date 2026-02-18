@@ -15,6 +15,10 @@ export interface Property {
   show_prices?: boolean;
   max_range_days?: number;      // default 365
   last_published_at?: number;
+  location?: string;
+  logo?: string;
+  phone?: string;
+  email?: string;
 }
 
 export interface Apartment {
@@ -496,17 +500,15 @@ export interface RegistryPresentation {
 // Websites
 export interface WebSite {
   id: string;
-  name: string;
+  property_id: string; // Changed from implicit to explicit FK
   subdomain: string;
-  custom_domain?: string;
-  status: 'draft' | 'published' | 'landing' | 'imported';
-  theme_config: any;
-  seo_title: string;
-  seo_description: string;
-  sections_json: string;
-  booking_config: any;
-  property_ids_json: string;
-  zip_base64?: string; // New field for imported sites
+  template_slug: string;
+  plan_type: 'basic' | 'plus' | 'pro';
+  primary_domain?: string;
+  public_token: string;
+  is_published: boolean; // boolean (0/1 in SQLite)
+  allowed_origins_json: string;
+  features_json: string;
   created_at: number;
   updated_at: number;
 }

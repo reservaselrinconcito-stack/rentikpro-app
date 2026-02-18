@@ -456,6 +456,10 @@ export class SQLiteStore implements IDataStore {
     await this.execute("CREATE INDEX IF NOT EXISTS idx_cleaning_tasks_date ON cleaning_tasks(due_date);");
     await this.execute("CREATE INDEX IF NOT EXISTS idx_cleaning_tasks_apt ON cleaning_tasks(apartment_id);");
     await this.safeMigration("ALTER TABLE properties ADD COLUMN updated_at INTEGER", "Add updated_at to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN location TEXT", "Add location to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN logo TEXT", "Add logo to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN phone TEXT", "Add phone to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN email TEXT", "Add email to properties");
 
     // Updates for Flexible Import
     await this.safeMigration("ALTER TABLE travelers ADD COLUMN needs_document INTEGER DEFAULT 0", "Add needs_document to travelers");
@@ -576,6 +580,25 @@ export class SQLiteStore implements IDataStore {
       created_at INTEGER,
       updated_at INTEGER
     );`);
+
+    // Re-create web_sites with strict schema (v2)
+    await this.execute("DROP TABLE IF EXISTS web_sites");
+    await this.execute(`CREATE TABLE IF NOT EXISTS web_sites (
+      id TEXT PRIMARY KEY, -- UUID
+      property_id TEXT,
+      subdomain TEXT UNIQUE,
+      template_slug TEXT,
+      plan_type TEXT, -- basic | plus | pro
+      primary_domain TEXT,
+      public_token TEXT,
+      is_published INTEGER, -- 0 or 1
+      allowed_origins_json TEXT, -- JSON array
+      features_json TEXT, -- JSON: { blogEnabled, experiencesEnabled, showPrices }
+      created_at INTEGER,
+      updated_at INTEGER,
+      FOREIGN KEY(property_id) REFERENCES properties(id)
+    );`);
+    await this.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_websites_subdomain ON web_sites(subdomain);");
 
     // --- COMUNICACIONES ---
     await this.execute(`CREATE TABLE IF NOT EXISTS communication_accounts (
@@ -1140,6 +1163,16 @@ export class SQLiteStore implements IDataStore {
     };
   }
 
+  /** FIX: Lookup booking by external_ref (iCal UID). Used as fallback in Calendar
+   * when the in-memory booking id is the external_ref, not the DB primary key. */
+  async getBookingByExternalRef(externalRef: string): Promise<Booking | null> {
+    const rows = await this.query('SELECT * FROM bookings WHERE external_ref = ? LIMIT 1', [externalRef]);
+    if (!rows[0]) return null;
+    let payments: any[] = [];
+    try { payments = rows[0].payments_json ? JSON.parse(rows[0].payments_json) : []; } catch (e) { }
+    return { ...rows[0], payments, conflict_detected: !!rows[0].conflict_detected };
+  }
+
   async updateReservation(id: string, patch: Partial<Booking>, sourceModule: string): Promise<Booking> {
     let existing = await this.getBooking(id);
 
@@ -1593,20 +1626,7 @@ export class SQLiteStore implements IDataStore {
     return []; // Satisfy IDataStore
   }
 
-  async getWebsites(): Promise<WebSite[]> {
-    if (!await this.tableExists('websites')) {
-      console.warn("⚠️ Tabla omitted: websites (no existe)");
-      return [];
-    }
-    const res = await this.query("SELECT * FROM websites ORDER BY created_at DESC");
-    return res.map(row => ({
-      ...row,
-      theme_config: JSON.parse(row.theme_config || '{}'),
-      sections_json: row.sections_json || '[]',
-      is_published: row.is_published === 1,
-      utm_defaults: JSON.parse(row.utm_defaults || '{}')
-    }));
-  }
+
 
   private async tableExists(tableName: string): Promise<boolean> {
     const res = await this.query("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [tableName]);
@@ -1621,25 +1641,45 @@ export class SQLiteStore implements IDataStore {
     return await this.query("SELECT * FROM media_assets");
   }
 
+  // --- WEBSITE METHODS (v2 strict schema) ---
+  async getWebsites(): Promise<WebSite[]> {
+    if (!await this.tableExists('web_sites')) { // Changed from 'websites'
+      return [];
+    }
+    const res = await this.query("SELECT * FROM web_sites ORDER BY created_at DESC");
+    return res.map(r => ({
+      ...r,
+      is_published: !!r.is_published, // Convert integer to boolean
+    }));
+  }
+
   async saveWebsite(w: WebSite): Promise<void> {
     const row = [
-      w.id, w.name, w.subdomain, w.custom_domain || null, w.status,
-      JSON.stringify(w.theme_config), w.seo_title, w.seo_description,
-      w.sections_json, JSON.stringify(w.booking_config), w.property_ids_json,
-      w.created_at, w.updated_at
+      w.id,
+      w.property_id,
+      w.subdomain,
+      w.template_slug,
+      w.plan_type,
+      w.primary_domain || null, // handle optional
+      w.public_token,
+      w.is_published ? 1 : 0, // Convert boolean to integer
+      w.allowed_origins_json,
+      w.features_json,
+      w.created_at,
+      w.updated_at
     ];
     await this.executeWithParams(
-      `INSERT OR REPLACE INTO websites (
-        id, name, subdomain, custom_domain, status, theme_config,
-        seo_title, seo_description, sections_json, booking_config,
-        property_ids_json, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT OR REPLACE INTO web_sites (
+        id, property_id, subdomain, template_slug, plan_type,
+        primary_domain, public_token, is_published, allowed_origins_json,
+        features_json, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       row
     );
   }
 
   async deleteWebsite(id: string): Promise<void> {
-    await this.executeWithParams("DELETE FROM websites WHERE id=?", [id]);
+    await this.executeWithParams("DELETE FROM web_sites WHERE id=?", [id]);
   }
 
 

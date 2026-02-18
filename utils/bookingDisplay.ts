@@ -16,7 +16,6 @@ export const getBookingDisplayName = (booking: Booking, traveler?: Traveler): st
     }
 
     // 2. Prioridad: Nombre manual en reserva (si existe)
-    // Esto cubre reservas manuales donde no hay traveler, o importadas que tienen guest_name
     if (booking.guest_name && booking.guest_name.trim()) {
         return booking.guest_name.trim();
     }
@@ -26,5 +25,6 @@ export const getBookingDisplayName = (booking: Booking, traveler?: Traveler): st
         return booking.summary.trim();
     }
 
-    return 'Sin nombre';
+    // 4. Fallback: Fuente
+    return booking.source || 'Sin nombre';
 };

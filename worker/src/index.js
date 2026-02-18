@@ -168,6 +168,182 @@ export default {
       }
     }
 
+    // --- REUSABLE SECURITY HELPERS ---
+
+    function requirePublicToken(request) {
+      const token = request.headers.get("X-PUBLIC-TOKEN");
+      if (!token) {
+        return addCors(new Response(JSON.stringify({ error: "Missing public token" }), { status: 401 }), request.headers.get("Origin"));
+      }
+      return token;
+    }
+
+    async function enforceRateLimit(token, env) {
+      // Calls Durable Object
+      const id = env.RATE_LIMITER.idFromName(token);
+      const stub = env.RATE_LIMITER.get(id);
+      const doRes = await stub.fetch("http://do/limit");
+      if (doRes.status === 429) {
+        return new Response(JSON.stringify({ error: "rate_limited" }), { status: 429 });
+      }
+      return null; // OK
+    }
+
+    // Resolves site and checks is_published
+    // Returns { site, response } - if response is set, return it immediately (error)
+    async function resolveAndValidateSite(subdomain, env, origin) {
+      if (!subdomain) {
+        return { response: addCors(new Response(JSON.stringify({ error: "Missing subdomain" }), { status: 400 }), origin) };
+      }
+      const site = await env.DB.prepare("SELECT * FROM web_sites WHERE subdomain = ?").bind(subdomain).first();
+      if (!site) {
+        return { response: addCors(new Response(JSON.stringify({ error: "Site not found" }), { status: 404 }), origin) };
+      }
+      if (site.is_published === 0) {
+        return { response: addCors(new Response(JSON.stringify({ error: "Site not published" }), { status: 403 }), origin) };
+      }
+      return { site };
+    }
+
+    function enforceCors(request, site) {
+      const origin = request.headers.get("Origin");
+      if (!origin) return null; // Server-to-server / curl allowed if no Origin
+
+      let allowedOrigins = [];
+      try {
+        allowedOrigins = JSON.parse(site.allowed_origins_json || "[]");
+      } catch (e) { }
+
+      if (!allowedOrigins.includes(origin)) {
+        return new Response(JSON.stringify({ error: "Origin not allowed" }), { status: 403 });
+      }
+      return null; // OK
+    }
+
+    // --- PUBLIC ENDPOINTS ---
+
+    if (path.startsWith("/public/")) {
+      const origin = request.headers.get("Origin");
+
+      // A. Validate Token (401)
+      const tokenOrResponse = requirePublicToken(request);
+      if (tokenOrResponse instanceof Response) return tokenOrResponse;
+      const token = tokenOrResponse;
+
+      // B. Rate Limit (DO) (429)
+      const limitResponse = await enforceRateLimit(token, env);
+      if (limitResponse) return addCors(limitResponse, origin);
+
+      // ROUTING
+
+      // 1. GET /public/site-config
+      if (path === "/public/site-config" && request.method === "GET") {
+        const subdomain = url.searchParams.get("subdomain");
+
+        // C. Load Site & Validate Published (404 / 403)
+        const { site, response } = await resolveAndValidateSite(subdomain, env, origin);
+        if (response) return response;
+
+        // Token Verification (Match site's token)
+        if (site.public_token !== token) {
+          return addCors(new Response(JSON.stringify({ error: "Invalid public token" }), { status: 401 }), origin);
+        }
+
+        // D. Validate CORS (403)
+        const corsError = enforceCors(request, site);
+        if (corsError) return corsError; // Headers will be added by addCors if needed, but here we return strict error
+
+        try {
+          const property = await env.DB.prepare(
+            "SELECT name, location, logo, phone, email FROM properties WHERE id = ?"
+          ).bind(site.property_id).first();
+
+          const features = site.features_json ? JSON.parse(site.features_json) : {};
+
+          const config = {
+            property: property || { name: site.subdomain },
+            template: site.template_slug,
+            plan: site.plan_type,
+            features: {
+              blogEnabled: !!features.blogEnabled,
+              experiencesEnabled: !!features.experiencesEnabled,
+              showPrices: !!features.showPrices
+            }
+          };
+
+          // E. Respond with JSON + CORS Headers
+          // enforceCors checks specific origin. addCors reflects it if allowed (we know it is allowed now).
+          // However, addCors uses a hardcoded list in this file. We should extend addCors to support the site's allowedOrigins dynamically?
+          // Or just use the helper to set headers here.
+          // Given existing addCors logic, strict enforcement was done above.
+          // We can manually set the allow-origin header to the request origin since we validated it.
+
+          const resp = new Response(JSON.stringify(config), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+
+          // Manually handling dynamic CORS here to override the static list in addCors if needed,
+          // OR rely on addCors if we update it.
+          // Let's use a custom response wrapper for authorized dynamic CORS.
+          const h = new Headers(resp.headers);
+          if (origin) {
+            h.set("Access-Control-Allow-Origin", origin);
+            h.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+            h.set("Access-Control-Allow-Headers", "Content-Type, X-PUBLIC-TOKEN");
+          }
+          return new Response(resp.body, { status: 200, headers: h });
+
+        } catch (err) {
+          return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
+        }
+      }
+
+      // 2. GET /public/availability
+      if (path.startsWith("/public/availability") && request.method === "GET") {
+        const subdomain = url.searchParams.get("subdomain");
+
+        // C. Load Site & Validate
+        const { site, response } = await resolveAndValidateSite(subdomain, env, origin);
+        if (response) return response;
+
+        if (site.public_token !== token) {
+          return addCors(new Response(JSON.stringify({ error: "Invalid public token" }), { status: 401 }), origin);
+        }
+
+        // D. Validate CORS
+        const corsError = enforceCors(request, site);
+        if (corsError) return corsError;
+
+        try {
+          // Mock Availability Logic (Restoring structure)
+          // In real impl, would query 'calendars' or 'bookings' table
+          const availabilityConfig = {
+            // Placeholder data
+            property_id: site.property_id,
+            available: true,
+            // We would fetch real data here
+          };
+
+          const resp = new Response(JSON.stringify(availabilityConfig), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+
+          const h = new Headers(resp.headers);
+          if (origin) {
+            h.set("Access-Control-Allow-Origin", origin);
+            h.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+            h.set("Access-Control-Allow-Headers", "Content-Type, X-PUBLIC-TOKEN");
+          }
+          return new Response(resp.body, { status: 200, headers: h });
+
+        } catch (err) {
+          return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
+        }
+      }
+    }
+
     return new Response("Not Found", { status: 404 });
   }
 };

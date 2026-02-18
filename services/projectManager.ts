@@ -266,10 +266,27 @@ export class ProjectManager {
     return true;
   }
 
-  // ... (Legacy exports, keep them)
+  // --- SAFARI-SAFE DOWNLOAD HELPER ---
+  // MUST be called synchronously inside an onClick handler (user gesture).
+  // Appending to document.body is required for Firefox and Safari.
+  static triggerDownload(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Revoke after a generous delay to ensure download starts
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    console.log(`[DOWNLOAD] Triggered: ${filename} (${blob.size} bytes)`);
+  }
+
   // --- FULL BACKUP (ZIP) ---
-  // BLOCK 11: Hardened Full Export
-  async exportFullBackupZip(): Promise<Blob> {
+  // Returns { blob, filename } — caller MUST call ProjectManager.triggerDownload()
+  // synchronously from an onClick handler to avoid Safari's async-gesture block.
+  async exportFullBackupZip(): Promise<{ blob: Blob; filename: string }> {
     console.log("[EXPORT:FULL] Beginning export process...");
 
     // 0. Force save to ensure IndexedDB is up to date
@@ -290,7 +307,7 @@ export class ProjectManager {
     };
     zip.file('metadata.json', JSON.stringify(metadata, null, 2));
 
-    // 3. Structural Config (Enhanced transparency)
+    // 3. Structural Config (Enhanced transparency + Channel Manager)
     try {
       const connections = await this.store.getChannelConnections();
       zip.file('connections.json', JSON.stringify(connections, null, 2));
@@ -338,23 +355,16 @@ export class ProjectManager {
       }
     }
 
-    const content = await zip.generateAsync({ type: 'blob' });
+    const blob = await zip.generateAsync({ type: 'blob' });
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const filename = `rentikpro_full_${timestamp}.zip`;
 
-    console.log(`[EXPORT:FULL] Created blob (${content.size} bytes). Filename: ${filename}`);
-
-    // Auto-trigger fallback for non-Safari or legacy calls
-    const url = URL.createObjectURL(content);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    console.log(`[EXPORT:FULL] Created blob (${blob.size} bytes). Filename: ${filename}`);
 
     localStorage.setItem('rentik_last_backup_date', new Date().toISOString());
-    return content;
+    return { blob, filename };
   }
+
 
   async importFullBackupZip(file: File, onProgress?: (msg: string) => void): Promise<boolean> {
     try {

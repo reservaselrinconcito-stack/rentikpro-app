@@ -261,7 +261,7 @@ export const Bookings: React.FC = () => {
       const lower = searchTerm.toLowerCase();
       result = result.filter(b => {
         const traveler = travelers.find(t => t.id === b.traveler_id);
-        const tName = traveler ? (traveler.nombre + ' ' + traveler.apellidos).toLowerCase() : '';
+        const tName = traveler ? (traveler.nombre + ' ' + traveler.apellidos).toLowerCase() : (b.guest_name || '').toLowerCase();
         const tDoc = traveler?.documento?.toLowerCase() || '';
         const extRef = b.external_ref?.toLowerCase() || '';
         const summary = b.summary?.toLowerCase() || '';

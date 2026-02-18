@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { projectManager } from '../services/projectManager';
+import { ProjectManager, projectManager } from '../services/projectManager';
 import { UserSettings, Property } from '../types';
 import {
     Save, Building2, Wallet, Users, Globe, Mail, Phone, Calendar,
@@ -1016,12 +1016,14 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                             onClick={async () => {
                                 try {
                                     setExporting(true);
-                                    const blob = await projectManager.exportFullBackupZip();
+                                    const { blob, filename } = await projectManager.exportFullBackupZip();
+                                    // Trigger download immediately (Safari-safe: after async, still works here
+                                    // because we use the static helper with document.body.appendChild)
+                                    ProjectManager.triggerDownload(blob, filename);
                                     const url = URL.createObjectURL(blob);
-                                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
                                     setLastBackupBlobUrl(url);
-                                    setLastBackupFilename(`rentikpro_full_${timestamp}.zip`);
-                                    toast.success("Copia de seguridad preparada.");
+                                    setLastBackupFilename(filename);
+                                    toast.success(`Backup generado: ${filename}`);
                                 } catch (e) {
                                     toast.error("Error al generar backup: " + e);
                                 } finally {
@@ -1345,8 +1347,8 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
 
                                     {publishStatus && (
                                         <div className={`mt-3 p-4 rounded-2xl flex items-start gap-3 text-sm ${publishStatus.ok
-                                                ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
-                                                : 'bg-rose-50 border border-rose-200 text-rose-800'
+                                            ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                                            : 'bg-rose-50 border border-rose-200 text-rose-800'
                                             }`}>
                                             {publishStatus.ok
                                                 ? <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
