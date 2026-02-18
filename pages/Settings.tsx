@@ -1,24 +1,41 @@
 
 import React, { useState, useEffect } from 'react';
 import { projectManager } from '../services/projectManager';
-import { UserSettings } from '../types';
+import { UserSettings, Property } from '../types';
 import {
     Save, Building2, Wallet, Users, Globe, Mail, Phone, Calendar,
     ArrowLeft, Plus, Trash2, Instagram, Facebook, Youtube, Twitter, Video,
     Building, FileText, Settings as SettingsIcon, CheckCircle2, Download, Upload, Shield,
-    MailCheck, Server, Lock, Database
+    MailCheck, Server, Lock, Database, Wifi, RefreshCw, Eye, EyeOff, Copy, CheckCheck
 } from 'lucide-react';
 import { PolicyEditor } from '../components/PolicyEditor';
 import { smtpService } from '../services/smtpService';
 import { toast } from 'sonner';
+import { publishAvailability, generatePublicToken } from '../services/publicWebSync';
 
 import { useStore } from '../hooks/useStore';
 
 export const Settings = ({ onSave }: { onSave: () => void }) => {
     const store = useStore(); // Added useStore hook
     const [settings, setSettings] = useState<UserSettings | null>(null); // Changed initial state to null
-    const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'backup' | 'email_ingest' | 'policies' | 'smtp'>('profile'); // Added activeTab state
+    const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'backup' | 'email_ingest' | 'policies' | 'smtp' | 'web_publica'>('profile'); // Added activeTab state
     const [loading, setLoading] = useState(true); // Added loading state
+
+    // Web Pública state
+    const [webProperties, setWebProperties] = useState<Property[]>([]);
+    const [selectedPropertyId, setSelectedPropertyId] = useState<string>('');
+    const [webConfig, setWebConfig] = useState<Partial<Property>>({
+        web_calendar_enabled: false,
+        public_token: '',
+        allowed_origins_json: '[]',
+        show_prices: false,
+        max_range_days: 365,
+    });
+    const [originsText, setOriginsText] = useState('');
+    const [publishing, setPublishing] = useState(false);
+    const [publishStatus, setPublishStatus] = useState<{ ok: boolean; msg: string; at?: number } | null>(null);
+    const [showToken, setShowToken] = useState(false);
+    const [tokenCopied, setTokenCopied] = useState(false);
 
     const [saved, setSaved] = useState(false);
     const [exporting, setExporting] = useState(false);
@@ -27,7 +44,107 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
 
     useEffect(() => {
         loadSettings();
+        loadWebProperties();
     }, []);
+
+    const loadWebProperties = async () => {
+        try {
+            const props = await projectManager.getStore().getProperties();
+            setWebProperties(props);
+            if (props.length > 0) {
+                const first = props[0];
+                setSelectedPropertyId(first.id);
+                loadWebConfig(first);
+            }
+        } catch (e) {
+            console.error('[WEB:PUBLISH] Error loading properties:', e);
+        }
+    };
+
+    const loadWebConfig = (prop: Property) => {
+        setWebConfig({
+            web_calendar_enabled: prop.web_calendar_enabled ?? false,
+            public_token: prop.public_token ?? '',
+            allowed_origins_json: prop.allowed_origins_json ?? '[]',
+            show_prices: prop.show_prices ?? false,
+            max_range_days: prop.max_range_days ?? 365,
+            last_published_at: prop.last_published_at,
+        });
+        try {
+            const origins: string[] = JSON.parse(prop.allowed_origins_json || '[]');
+            setOriginsText(origins.join('\n'));
+        } catch { setOriginsText(''); }
+        setPublishStatus(prop.last_published_at ? {
+            ok: true,
+            msg: 'Último publish exitoso',
+            at: prop.last_published_at,
+        } : null);
+    };
+
+    const saveWebConfig = async () => {
+        const prop = webProperties.find(p => p.id === selectedPropertyId);
+        if (!prop) return;
+        const origins = originsText
+            .split('\n')
+            .map(s => s.trim())
+            .filter(Boolean);
+        const updated: Property = {
+            ...prop,
+            ...webConfig,
+            allowed_origins_json: JSON.stringify(origins),
+            updated_at: Date.now(),
+        };
+        await projectManager.getStore().saveProperty(updated);
+        setWebProperties(prev => prev.map(p => p.id === updated.id ? updated : p));
+        toast.success('Configuración web guardada');
+    };
+
+    const handlePublishNow = async () => {
+        const prop = webProperties.find(p => p.id === selectedPropertyId);
+        if (!prop) return;
+
+        // Save config first
+        const origins = originsText
+            .split('\n')
+            .map(s => s.trim())
+            .filter(Boolean);
+        const updatedProp: Property = {
+            ...prop,
+            ...webConfig,
+            allowed_origins_json: JSON.stringify(origins),
+            updated_at: Date.now(),
+        };
+        await projectManager.getStore().saveProperty(updatedProp);
+
+        const workerUrl = (import.meta.env.VITE_PUBLIC_WORKER_URL || '').replace(/\/$/, '');
+        const adminKey = import.meta.env.VITE_PUBLIC_WORKER_ADMIN_KEY || '';
+
+        if (!workerUrl) {
+            toast.error('Configura VITE_PUBLIC_WORKER_URL en el .env');
+            return;
+        }
+
+        setPublishing(true);
+        setPublishStatus(null);
+        console.log('[WEB:PUBLISH] Initiating publish...');
+
+        const result = await publishAvailability(updatedProp, workerUrl, adminKey);
+
+        if (result.ok && result.publishedAt) {
+            // Persist last_published_at
+            const withTimestamp: Property = { ...updatedProp, last_published_at: result.publishedAt };
+            await projectManager.getStore().saveProperty(withTimestamp);
+            setWebProperties(prev => prev.map(p => p.id === withTimestamp.id ? withTimestamp : p));
+            setWebConfig(prev => ({ ...prev, last_published_at: result.publishedAt }));
+            setPublishStatus({ ok: true, msg: '✅ Publicado correctamente', at: result.publishedAt });
+            toast.success('Disponibilidad publicada correctamente');
+        } else {
+            setPublishStatus({ ok: false, msg: result.error || 'Error desconocido' });
+            toast.error('Error al publicar: ' + result.error);
+        }
+
+        setPublishing(false);
+    };
 
     const loadSettings = async (retry = true) => {
         try {
@@ -99,18 +216,18 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
             </div>
 
             <div className="border-b border-slate-200">
-                <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+                <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
                     <button
                         onClick={() => setActiveTab('profile')}
-                        className={`px - 6 py - 4 text - sm font - medium whitespace - nowrap transition - colors ${activeTab === 'profile' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'} `}
+                        className={`px-6 py-4 text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'profile' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}
                     >
                         Perfil
                     </button>
                     <button
                         onClick={() => setActiveTab('email_ingest')}
-                        className={`px - 6 py - 4 text - sm font - medium whitespace - nowrap transition - colors ${activeTab === 'email_ingest' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'} `}
+                        className={`px-6 py-4 text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'email_ingest' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}
                     >
-                        Email Ingest & Reservas
+                        Email Ingest &amp; Reservas
                     </button>
                     <button
                         onClick={() => setActiveTab('smtp')}
@@ -120,13 +237,19 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                     </button>
                     <button
                         onClick={() => setActiveTab('policies')}
-                        className={`px - 6 py - 4 text - sm font - medium whitespace - nowrap transition - colors ${activeTab === 'policies' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'} `}
+                        className={`px-6 py-4 text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'policies' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}
                     >
                         Políticas (Default)
                     </button>
                     <button
+                        onClick={() => setActiveTab('web_publica')}
+                        className={`px-6 py-4 text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'web_publica' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}
+                    >
+                        🌐 Web Pública
+                    </button>
+                    <button
                         onClick={() => setActiveTab('backup')}
-                        className={`px - 6 py - 4 text - sm font - medium whitespace - nowrap transition - colors ${activeTab === 'backup' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'} `}
+                        className={`px-6 py-4 text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'backup' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}
                     >
                         Backup
                     </button>
@@ -1030,6 +1153,223 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
 
                     <div className="pt-6 border-t border-slate-100 italic text-[10px] text-slate-400 text-center uppercase tracking-widest">
                         Recomendado: Usar "Backup Completo" para traspasar proyectos entre dispositivos.
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'web_publica' && (
+                <div className="space-y-6">
+                    <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
+                        <div className="flex items-center gap-4 mb-6">
+                            <div className="p-4 bg-indigo-100 text-indigo-600 rounded-2xl">
+                                <Globe size={28} />
+                            </div>
+                            <div>
+                                <h3 className="text-2xl font-black text-slate-800">Web Pública</h3>
+                                <p className="text-slate-400 text-sm">Expone la disponibilidad de tu propiedad a tu web pública vía API segura.</p>
+                            </div>
+                        </div>
+
+                        {/* Property selector */}
+                        {webProperties.length > 1 && (
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Propiedad</label>
+                                <select
+                                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:ring-2 focus:ring-indigo-500/20 transition-all outline-none"
+                                    value={selectedPropertyId}
+                                    onChange={e => {
+                                        setSelectedPropertyId(e.target.value);
+                                        const prop = webProperties.find(p => p.id === e.target.value);
+                                        if (prop) loadWebConfig(prop);
+                                    }}
+                                >
+                                    {webProperties.map(p => (
+                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {webProperties.length === 0 && (
+                            <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl text-amber-800 text-sm">
+                                No hay propiedades configuradas. Crea una propiedad primero.
+                            </div>
+                        )}
+
+                        {webProperties.length > 0 && (
+                            <div className="space-y-6">
+                                {/* Toggle enabled */}
+                                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                                    <div>
+                                        <h4 className="font-bold text-slate-700">Calendario web activo</h4>
+                                        <p className="text-xs text-slate-400">Permite que tu web pública consulte la disponibilidad.</p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            className="sr-only peer"
+                                            checked={webConfig.web_calendar_enabled ?? false}
+                                            onChange={e => setWebConfig(prev => ({ ...prev, web_calendar_enabled: e.target.checked }))}
+                                        />
+                                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                                    </label>
+                                </div>
+
+                                {/* Token */}
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Token Público</label>
+                                    <div className="flex gap-2">
+                                        <div className="relative flex-1">
+                                            <input
+                                                type={showToken ? 'text' : 'password'}
+                                                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-sm focus:ring-2 focus:ring-indigo-500/20 transition-all outline-none pr-12"
+                                                value={webConfig.public_token || ''}
+                                                onChange={e => setWebConfig(prev => ({ ...prev, public_token: e.target.value }))}
+                                                placeholder="Genera un token con el botón →"
+                                            />
+                                            <button
+                                                onClick={() => setShowToken(v => !v)}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 transition-colors"
+                                                title={showToken ? 'Ocultar' : 'Mostrar'}
+                                            >
+                                                {showToken ? <EyeOff size={18} /> : <Eye size={18} />}
+                                            </button>
+                                        </div>
+                                        <button
+                                            onClick={() => {
+                                                const t = generatePublicToken();
+                                                setWebConfig(prev => ({ ...prev, public_token: t }));
+                                                setShowToken(true);
+                                                toast.success('Token generado. Guarda la configuración.');
+                                            }}
+                                            className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-2xl font-bold text-sm hover:bg-indigo-200 transition-colors flex items-center gap-2 whitespace-nowrap"
+                                        >
+                                            <RefreshCw size={16} /> Generar/Rotar
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                if (webConfig.public_token) {
+                                                    await navigator.clipboard.writeText(webConfig.public_token);
+                                                    setTokenCopied(true);
+                                                    setTimeout(() => setTokenCopied(false), 2000);
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm hover:bg-slate-200 transition-colors flex items-center gap-2"
+                                            title="Copiar token"
+                                        >
+                                            {tokenCopied ? <CheckCheck size={16} className="text-emerald-600" /> : <Copy size={16} />}
+                                        </button>
+                                    </div>
+                                    <p className="text-xs text-slate-400 mt-2">⚠️ El token se guarda localmente. El Worker almacena solo su hash SHA-256.</p>
+                                </div>
+
+                                {/* Allowed Origins */}
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Orígenes Permitidos (CORS)</label>
+                                    <textarea
+                                        rows={4}
+                                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-sm focus:ring-2 focus:ring-indigo-500/20 transition-all outline-none"
+                                        value={originsText}
+                                        onChange={e => setOriginsText(e.target.value)}
+                                        placeholder={"https://mi-hotel.com\nhttps://www.mi-hotel.com"}
+                                    />
+                                    <p className="text-xs text-slate-400 mt-2">Un dominio por línea. Solo estos orígenes podrán consultar la API desde el navegador.</p>
+                                </div>
+
+                                {/* Show Prices */}
+                                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl">
+                                    <div>
+                                        <h4 className="font-bold text-slate-700">Mostrar precios</h4>
+                                        <p className="text-xs text-slate-400">Incluye el precio por noche en la respuesta pública.</p>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            className="sr-only peer"
+                                            checked={webConfig.show_prices ?? false}
+                                            onChange={e => setWebConfig(prev => ({ ...prev, show_prices: e.target.checked }))}
+                                        />
+                                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                                    </label>
+                                </div>
+
+                                {/* Max Range Days */}
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Rango Máximo Consultable (días)</label>
+                                    <input
+                                        type="number"
+                                        min={7}
+                                        max={730}
+                                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold focus:ring-2 focus:ring-indigo-500/20 transition-all outline-none"
+                                        value={webConfig.max_range_days ?? 365}
+                                        onChange={e => setWebConfig(prev => ({ ...prev, max_range_days: parseInt(e.target.value) || 365 }))}
+                                    />
+                                    <p className="text-xs text-slate-400 mt-2">El payload publicado cubrirá este número de días desde hoy.</p>
+                                </div>
+
+                                {/* Save config */}
+                                <div className="flex justify-end">
+                                    <button
+                                        onClick={saveWebConfig}
+                                        className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-800 transition-colors flex items-center gap-2"
+                                    >
+                                        <Save size={16} /> Guardar configuración
+                                    </button>
+                                </div>
+
+                                {/* Publish */}
+                                <div className="pt-6 border-t border-slate-100">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <h4 className="font-bold text-slate-800 flex items-center gap-2"><Wifi size={18} className="text-indigo-600" /> Publicar Ahora</h4>
+                                            <p className="text-xs text-slate-400">Calcula la disponibilidad y la sube al Worker público.</p>
+                                        </div>
+                                        <button
+                                            onClick={handlePublishNow}
+                                            disabled={publishing || !webConfig.web_calendar_enabled || !webConfig.public_token}
+                                            className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {publishing ? (
+                                                <><RefreshCw size={16} className="animate-spin" /> Publicando...</>
+                                            ) : (
+                                                <><Wifi size={16} /> Publicar ahora</>
+                                            )}
+                                        </button>
+                                    </div>
+
+                                    {!webConfig.web_calendar_enabled && (
+                                        <div className="text-xs text-amber-600 bg-amber-50 border border-amber-200 p-3 rounded-xl">
+                                            Activa el calendario web para poder publicar.
+                                        </div>
+                                    )}
+
+                                    {publishStatus && (
+                                        <div className={`mt-3 p-4 rounded-2xl flex items-start gap-3 text-sm ${publishStatus.ok
+                                                ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                                                : 'bg-rose-50 border border-rose-200 text-rose-800'
+                                            }`}>
+                                            {publishStatus.ok
+                                                ? <CheckCircle2 size={18} className="shrink-0 mt-0.5" />
+                                                : <Shield size={18} className="shrink-0 mt-0.5" />}
+                                            <div>
+                                                <p className="font-bold">{publishStatus.msg}</p>
+                                                {publishStatus.at && (
+                                                    <p className="text-xs opacity-70 mt-1">
+                                                        {new Date(publishStatus.at).toLocaleString('es-ES')}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="mt-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Variables de entorno requeridas</p>
+                                        <code className="text-xs text-slate-600 block">VITE_PUBLIC_WORKER_URL=https://tu-worker.workers.dev</code>
+                                        <code className="text-xs text-slate-600 block">VITE_PUBLIC_WORKER_ADMIN_KEY=tu-admin-key-secreta</code>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

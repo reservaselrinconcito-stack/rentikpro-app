@@ -429,6 +429,14 @@ export class SQLiteStore implements IDataStore {
     await this.safeMigration("ALTER TABLE properties ADD COLUMN timezone TEXT DEFAULT 'Europe/Madrid'", "Add timezone to properties");
     await this.safeMigration("ALTER TABLE properties ADD COLUMN currency TEXT DEFAULT 'EUR'", "Add currency to properties");
 
+    // Web Pública (Public Calendar API)
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN web_calendar_enabled INTEGER DEFAULT 0", "Add web_calendar_enabled to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN public_token TEXT", "Add public_token to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN allowed_origins_json TEXT", "Add allowed_origins_json to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN show_prices INTEGER DEFAULT 0", "Add show_prices to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN max_range_days INTEGER DEFAULT 365", "Add max_range_days to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN last_published_at INTEGER", "Add last_published_at to properties");
+
     // Cleaning Module (v1)
     await this.execute("CREATE TABLE IF NOT EXISTS cleaning_templates (id TEXT PRIMARY KEY, property_id TEXT, title TEXT, items_json TEXT, created_at INTEGER);");
     await this.execute("CREATE TABLE IF NOT EXISTS cleaning_tasks (id TEXT PRIMARY KEY, apartment_id TEXT, booking_id TEXT, due_date TEXT, status TEXT, assigned_to TEXT, notes TEXT, checklist_state_json TEXT, completed_at INTEGER, signature_name TEXT, created_at INTEGER, updated_at INTEGER);");
@@ -2547,11 +2555,20 @@ export class SQLiteStore implements IDataStore {
 
   async getProperties() {
     const res = await this.query("SELECT * FROM properties");
-    return res.map(p => ({ ...p, is_active: p.is_active !== 0 })); // Convert sqlite int to bool
+    return res.map(p => ({
+      ...p,
+      is_active: p.is_active !== 0,
+      web_calendar_enabled: p.web_calendar_enabled === 1,
+      show_prices: p.show_prices === 1,
+      max_range_days: p.max_range_days ?? 365,
+    }));
   }
   async saveProperty(p: Property) {
     await this.executeWithParams(
-      "INSERT OR REPLACE INTO properties (id, name, description, created_at, is_active, timezone, currency, updated_at) VALUES (?,?,?,?,?,?,?,?)",
+      `INSERT OR REPLACE INTO properties
+        (id, name, description, created_at, is_active, timezone, currency, updated_at,
+         web_calendar_enabled, public_token, allowed_origins_json, show_prices, max_range_days, last_published_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         p.id,
         p.name || 'Sin nombre',
@@ -2560,7 +2577,13 @@ export class SQLiteStore implements IDataStore {
         p.is_active !== false ? 1 : 0,
         p.timezone || 'Europe/Madrid',
         p.currency || 'EUR',
-        p.updated_at || Date.now()
+        p.updated_at || Date.now(),
+        p.web_calendar_enabled ? 1 : 0,
+        p.public_token || null,
+        p.allowed_origins_json || null,
+        p.show_prices ? 1 : 0,
+        p.max_range_days ?? 365,
+        p.last_published_at || null,
       ]
     );
   }

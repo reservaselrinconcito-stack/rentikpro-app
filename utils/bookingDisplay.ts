@@ -9,15 +9,19 @@ import { Booking, Traveler } from '../types';
  * 4) "Sin nombre"
  */
 export const getBookingDisplayName = (booking: Booking, traveler?: Traveler): string => {
+    // 1. Prioridad: Traveler vinculado (si tiene datos reales)
     if (traveler) {
         const fullName = `${traveler.nombre || ''} ${traveler.apellidos || ''}`.trim();
         if (fullName) return fullName;
     }
 
+    // 2. Prioridad: Nombre manual en reserva (si existe)
+    // Esto cubre reservas manuales donde no hay traveler, o importadas que tienen guest_name
     if (booking.guest_name && booking.guest_name.trim()) {
         return booking.guest_name.trim();
     }
 
+    // 3. Prioridad: Resumen iCal/OTA (ej: "Juan Perez (Airbnb)")
     if (booking.summary && booking.summary.trim()) {
         return booking.summary.trim();
     }

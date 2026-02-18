@@ -1,0 +1,25 @@
+name = "public-availability"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+# ─── KV Namespace ─────────────────────────────────────────────────────────────
+# Create with: wrangler kv:namespace create PUBLIC_AVAIL_KV
+# Then replace the id below with the one printed.
+[[kv_namespaces]]
+binding = "PUBLIC_AVAIL_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# Preview (local dev) namespace — optional but recommended
+# preview_id = "REPLACE_WITH_YOUR_KV_PREVIEW_NAMESPACE_ID"
+
+# ─── R2 Bucket ────────────────────────────────────────────────────────────────
+# Create with: wrangler r2 bucket create public-avail-snapshots
+[[r2_buckets]]
+binding = "PUBLIC_AVAIL_R2"
+bucket_name = "public-avail-snapshots"
+
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+# Set with: wrangler secret put ADMIN_API_KEY
+# (never put the actual value here)
+# [vars]
+# ADMIN_API_KEY = ""  ← DO NOT do this; use `wrangler secret put` instead

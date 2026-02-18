@@ -8,6 +8,13 @@ export interface Property {
   created_at: number;
   updated_at?: number;
   is_active?: boolean;
+  // Web Pública (Public Calendar API)
+  web_calendar_enabled?: boolean;
+  public_token?: string;        // stored in plaintext locally only
+  allowed_origins_json?: string; // JSON string of string[]
+  show_prices?: boolean;
+  max_range_days?: number;      // default 365
+  last_published_at?: number;
 }
 
 export interface Apartment {

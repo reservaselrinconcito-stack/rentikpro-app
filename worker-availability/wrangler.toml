@@ -1,0 +1,28 @@
+name = "rentikpro-public-availability"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# ─── KV Namespaces ────────────────────────────────────────────────────────────
+# Create with: wrangler kv:namespace create AVAILABILITY_KV
+# Then replace the id below with the one returned.
+[[kv_namespaces]]
+binding = "AVAILABILITY_KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# Preview namespace (for `wrangler dev`)
+# Create with: wrangler kv:namespace create AVAILABILITY_KV --preview
+# [[kv_namespaces]]
+# binding = "AVAILABILITY_KV"
+# id = "REPLACE_WITH_YOUR_PREVIEW_KV_NAMESPACE_ID"
+# preview_id = "REPLACE_WITH_YOUR_PREVIEW_KV_NAMESPACE_ID"
+
+# ─── Secrets ─────────────────────────────────────────────────────────────────
+# Set with: wrangler secret put ADMIN_API_KEY
+# Do NOT put the actual value here.
+# [vars]
+# ADMIN_API_KEY = "set-via-wrangler-secret"
+
+# ─── Routes (optional – set if deploying to a custom domain) ─────────────────
+# routes = [
+#   { pattern = "availability.yourdomain.com/*", zone_name = "yourdomain.com" }
+# ]
