@@ -111,13 +111,20 @@ const CalendarContent: React.FC = () => {
     if (routeId && bookings.length > 0) {
       const b = bookings.find(x => x.id === routeId || x.linked_event_id === routeId);
       if (b) {
-        setViewingBooking(b);
-        setIsViewModalOpen(true);
+        openEventDetail(b);
       }
     }
   }, [routeId, bookings]);
 
-  useDataRefresh(loadData);
+  useDataRefresh(loadData, ['bookings', 'accounting', 'all']);
+
+  const openEventDetail = async (b: Booking) => {
+    const store = projectManager.getStore();
+    // HOTFIX: Fetch fresh booking from DB to avoid staleness in projections
+    const fresh = await store.getBooking(b.id);
+    setViewingBooking(fresh || b);
+    setIsViewModalOpen(true);
+  };
 
   const { confirmed, provisionalNotCovered, provisionalCovered } = useMemo(() => {
     const cf = bookings.filter(b => b.status !== 'cancelled' && isConfirmedBooking(b));
@@ -359,7 +366,7 @@ const CalendarContent: React.FC = () => {
                         return (
                           <div
                             key={b.id}
-                            onClick={(e) => { e.stopPropagation(); setViewingBooking(b); setIsViewModalOpen(true); }}
+                            onClick={(e) => { e.stopPropagation(); openEventDetail(b); }}
                             className={`
                                 h-[22px] mb-[2px] text-white text-[10px] font-bold flex items-center px-2 cursor-pointer
                                 hover:brightness-110 transition-all shadow-sm relative z-30
