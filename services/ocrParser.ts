@@ -194,4 +194,8 @@ export const processImage = async (imageFile: File | string, onProgress: (p: num
     // Dejamos vacío para que el usuario rellene, o intentamos buscar palabras en mayúsculas.
 
     return data;
-  };
+  } catch (error) {
+    console.error("OCR Error:", error);
+    throw error;
+  }
+};
