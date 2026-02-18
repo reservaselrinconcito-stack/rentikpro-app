@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { formatDateES, formatDateRangeES } from '../utils/dateFormat';
 import { isConfirmedBooking, isProvisionalBlock, isCovered } from '../utils/bookingClassification';
+import { getBookingDisplayName } from '../utils/bookingDisplay';
 
 type ViewMode = 'monthly' | 'weekly' | 'yearly';
 
@@ -379,12 +380,12 @@ const CalendarContent: React.FC = () => {
                                 ${isBlock ? 'opacity-70 grayscale-[0.5]' : ''}
                               `}
                             style={style}
-                            title={`${isBlock ? 'BLOQUEO' : (traveler?.nombre || 'Huésped')} (${b.guests}pax) - ${apt?.name} ${isConflict ? '[CONFLICTO]' : ''}`}
+                            title={`${isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler)} (${b.guests}pax) - ${apt?.name} ${isConflict ? '[CONFLICTO]' : ''}`}
                           >
                             {(isStart || day.date.getDay() === 1) && (
                               <span className="truncate w-full drop-shadow-md whitespace-nowrap flex items-center gap-1">
                                 {isConflict && <AlertTriangle size={8} className="text-white fill-white" />}
-                                {b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : (traveler?.nombre || 'Huésped'))} {(!isBlock && b.guests) ? `${b.guests}pax` : ''}
+                                {b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler))} {(!isBlock && b.guests) ? `${b.guests}pax` : ''}
                               </span>
                             )}
                           </div>
@@ -406,7 +407,7 @@ const CalendarContent: React.FC = () => {
           {upcomingBookings.map(b => {
             const apt = apartments.find(a => a.id === b.apartment_id);
             const trav = travelers.find(t => t.id === b.traveler_id);
-            const guestName = trav ? `${trav.nombre} ${trav.apellidos}` : (b.guest_name || 'Sin Huésped');
+            const guestName = getBookingDisplayName(b, trav);
 
             const handleClick = () => {
               if (b.linked_event_id) {
@@ -466,7 +467,7 @@ const CalendarContent: React.FC = () => {
               <div className="p-6 bg-indigo-50 rounded-3xl border border-indigo-100">
                 <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-1">Huésped</p>
                 <div className="flex justify-between items-end">
-                  <p className="text-xl font-black text-indigo-900">{viewingBooking.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (travelers.find(t => t.id === viewingBooking.traveler_id)?.nombre || viewingBooking.guest_name || 'Sin Huésped')}</p>
+                  <p className="text-xl font-black text-indigo-900">{viewingBooking.event_kind === 'BLOCK' ? 'Bloqueo OTA' : getBookingDisplayName(viewingBooking, travelers.find(t => t.id === viewingBooking.traveler_id))}</p>
                   {isProvisionalBlock(viewingBooking) ? (
                     <span className="text-xs font-black text-amber-600 bg-amber-50 px-3 py-1 rounded-xl shadow-sm flex items-center gap-1">
                       <AlertCircle size={12} /> Bloqueo

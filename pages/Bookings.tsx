@@ -10,6 +10,7 @@ import { Plus, Calendar, Trash2, CheckCircle, Clock, XCircle, X, MessageCircle, 
 import { DirectPaymentList } from '../components/DirectPaymentList';
 import { formatDateES } from '../utils/dateFormat';
 import { isConfirmedBooking, isProvisionalBlock, hasRealGuest, hasAmountPositive } from '../utils/bookingClassification';
+import { getBookingDisplayName } from '../utils/bookingDisplay';
 import { mapCalendarEventToBooking, mergeBookingsAndEvents } from '../utils/bookingMapping';
 import { AlertTriangle } from 'lucide-react';
 import { getStayStatus } from '../utils/bookingStayStatus';
@@ -755,7 +756,7 @@ export const Bookings: React.FC = () => {
                       <div className="text-[10px] font-bold text-slate-400 uppercase">{properties.find(p => p.id === b.property_id)?.name || 'N/A'}</div>
                     </td>
                     <td className="px-8 py-5 font-bold text-slate-700">
-                      {b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (travelers.find(t => t.id === b.traveler_id)?.nombre || 'Huésped desconocido')}
+                      {b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : getBookingDisplayName(b, travelers.find(t => t.id === b.traveler_id))}
                     </td>
                     <td className="px-8 py-5">
                       <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${b.source === 'WEBSITE_IMPORT' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
