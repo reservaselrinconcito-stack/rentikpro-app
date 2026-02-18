@@ -1,31 +1,36 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { projectManager } from '../services/projectManager';
 import { Property, Apartment, Traveler, Stay } from '../types';
 import { processImage, ScannedData } from '../services/ocrParser';
-import { 
-  Camera, Upload, Save, UserPlus, FileText, CheckCircle2, 
-  AlertCircle, ArrowLeft, RefreshCw, ScanLine
+import {
+  Camera, Upload, Save, UserPlus, FileText, CheckCircle2,
+  AlertCircle, ArrowLeft, RefreshCw, ScanLine, Link2
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 export const CheckInScan: React.FC = () => {
   const navigate = useNavigate();
-  
+
   // Data Context
   const [properties, setProperties] = useState<Property[]>([]);
   const [apartments, setApartments] = useState<Apartment[]>([]);
-  
+
   // Selection State
   const [selectedProp, setSelectedProp] = useState<string>('');
   const [selectedApt, setSelectedApt] = useState<string>('');
-  
+
   // Scan State
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [scanError, setScanError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [searchParams] = useSearchParams();
+  const bookingId = searchParams.get('bookingId');
+  const [targetBookingName, setTargetBookingName] = useState<string | null>(null);
 
   // Form State
   const [formData, setFormData] = useState<Partial<Traveler>>({
@@ -46,17 +51,58 @@ export const CheckInScan: React.FC = () => {
       const store = projectManager.getStore();
       const props = await store.getProperties();
       setProperties(props);
-      
-      // Block 11-D: Default to active property if available
-      const activeId = projectManager.getActivePropertyId();
-      if (props.some(p => p.id === activeId)) {
-         setSelectedProp(activeId);
-      } else if (props.length > 0) {
-        setSelectedProp(props[0].id);
+
+      if (bookingId) {
+        const b = await store.getBooking(bookingId);
+        if (b) {
+          setTargetBookingName(b.guest_name || b.external_ref || 'Reserva');
+          if (b.property_id) setSelectedProp(b.property_id);
+          if (b.apartment_id) setSelectedApt(b.apartment_id);
+        }
+      } else {
+        // Block 11-D: Default to active property if available
+        const activeId = projectManager.getActivePropertyId();
+        if (props.some(p => p.id === activeId)) {
+          setSelectedProp(activeId);
+        } else if (props.length > 0) {
+          setSelectedProp(props[0].id);
+        }
       }
     };
     loadInit();
-  }, []);
+  }, [bookingId]);
+
+  const resizeImage = (file: File, maxSide: number = 1600): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          if (width > height) {
+            if (width > maxSide) {
+              height *= maxSide / width;
+              width = maxSide;
+            }
+          } else {
+            if (height > maxSide) {
+              width *= maxSide / height;
+              height = maxSide;
+            }
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', 0.8));
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
 
   useEffect(() => {
     if (selectedProp) {
@@ -75,7 +121,7 @@ export const CheckInScan: React.FC = () => {
     const store = projectManager.getStore();
     const travelers = await store.getTravelers();
     const existing = travelers.find(t => t.documento.toUpperCase() === docId.toUpperCase());
-    
+
     if (existing) {
       setExistingTravelerId(existing.id);
       // Merge data: prefer existing valid data, overwrite empty fields with scan
@@ -103,7 +149,11 @@ export const CheckInScan: React.FC = () => {
     setScanProgress(0);
 
     try {
-      const result: ScannedData = await processImage(file, (progress) => {
+      // 1. Resize Image (HOTFIX for iOS/Performance)
+      const resized = await resizeImage(file);
+
+      // 2. Process OCR
+      const result: ScannedData = await processImage(resized, (progress) => {
         setScanProgress(Math.round(progress * 100));
       });
 
@@ -133,14 +183,16 @@ export const CheckInScan: React.FC = () => {
 
   const handleSave = async () => {
     if (!formData.nombre || !formData.documento) {
-      alert("Nombre y Documento son obligatorios");
+      toast.error("Nombre y Documento son obligatorios");
       return;
     }
+
+    const loader = toast.loading("Guardando viajer...");
 
     try {
       const store = projectManager.getStore();
       const travelerId = existingTravelerId || crypto.randomUUID();
-      
+
       const traveler: Traveler = {
         id: travelerId,
         nombre: formData.nombre || '',
@@ -157,25 +209,30 @@ export const CheckInScan: React.FC = () => {
 
       await store.saveTraveler(traveler);
 
-      // Create Check-in (Stay)
-      const stay: Stay = {
-        id: crypto.randomUUID(),
-        traveler_id: travelerId,
-        apartment_id: selectedApt || null,
-        check_in: new Date().toISOString().split('T')[0], // Today
-        check_out: '', // Open ended or manual edit later
-        source: 'CHECKIN_SCAN',
-        created_at: Date.now()
-      };
+      if (bookingId) {
+        // VINCULAR A RESERVAR EXISTENTE
+        await store.updateReservation(bookingId, { traveler_id: travelerId }, 'CHECKIN_SCAN');
+        toast.success(`Viajero vinculado a la reserva: ${targetBookingName}`, { id: loader });
+      } else {
+        // Create Check-in (Stay)
+        const stay: Stay = {
+          id: crypto.randomUUID(),
+          traveler_id: travelerId,
+          apartment_id: selectedApt || null,
+          check_in: new Date().toISOString().split('T')[0], // Today
+          check_out: '', // Open ended or manual edit later
+          source: 'CHECKIN_SCAN',
+          created_at: Date.now()
+        };
+        await store.saveStay(stay);
+        toast.success("Viajero guardado y Check-in registrado correctamente.", { id: loader });
+      }
 
-      await store.saveStay(stay);
-
-      alert("Viajero guardado y Check-in registrado correctamente.");
       navigate('/travelers');
 
     } catch (error) {
       console.error(error);
-      alert("Error al guardar datos.");
+      toast.error("Error al guardar datos.", { id: loader });
     }
   };
 
@@ -194,11 +251,17 @@ export const CheckInScan: React.FC = () => {
       {/* Header */}
       <div className="flex items-center gap-4">
         <button onClick={() => navigate('/')} className="p-2 hover:bg-slate-100 rounded-xl transition-all">
-          <ArrowLeft size={24} className="text-slate-400"/>
+          <ArrowLeft size={24} className="text-slate-400" />
         </button>
         <div>
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">Check-in Scan</h2>
-          <p className="text-slate-500 text-sm">Escaneo de documentos OCR y registro rápido.</p>
+          {bookingId ? (
+            <div className="flex items-center gap-2 text-indigo-600 font-bold text-sm bg-indigo-50 px-3 py-1 rounded-full w-fit mt-1">
+              <Link2 size={14} /> Vinculado a: {targetBookingName}
+            </div>
+          ) : (
+            <p className="text-slate-500 text-sm">Escaneo de documentos OCR y registro rápido.</p>
+          )}
         </div>
       </div>
 
@@ -208,12 +271,12 @@ export const CheckInScan: React.FC = () => {
           {/* Context Selectors */}
           <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm space-y-4">
             <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-              <CheckCircle2 size={16}/> Contexto del Registro
+              <CheckCircle2 size={16} /> Contexto del Registro
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">Propiedad</label>
-                <select 
+                <select
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/20"
                   value={selectedProp}
                   onChange={e => setSelectedProp(e.target.value)}
@@ -224,7 +287,7 @@ export const CheckInScan: React.FC = () => {
               </div>
               <div>
                 <label className="text-xs font-bold text-slate-500 mb-1 block">Apartamento</label>
-                <select 
+                <select
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500/20"
                   value={selectedApt}
                   onChange={e => setSelectedApt(e.target.value)}
@@ -238,19 +301,19 @@ export const CheckInScan: React.FC = () => {
           </div>
 
           {/* Camera / Upload Area */}
-          <div 
+          <div
             className="bg-slate-900 rounded-[2.5rem] p-1 overflow-hidden relative group cursor-pointer shadow-xl"
             onClick={() => !isScanning && fileInputRef.current?.click()}
           >
-            <input 
-              type="file" 
-              accept="image/*" 
+            <input
+              type="file"
+              accept="image/*"
               capture="environment" // Forces back camera on mobile
               ref={fileInputRef}
               className="hidden"
               onChange={handleImageSelect}
             />
-            
+
             <div className="bg-slate-800 rounded-[2.2rem] h-80 flex flex-col items-center justify-center relative overflow-hidden border-2 border-dashed border-slate-600 hover:border-indigo-500 transition-all">
               {imagePreview ? (
                 <img src={imagePreview} alt="Preview" className="w-full h-full object-contain" />
@@ -289,7 +352,7 @@ export const CheckInScan: React.FC = () => {
         <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 space-y-6">
           <div className="flex items-center justify-between pb-6 border-b border-slate-100">
             <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
-              <ScanLine className="text-indigo-600"/> Datos Extraídos
+              <ScanLine className="text-indigo-600" /> Datos Extraídos
             </h3>
             {existingTravelerId && (
               <span className="bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase px-3 py-1 rounded-full">
@@ -302,18 +365,18 @@ export const CheckInScan: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase">Nombre</label>
-                <input 
+                <input
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
                   value={formData.nombre}
-                  onChange={e => setFormData({...formData, nombre: e.target.value})}
+                  onChange={e => setFormData({ ...formData, nombre: e.target.value })}
                 />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase">Apellidos</label>
-                <input 
+                <input
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
                   value={formData.apellidos}
-                  onChange={e => setFormData({...formData, apellidos: e.target.value})}
+                  onChange={e => setFormData({ ...formData, apellidos: e.target.value })}
                 />
               </div>
             </div>
@@ -321,18 +384,18 @@ export const CheckInScan: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase">Documento</label>
-                <input 
+                <input
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold font-mono"
                   value={formData.documento}
-                  onChange={e => setFormData({...formData, documento: e.target.value})}
+                  onChange={e => setFormData({ ...formData, documento: e.target.value })}
                 />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase">Tipo</label>
-                <select 
+                <select
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
                   value={formData.tipo_documento}
-                  onChange={e => setFormData({...formData, tipo_documento: e.target.value})}
+                  onChange={e => setFormData({ ...formData, tipo_documento: e.target.value })}
                 >
                   <option value="DNI">DNI / NIE</option>
                   <option value="PASAPORTE">Pasaporte</option>
@@ -344,45 +407,45 @@ export const CheckInScan: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase">Nacimiento</label>
-                <input 
+                <input
                   type="date"
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
                   value={formData.fecha_nacimiento}
-                  onChange={e => setFormData({...formData, fecha_nacimiento: e.target.value})}
+                  onChange={e => setFormData({ ...formData, fecha_nacimiento: e.target.value })}
                 />
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] font-black text-slate-400 uppercase">Nacionalidad</label>
-                <input 
+                <input
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold uppercase"
                   maxLength={3}
                   value={formData.nacionalidad}
-                  onChange={e => setFormData({...formData, nacionalidad: e.target.value})}
+                  onChange={e => setFormData({ ...formData, nacionalidad: e.target.value })}
                 />
               </div>
             </div>
 
             <div className="space-y-1 pt-4 border-t border-slate-100">
               <label className="text-[10px] font-black text-slate-400 uppercase">Email (Opcional)</label>
-              <input 
+              <input
                 type="email"
                 className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium"
                 value={formData.email}
-                onChange={e => setFormData({...formData, email: e.target.value})}
+                onChange={e => setFormData({ ...formData, email: e.target.value })}
                 placeholder="correo@ejemplo.com"
               />
             </div>
           </div>
 
           <div className="pt-6 flex flex-col gap-3">
-            <button 
+            <button
               onClick={handleSave}
               className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-lg shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-2"
             >
               <UserPlus size={20} /> Guardar Viajero & Check-in
             </button>
-            
-            <button 
+
+            <button
               onClick={handleExportJSON}
               className="w-full py-3 bg-white border border-slate-200 text-slate-600 rounded-2xl font-bold hover:bg-slate-50 transition-all flex items-center justify-center gap-2 text-xs uppercase tracking-wide"
             >
