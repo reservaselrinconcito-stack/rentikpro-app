@@ -324,6 +324,18 @@ export class SyncEngine {
     const apartment = (await store.getAllApartments()).find(a => a.id === apartmentId);
     if (!apartment) return 0;
 
+    // DEBUG 2: Trace before sync
+    const debugBookingId = localStorage.getItem('debug_revert_booking_id');
+    if (debugBookingId) {
+      const b = await store.getBooking(debugBookingId);
+      console.log("[REVERT:BEFORE_SYNC]", {
+        id: debugBookingId,
+        price: b?.total_price,
+        check_in: b?.check_in,
+        sources: b?.field_sources
+      });
+    }
+
     // Get Connections & Priorities
     const connections = await store.getChannelConnections(apartmentId);
     const priorityMap = new Map<string, number>();

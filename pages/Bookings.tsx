@@ -98,8 +98,8 @@ export const Bookings: React.FC = () => {
   const loadData = useCallback(async () => {
     const store = projectManager.getStore();
     try {
-      const [accountingBookings, p, t, a] = await Promise.all([
-        store.getBookingsFromAccounting(),
+      const [tableBookings, p, t, a] = await Promise.all([
+        store.getBookings(),
         store.getProperties(),
         store.getTravelers(),
         store.getAllApartments()
@@ -109,9 +109,9 @@ export const Bookings: React.FC = () => {
       setTravelers(t);
       setAllApartments(a);
 
-      console.debug(`[Bookings] Source of Truth: ACCOUNTING. Result: ${accountingBookings.length} bookings.`);
+      console.debug(`[Bookings] Source of Truth: SQLITE_TABLE. Result: ${tableBookings.length} bookings.`);
 
-      setBookings(accountingBookings);
+      setBookings(tableBookings);
       setDataSource('internal');
     } catch (e) { console.error(e); }
   }, []);
@@ -1043,3 +1043,15 @@ export const Bookings: React.FC = () => {
     </div >
   );
 };
+/**
+ * PR MANUAL TESTS - Block 6 Hotfix:
+ * 1) Editar check_out + payment_status + total_price 
+ *    -> Guardar -> Recargar -> Comprobar que los valores persisten (Source of Truth = SQLITE_TABLE).
+ * 
+ * 2) Revisar Contabilidad:
+ *    -> Al editar una reserva que ya tenía movimientos, comprobar que NO se duplican. 
+ *    -> El sistema ahora borra el "base_booking" si detecta pagos específicos.
+ * 
+ * 3) Sync iCal:
+ *    -> Comprobar que los campos 'MANUAL' (detectados tras la edición en test 1) no se pisan al sincronizar.
+ */

@@ -1091,8 +1091,9 @@ export class SQLiteStore implements IDataStore {
 
     const placeholders = columns.map(() => '?').join(',');
     const sql = `INSERT OR REPLACE INTO bookings (${columns.join(',')}) VALUES (${placeholders})`;
-
     await this.executeWithParams(sql, values);
+
+    console.log(`[BOOKING:SAVE] ${b.id} - ${b.guest_name || 'No Name'} (${b.check_in} to ${b.check_out})`);
 
     // We call the sync function which now handles all accounting for the booking
     await this.syncAccountingMovementsFromBooking(b);
@@ -1125,7 +1126,22 @@ export class SQLiteStore implements IDataStore {
   }
 
   async updateReservation(id: string, patch: Partial<Booking>, sourceModule: string): Promise<Booking> {
-    const existing = await this.getBooking(id);
+    let existing = await this.getBooking(id);
+
+    // HOTFIX: getBookingsFromAccounting usa reservation_id (external_uid iCal) como booking id.
+    // Si no encuentra por id directo, buscar el booking real por external_ref.
+    if (!existing) {
+      const rows = await this.query(
+        'SELECT * FROM bookings WHERE external_ref = ? LIMIT 1',
+        [id]
+      );
+      if (rows[0]) {
+        let payments: any[] = [];
+        try { payments = rows[0].payments_json ? JSON.parse(rows[0].payments_json) : []; } catch (e) { }
+        existing = { ...rows[0], payments, conflict_detected: !!rows[0].conflict_detected };
+      }
+    }
+
     if (!existing) throw new Error(`Booking ${id} not found`);
 
     const updated = { ...existing, ...patch, updated_at: Date.now() };
@@ -1176,7 +1192,21 @@ export class SQLiteStore implements IDataStore {
     if (!this.schemaFlags.accounting_payment_id) return;
 
     const allMovements = await this.getMovements('ALL');
-    const reservationMovements = allMovements.filter(m => m.reservation_id === b.id);
+    const reservationMovements = allMovements.filter(m =>
+      m.reservation_id === b.id ||
+      // HOTFIX: movimientos iCal tienen reservation_id = external_uid, no el UUID del booking
+      (b.external_ref && m.reservation_id === b.external_ref)
+    );
+
+    // HOTFIX: Si encontramos el movimiento STAY_RESERVATION, sincronizar sus fechas
+    // para que getBookingsFromAccounting muestre las fechas editadas por el usuario.
+    const stayMov = reservationMovements.find(m => m.source_event_type === 'STAY_RESERVATION');
+    if (stayMov && (stayMov.check_in !== b.check_in || stayMov.check_out !== b.check_out)) {
+      stayMov.check_in = b.check_in;
+      stayMov.check_out = b.check_out;
+      stayMov.updated_at = Date.now();
+      await this.saveMovement(stayMov);
+    }
 
     if (b.status === 'confirmed') {
       const traveler = b.traveler_id ? await this.getTravelerById(b.traveler_id) : null;
@@ -1184,9 +1214,22 @@ export class SQLiteStore implements IDataStore {
 
       // Process each payment
       for (const p of (b.payments || [])) {
-        const existingMov = reservationMovements.find(m => m.payment_id === p.id);
+        const existingMov =
+          // Búsqueda principal: movimiento creado correctamente con payment_id
+          reservationMovements.find(m => m.payment_id === p.id) ||
+          // HOTFIX: getBookingsFromAccounting usa r.id (PK del movimiento) como payment.id,
+          // no el payment_id. Si no hay match por payment_id, buscar por el id directo
+          // para evitar crear un movimiento nuevo en cada edición.
+          reservationMovements.find(m => m.id === p.id && !m.payment_id);
 
         if (p.status === 'pagado') {
+          // [HOTFIX] Ensure we don't have a "Base" movement competing with specific payments
+          const baseMov = reservationMovements.find(m => m.import_hash === `base_booking_${b.id}`);
+          if (baseMov) {
+            console.log(`[ACCOUNTING] Deleting legacy base movement for booking ${b.id} to avoid duplication`);
+            await this.deleteMovement(baseMov.id);
+          }
+
           const concept = `Pago ${p.type} - ${travelerName} (${p.date})`;
           const bucket = p.method?.toLowerCase() === 'efectivo' ? 'B' : 'A';
 
@@ -1228,6 +1271,7 @@ export class SQLiteStore implements IDataStore {
           await this.deleteMovement(existingMov.id);
         }
       }
+
 
       // Clean up movements for payments that no longer exist
       for (const m of reservationMovements) {
@@ -1663,7 +1707,8 @@ export class SQLiteStore implements IDataStore {
       source: r.platform || 'manual',
       guest_name: r.concept || '',
       event_state: 'confirmed',
-      event_kind: 'BOOKING'
+      event_kind: 'BOOKING',
+      created_at: r.created_at || Date.now()
     }));
   }
 
@@ -1702,7 +1747,8 @@ export class SQLiteStore implements IDataStore {
       source: r.platform || 'manual',
       guest_name: r.concept || '',
       event_state: 'provisional',
-      event_kind: 'BOOKING'
+      event_kind: 'BOOKING',
+      created_at: r.created_at || Date.now()
     }));
   }
 
@@ -2069,7 +2115,7 @@ export class SQLiteStore implements IDataStore {
           total_price: 0,
           guests: r.guests || 1,
           source: r.platform || 'manual',
-          created_at: r.created_at,
+          created_at: r.created_at || Date.now(),
           guest_name: r.concept,
           event_state: (r.event_state as any) || 'confirmed',
           event_kind: 'BOOKING',
@@ -2080,7 +2126,13 @@ export class SQLiteStore implements IDataStore {
 
       const b = bookingsMap.get(b_id)!;
 
-      // Aggregation logic: Only add gross amount for income movements
+      // [HOTFIX] Aggregation logic: If we have specific payment movements, ignore the "Base" movement to avoid doubling
+      const hasSpecificPayments = rows.some(r2 => (r2.reservation_id === b_id || r2.id === b_id) && r2.payment_id);
+      if (hasSpecificPayments && r.import_hash === `base_booking_${b_id}`) {
+        // Skip base movement if we have detailed ones
+        continue;
+      }
+
       if (r.type === 'income') {
         b.total_price += Number(r.amount_gross) || 0;
       }
@@ -2105,7 +2157,7 @@ export class SQLiteStore implements IDataStore {
       if (r.type === 'income' || r.type === 'expense') {
         b.payments!.push({
           id: r.id,
-          type: 'installment',
+          type: 'extra', // Changed from installment to satisfy type
           amount: Number(r.amount_gross) || 0,
           date: r.date,
           method: r.payment_method || 'Unknown',

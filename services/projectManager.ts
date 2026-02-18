@@ -140,6 +140,18 @@ export class ProjectManager {
       this.setActiveContext(record.id, record.mode);
       this.startAutoSave();
 
+      // DEBUG 2: Snapshot after load
+      const debugBookingId = localStorage.getItem('debug_revert_booking_id');
+      if (debugBookingId) {
+        const b = await this.store.getBooking(debugBookingId);
+        console.log("[REVERT:LOAD_COMPLETE]", {
+          id: debugBookingId,
+          price: b?.total_price,
+          check_in: b?.check_in,
+          sources: b?.field_sources
+        });
+      }
+
       notifyDataChanged();
       return true;
     } catch (err) {
