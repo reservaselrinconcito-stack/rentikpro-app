@@ -268,8 +268,13 @@ export class ProjectManager {
 
   // ... (Legacy exports, keep them)
   // --- FULL BACKUP (ZIP) ---
+  // BLOCK 11: Hardened Full Export
+  async exportFullBackupZip(): Promise<Blob> {
+    console.log("[EXPORT:FULL] Beginning export process...");
 
-  async exportFullBackupZip(): Promise<void> {
+    // 0. Force save to ensure IndexedDB is up to date
+    await this.saveProject();
+
     const zip = new JSZip();
 
     // 1. Database (The core of sync state, settings, and bookings)
@@ -334,14 +339,21 @@ export class ProjectManager {
     }
 
     const content = await zip.generateAsync({ type: 'blob' });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `rentikpro_full_${timestamp}.zip`;
+
+    console.log(`[EXPORT:FULL] Created blob (${content.size} bytes). Filename: ${filename}`);
+
+    // Auto-trigger fallback for non-Safari or legacy calls
     const url = URL.createObjectURL(content);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `rentikpro-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+    a.download = filename;
     a.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
 
     localStorage.setItem('rentik_last_backup_date', new Date().toISOString());
+    return content;
   }
 
   async importFullBackupZip(file: File, onProgress?: (msg: string) => void): Promise<boolean> {
@@ -464,8 +476,13 @@ export class ProjectManager {
         maintenance_issues: await this.store.query("SELECT * FROM maintenance_issues"),
         conversations: await this.store.query("SELECT * FROM conversations"),
         messages: await this.store.query("SELECT * FROM messages"),
+        // BLOCK 11: Added missing operational tables
+        channel_connections: await this.store.query("SELECT * FROM channel_connections"),
+        calendar_events: await this.store.query("SELECT * FROM calendar_events"),
       };
-      this.downloadJson(`rentikpro-data-${new Date().toISOString().slice(0, 10)}.json`, data);
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      this.downloadJson(`rentikpro_data_${timestamp}.json`, data);
     } catch (e) {
       logger.error("Export Data Failed", e);
       alert("Error exportando datos: " + e);
@@ -492,8 +509,11 @@ export class ProjectManager {
         policies: await this.store.query("SELECT * FROM booking_policies"),
         // Fiscal Profile
         fiscal_profile: await this.store.query("SELECT * FROM fiscal_profile"),
+        // BLOCK 11: Added channel_connections to structure to preserve settings
+        channel_connections: await this.store.query("SELECT * FROM channel_connections"),
       };
-      this.downloadJson(`rentikpro-structure-${new Date().toISOString().slice(0, 10)}.json`, data);
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      this.downloadJson(`rentikpro_structure_${timestamp}.json`, data);
     } catch (e) {
       logger.error("Export Structure Failed", e);
       alert("Error exportando estructura: " + e);
@@ -515,7 +535,11 @@ export class ProjectManager {
       // We should disable FKs during bulk import or delete in correct order.
       await this.store.execute("PRAGMA foreign_keys = OFF;");
 
-      const tables = ['bookings', 'stays', 'travelers', 'accounting_movements', 'cleaning_tasks', 'maintenance_issues', 'conversations', 'messages'];
+      const tables = [
+        'bookings', 'stays', 'travelers', 'accounting_movements',
+        'cleaning_tasks', 'maintenance_issues', 'conversations', 'messages',
+        'channel_connections', 'calendar_events'
+      ];
       const counts: any = {};
       const errors: any = {};
 
@@ -569,7 +593,12 @@ export class ProjectManager {
       await this.store.execute("PRAGMA foreign_keys = OFF;");
       await this.store.execute("BEGIN TRANSACTION;");
 
-      const tables = ['properties', 'apartments', 'user_settings', 'websites', 'marketing_campaigns', 'marketing_templates', 'marketing_email_templates', 'cleaning_templates', 'fees', 'booking_policies', 'fiscal_profile'];
+      const tables = [
+        'properties', 'apartments', 'user_settings', 'websites',
+        'marketing_campaigns', 'marketing_templates', 'marketing_email_templates',
+        'cleaning_templates', 'fees', 'booking_policies', 'fiscal_profile',
+        'channel_connections'
+      ];
 
       // Special handling: settings is singleton usually, but table has ID.
       // We will clear and insert.

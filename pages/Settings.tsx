@@ -21,6 +21,9 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
     const [loading, setLoading] = useState(true); // Added loading state
 
     const [saved, setSaved] = useState(false);
+    const [exporting, setExporting] = useState(false);
+    const [lastBackupBlobUrl, setLastBackupBlobUrl] = useState<string | null>(null);
+    const [lastBackupFilename, setLastBackupFilename] = useState<string | null>(null);
 
     useEffect(() => {
         loadSettings();
@@ -885,28 +888,148 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                         </div>
                     </div>
 
-                    <button
-                        onClick={() => projectManager.exportFullBackupZip()}
-                        className="w-full p-8 bg-indigo-600 hover:bg-indigo-700 text-white rounded-3xl shadow-lg shadow-indigo-200 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-4"
-                    >
-                        <div className="p-4 bg-white/20 rounded-2xl">
-                            <Download size={32} />
+                    {!lastBackupBlobUrl ? (
+                        <button
+                            onClick={async () => {
+                                try {
+                                    setExporting(true);
+                                    const blob = await projectManager.exportFullBackupZip();
+                                    const url = URL.createObjectURL(blob);
+                                    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+                                    setLastBackupBlobUrl(url);
+                                    setLastBackupFilename(`rentikpro_full_${timestamp}.zip`);
+                                    toast.success("Copia de seguridad preparada.");
+                                } catch (e) {
+                                    toast.error("Error al generar backup: " + e);
+                                } finally {
+                                    setExporting(false);
+                                }
+                            }}
+                            disabled={exporting}
+                            className={`w-full p-8 ${exporting ? 'bg-indigo-400 cursor-wait' : 'bg-indigo-600 hover:bg-indigo-700'} text-white rounded-3xl shadow-lg shadow-indigo-200 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-4`}
+                        >
+                            <div className="p-4 bg-white/20 rounded-2xl">
+                                <Download size={32} className={exporting ? 'animate-bounce' : ''} />
+                            </div>
+                            <div className="text-left">
+                                <h4 className="text-xl font-black">{exporting ? 'Generando Backup...' : 'Preparar Backup Completo'}</h4>
+                                <p className="text-indigo-200 text-sm font-medium">Bases de datos, Configuración y Archivos (ZIP)</p>
+                            </div>
+                        </button>
+                    ) : (
+                        <div className="space-y-4">
+                            <a
+                                href={lastBackupBlobUrl}
+                                download={lastBackupFilename || 'backup.zip'}
+                                className="w-full p-8 bg-emerald-600 hover:bg-emerald-700 text-white rounded-3xl shadow-lg shadow-emerald-200 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-4"
+                                onClick={() => {
+                                    setTimeout(() => {
+                                        setLastBackupBlobUrl(null);
+                                        setLastBackupFilename(null);
+                                    }, 2000);
+                                }}
+                            >
+                                <div className="p-4 bg-white/20 rounded-2xl">
+                                    <Download size={32} />
+                                </div>
+                                <div className="text-left">
+                                    <h4 className="text-xl font-black">¡Listo! Haz clic para Descargar</h4>
+                                    <p className="text-emerald-100 text-sm font-medium">{lastBackupFilename}</p>
+                                </div>
+                            </a>
+                            <button
+                                onClick={() => { setLastBackupBlobUrl(null); setLastBackupFilename(null); }}
+                                className="w-full py-2 text-slate-400 hover:text-slate-600 text-sm font-bold"
+                            >
+                                Cancelar / Generar otro
+                            </button>
                         </div>
-                        <div className="text-left">
-                            <h4 className="text-xl font-black">Descargar Copia de Seguridad Completa</h4>
-                            <p className="text-indigo-200 text-sm font-medium">Base de datos, Configuración y Archivos Multimedia (ZIP)</p>
-                        </div>
-                    </button>
+                    )}
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <button className="p-6 bg-slate-50 border border-slate-200 rounded-2xl hover:bg-slate-100 transition-colors flex flex-col items-center gap-4" onClick={() => alert('Función de exportar pendiente de conectar con API')}>
-                            <Download size={32} className="text-slate-400" />
-                            <span className="font-bold text-slate-700">Exportar Datos</span>
-                        </button>
-                        <button className="p-6 bg-slate-50 border border-slate-200 rounded-2xl hover:bg-slate-100 transition-colors flex flex-col items-center gap-4" onClick={() => alert('Función de importar pendiente de conectar con API')}>
-                            <Upload size={32} className="text-slate-400" />
-                            <span className="font-bold text-slate-700">Importar Datos</span>
-                        </button>
+                        <div className="p-6 bg-slate-50 border border-slate-200 rounded-3xl space-y-4">
+                            <h4 className="font-black text-slate-800 flex items-center gap-2">
+                                <Download size={18} className="text-indigo-600" /> Exportación Modular
+                            </h4>
+                            <div className="grid grid-cols-2 gap-2">
+                                <button
+                                    onClick={() => projectManager.exportProjectDataOnly()}
+                                    className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-indigo-50 hover:border-indigo-200 transition-all text-xs font-bold text-slate-600 flex flex-col items-center gap-2"
+                                >
+                                    <Database size={20} />
+                                    Solo Datos
+                                </button>
+                                <button
+                                    onClick={() => projectManager.exportProjectStructureOnly()}
+                                    className="p-3 bg-white border border-slate-200 rounded-xl hover:bg-amber-50 hover:border-amber-200 transition-all text-xs font-bold text-slate-600 flex flex-col items-center gap-2"
+                                >
+                                    <Building size={20} />
+                                    Estructura
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="p-6 bg-slate-50 border border-slate-200 rounded-3xl space-y-4">
+                            <h4 className="font-black text-slate-800 flex items-center gap-2">
+                                <Upload size={18} className="text-emerald-600" /> Importación Modular
+                            </h4>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="relative">
+                                    <input
+                                        type="file"
+                                        accept=".json"
+                                        className="absolute inset-0 opacity-0 cursor-pointer"
+                                        onChange={async (e) => {
+                                            const file = e.target.files?.[0];
+                                            if (!file) return;
+                                            const text = await file.text();
+                                            const loading = toast.loading("Importando datos...");
+                                            const res = await projectManager.importProjectDataOnly(text);
+                                            toast.dismiss(loading);
+                                            if (res.success) {
+                                                toast.success("Datos importados!");
+                                                setTimeout(() => window.location.reload(), 1000);
+                                            } else {
+                                                toast.error("Fallo la importación: " + res.errors?.general);
+                                            }
+                                        }}
+                                    />
+                                    <button className="w-full h-full p-3 bg-white border border-slate-200 rounded-xl hover:bg-emerald-50 hover:border-emerald-200 transition-all text-xs font-bold text-slate-600 flex flex-col items-center gap-2">
+                                        <Database size={20} />
+                                        Solo Datos
+                                    </button>
+                                </div>
+                                <div className="relative">
+                                    <input
+                                        type="file"
+                                        accept=".json"
+                                        className="absolute inset-0 opacity-0 cursor-pointer"
+                                        onChange={async (e) => {
+                                            const file = e.target.files?.[0];
+                                            if (!file) return;
+                                            const text = await file.text();
+                                            const loading = toast.loading("Importando estructura...");
+                                            const res = await projectManager.importProjectStructureOnly(text);
+                                            toast.dismiss(loading);
+                                            if (res.success) {
+                                                toast.success("Estructura importada!");
+                                                setTimeout(() => window.location.reload(), 1000);
+                                            } else {
+                                                toast.error("Fallo la importación: " + res.error);
+                                            }
+                                        }}
+                                    />
+                                    <button className="w-full h-full p-3 bg-white border border-slate-200 rounded-xl hover:bg-amber-50 hover:border-amber-200 transition-all text-xs font-bold text-slate-600 flex flex-col items-center gap-2">
+                                        <Building size={20} />
+                                        Estructura
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="pt-6 border-t border-slate-100 italic text-[10px] text-slate-400 text-center uppercase tracking-widest">
+                        Recomendado: Usar "Backup Completo" para traspasar proyectos entre dispositivos.
                     </div>
                 </div>
             )}
