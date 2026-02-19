@@ -58,7 +58,9 @@ export class SQLiteStore implements IDataStore {
     marketing_email_template_id: false,
     accounting_stay_metadata: false,
     bookings_field_sources: false,
-    bookings_updated_at: false
+    bookings_updated_at: false,
+    bookings_pax_fields: false,
+    accounting_pax_infants: false
   };
 
   // Optional callback registered by ProjectManager to trigger file-mode autosave
@@ -246,9 +248,11 @@ export class SQLiteStore implements IDataStore {
       this.schemaFlags.bookings_payments = bInfo.some((c: any) => c.name === 'payments_json');
       this.schemaFlags.bookings_field_sources = bInfo.some((c: any) => c.name === 'field_sources');
       this.schemaFlags.bookings_updated_at = bInfo.some((c: any) => c.name === 'updated_at');
+      this.schemaFlags.bookings_pax_fields = bInfo.some((c: any) => c.name === 'pax_total');
 
       const aInfo = await this.query("PRAGMA table_info(accounting_movements)");
       this.schemaFlags.accounting_payment_id = aInfo.some((c: any) => c.name === 'payment_id');
+      this.schemaFlags.accounting_pax_infants = aInfo.some((c: any) => c.name === 'pax_infants');
 
       const cInfo = await this.query("PRAGMA table_info(calendar_events)");
       this.schemaFlags.calendar_event_kind = cInfo.some((c: any) => c.name === 'event_kind');
@@ -318,6 +322,15 @@ export class SQLiteStore implements IDataStore {
     await this.ensureColumn("accounting_movements", "guests", "INTEGER");
     await this.ensureColumn("accounting_movements", "pax_adults", "INTEGER");
     await this.ensureColumn("accounting_movements", "pax_children", "INTEGER");
+    await this.ensureColumn("accounting_movements", "pax_infants", "INTEGER");
+
+    // Bookings Occupancy (Block 10)
+    await this.ensureColumn("bookings", "pax_total", "INTEGER");
+    await this.ensureColumn("bookings", "pax_adults", "INTEGER");
+    await this.ensureColumn("bookings", "pax_children", "INTEGER");
+    await this.ensureColumn("bookings", "pax_infants", "INTEGER");
+
+    // Updates for Block 2 (Soft Delete & Features)
     await this.ensureColumn("accounting_movements", "source_event_type", "TEXT");
     await this.ensureColumn("accounting_movements", "event_state", "TEXT");
     await this.ensureColumn("accounting_movements", "ical_uid", "TEXT");
@@ -1127,6 +1140,11 @@ export class SQLiteStore implements IDataStore {
     if (this.schemaFlags.bookings_updated_at) {
       columns.push('updated_at');
       values.push(b.updated_at || null);
+    }
+
+    if (this.schemaFlags.bookings_pax_fields) {
+      columns.push('pax_total', 'pax_adults', 'pax_children', 'pax_infants');
+      values.push(b.pax_total || null, b.pax_adults || null, b.pax_children || null, b.pax_infants || null);
     }
 
     const placeholders = columns.map(() => '?').join(',');
@@ -2149,6 +2167,11 @@ export class SQLiteStore implements IDataStore {
       m.accounting_bucket, m.import_hash || null, m.import_batch_id || null, m.receipt_blob || null, m.created_at, m.updated_at, m.movement_key || null, m.project_id || localStorage.getItem('active_project_id'),
       m.property_id || null, m.check_in || null, m.check_out || null, m.guests || null, m.pax_adults || null, m.pax_children || null, m.source_event_type || null, m.event_state || null, m.ical_uid || null, m.connection_id || null, m.raw_summary || null, m.raw_description || null
     ];
+
+    if (this.schemaFlags.accounting_pax_infants) {
+      cols.push('pax_infants');
+      vals.push(m.pax_infants || null);
+    }
 
     if (this.schemaFlags.accounting_payment_id) {
       cols.push('payment_id');

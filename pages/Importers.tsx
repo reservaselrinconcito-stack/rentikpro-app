@@ -239,7 +239,11 @@ export const Importers = () => {
     { key: 'payment_method', label: 'Método Pago', required: false, aliases: ['METODO_PAGO', 'PAYMENT', 'FORMA_PAGO', 'METODO', 'FORMA_DE_PAGO', 'MEDIO', 'TIPO_DE_PAGO'] },
     { key: 'arrival', label: 'Llegada', required: false, aliases: ['LLEGADA', 'CHECK-IN', 'CHECKIN', 'ARRIVAL', 'ENTRADA', 'IN', 'FECHA_LLEGADA'] },
     { key: 'departure', label: 'Salida', required: false, aliases: ['SALIDA', 'CHECK-OUT', 'CHECKOUT', 'DEPARTURE', 'OUT', 'FECHA_SALIDA'] },
-    { key: 'external_ref', label: 'Ref. Externa', required: false, aliases: ['REF', 'RESERVA_ID', 'BOOKING_ID', 'ID_RESERVA', 'CODIGO', 'EXTERNAL_ID', 'CONFIRMATION'] }
+    { key: 'external_ref', label: 'Ref. Externa', required: false, aliases: ['REF', 'RESERVA_ID', 'BOOKING_ID', 'ID_RESERVA', 'CODIGO', 'EXTERNAL_ID', 'CONFIRMATION'] },
+    { key: 'pax', label: 'PAX Total', required: false, aliases: ['PAX', 'GUESTS', 'NUM_GUESTS', 'TOTAL_GUESTS', 'TOTAL_PAX', 'PAX_TOTAL', 'HUESPEDES'] },
+    { key: 'adults', label: 'Adultos', required: false, aliases: ['ADULTS', 'ADULTOS', 'PAX_ADULTS', 'NUM_ADULTS'] },
+    { key: 'children', label: 'Niños', required: false, aliases: ['CHILDREN', 'NINOS', 'PAX_CHILDREN', 'NUM_CHILDREN'] },
+    { key: 'infants', label: 'Bebés', required: false, aliases: ['INFANTS', 'BEBES', 'PAX_INFANTS', 'NUM_INFANTS'] }
   ];
 
   const MAPPING_TRAVELERS: ColumnDefinition[] = [
@@ -251,7 +255,10 @@ export const Importers = () => {
     { key: 'email', label: 'Email', required: false, aliases: ['EMAIL', 'CORREO', 'E-MAIL', 'MAIL'] },
     { key: 'phone', label: 'Teléfono', required: false, aliases: ['TELEFONO', 'PHONE', 'MOVIL', 'MOBILE', 'CELULAR'] },
     { key: 'nationality', label: 'Nacionalidad', required: false, aliases: ['NACIONALIDAD', 'NATIONALITY', 'PAIS', 'COUNTRY'] },
-    { key: 'birthdate', label: 'F. Nacim', required: false, aliases: ['FECHA_NACIMIENTO', 'BIRTH_DATE', 'NACIMIENTO', 'DOB'] }
+    { key: 'birthdate', label: 'F. Nacim', required: false, aliases: ['FECHA_NACIMIENTO', 'BIRTH_DATE', 'NACIMIENTO', 'DOB'] },
+    { key: 'pax', label: 'PAX Total', required: false, aliases: ['PAX', 'GUESTS', 'NUM_GUESTS', 'TOTAL_GUESTS', 'TOTAL_PAX', 'PAX_TOTAL'] },
+    { key: 'adults', label: 'Adultos', required: false, aliases: ['ADULTS', 'ADULTOS', 'PAX_ADULTS'] },
+    { key: 'children', label: 'Niños', required: false, aliases: ['CHILDREN', 'NINOS', 'PAX_CHILDREN'] }
   ];
 
   const mapColumns = (csvHeaders: string[], definitions: ColumnDefinition[]) => {
@@ -524,6 +531,25 @@ export const Importers = () => {
               } else if (guestName && arrival && departure) {
                 // Really new stay
                 if (normalizeText(guestName || '') === '') stats.emptyGuests++;
+
+                // PAX Extraction (Block 10)
+                const valPax = parseInt(getVal('pax')) || 0;
+                const valAdults = parseInt(getVal('adults')) || 0;
+                const valChildren = parseInt(getVal('children')) || 0;
+                const valInfants = parseInt(getVal('infants')) || 0;
+
+                let finalPaxTotal = 0;
+                if (valPax > 0) {
+                  finalPaxTotal = valPax;
+                } else if (valAdults > 0 || valChildren > 0 || valInfants > 0) {
+                  finalPaxTotal = valAdults + valChildren + valInfants;
+                } else {
+                  // Default to 1 only if we REALLY have nothing, but user says "don't invent"
+                  // However, a booking with 0 guests is technically invalid in most travel schemas.
+                  // We'll use 0 as signaled by user ("no inventar nada y dejarlo vacío/0")
+                  finalPaxTotal = 0;
+                }
+
                 const newBookingId = crypto.randomUUID();
                 const newBooking: Booking = {
                   id: newBookingId,
@@ -534,7 +560,12 @@ export const Importers = () => {
                   check_out: departure,
                   status: 'confirmed',
                   total_price: 0,
-                  guests: 1,
+                  guests: finalPaxTotal || 1, // 'guests' remains the main counter, at least 1 for grid visibility if total is 0? 
+                  // Rule says don't invent, so let's use finalPaxTotal.
+                  pax_total: finalPaxTotal > 0 ? finalPaxTotal : undefined,
+                  pax_adults: valAdults > 0 ? valAdults : undefined,
+                  pax_children: valChildren > 0 ? valChildren : undefined,
+                  pax_infants: valInfants > 0 ? valInfants : undefined,
                   source: platform || 'IMPORT_FINANCIAL',
                   external_ref: getVal('external_ref') || null,
                   created_at: Date.now(),
@@ -546,7 +577,7 @@ export const Importers = () => {
                 matchedReservationId = newBookingId;
                 bookingWasCreated = true;
                 stats.bookingsCreated++;
-                console.debug(`[UPSERT] Created new booking for stay: ${guestName} (${arrival} to ${departure})`);
+                console.debug(`[UPSERT] Created new booking for stay: ${guestName} (${arrival} to ${departure}) with PAX: ${finalPaxTotal}`);
               }
             }
           }

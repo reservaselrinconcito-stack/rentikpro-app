@@ -376,19 +376,23 @@ const CalendarContent: React.FC = () => {
                         const baseColor = isBlock ? '#94a3b8' : (apt?.color || '#4f46e5');
                         const isConflict = b.conflict_detected;
 
+                        const isBlack = baseColor === '#000000' || baseColor === '#000';
+                        const textColor = isBlack ? '#FFFFFF' : '#000000';
+
                         const style = isConflict
                           ? {
                             backgroundImage: `repeating-linear-gradient(45deg, ${baseColor}, ${baseColor} 5px, #ef4444 5px, #ef4444 10px)`,
-                            border: '1px solid #ef4444'
+                            border: '1px solid #ef4444',
+                            color: textColor
                           }
-                          : { backgroundColor: baseColor };
+                          : { backgroundColor: baseColor, color: textColor };
 
                         return (
                           <div
                             key={b.id}
                             onClick={(e) => { e.stopPropagation(); openEventDetail(b); }}
                             className={`
-                                h-[22px] mb-[2px] text-white text-[10px] font-bold flex items-center px-2 cursor-pointer
+                                h-[22px] mb-[2px] text-[10px] font-bold flex items-center px-2 cursor-pointer
                                 hover:brightness-110 transition-all shadow-sm relative z-30
                                 ${roundedClass} ${marginClass}
                                 ${isConflict ? 'animate-pulse' : ''}
@@ -400,7 +404,7 @@ const CalendarContent: React.FC = () => {
                             {/* Render text on Check-in (Start) OR on Single-Day (Start && End) */}
                             {((isStart) || day.date.getDay() === 1) && (
                               <span className="truncate w-full drop-shadow-md whitespace-nowrap flex items-center gap-1">
-                                {isConflict && <AlertTriangle size={8} className="text-white fill-white" />}
+                                {isConflict && <AlertTriangle size={8} style={{ color: textColor, fill: textColor }} />}
                                 {b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler))} {(!isBlock && b.guests) ? `${b.guests}pax` : ''}
                               </span>
                             )}

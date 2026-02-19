@@ -57,9 +57,22 @@ export const bookingRequestImporter = {
             const nameMatch = text.match(/(?:nombre|guest|hu[eé]sped|cliente)[:\s]+([A-Za-zÀ-ÿ\s]+)/i);
             const guestName = nameMatch ? nameMatch[1].trim().split('\n')[0] : 'Solicitud importada';
 
-            // Extract number of guests
-            const guestsMatch = text.match(/(\d+)\s*(?:personas?|guests?|adultos?|pax)/i);
-            const guests = guestsMatch ? parseInt(guestsMatch[1], 10) : 1;
+            // Extract number of guests (Block 10: Sum adults + children + infants if needed)
+            const paxMatch = text.match(/(\d+)\s*(?:personas?|guests?|total\s+pax|pax)/i);
+            const adultsMatch = text.match(/(\d+)\s*(?:adultos?|adults?)/i);
+            const childrenMatch = text.match(/(\d+)\s*(?:niños?|children?|kids?)/i);
+            const infantsMatch = text.match(/(\d+)\s*(?:bebes?|infants?)/i);
+
+            let valPax = paxMatch ? parseInt(paxMatch[1], 10) : 0;
+            const valAdults = adultsMatch ? parseInt(adultsMatch[1], 10) : 0;
+            const valChildren = childrenMatch ? parseInt(childrenMatch[1], 10) : 0;
+            const valInfants = infantsMatch ? parseInt(infantsMatch[1], 10) : 0;
+
+            if (valPax === 0 && (valAdults > 0 || valChildren > 0 || valInfants > 0)) {
+                valPax = valAdults + valChildren + valInfants;
+            }
+
+            const guests = valPax > 0 ? valPax : 0; // "Sin inventar" -> 0 if not found
 
             // Extract price
             const priceMatch = text.match(/(\d+(?:[.,]\d+)?)\s*(?:€|eur|euros?)/i);
@@ -69,7 +82,7 @@ export const bookingRequestImporter = {
             const propertyId = projectManager.getActivePropertyId() || '';
 
             const now = Date.now();
-            const booking = {
+            const booking: any = {
                 id: `req-${now}`,
                 property_id: propertyId,
                 apartment_id: '',
@@ -79,7 +92,11 @@ export const bookingRequestImporter = {
                 check_out: checkOut || '',
                 status: 'pending' as const,
                 source: 'manual' as const,
-                guests,
+                guests: guests || 1, // Keep 1 for grid visibility if possible, but store 0 in metadata
+                pax_total: guests > 0 ? guests : undefined,
+                pax_adults: valAdults > 0 ? valAdults : undefined,
+                pax_children: valChildren > 0 ? valChildren : undefined,
+                pax_infants: valInfants > 0 ? valInfants : undefined,
                 total_price: totalPrice,
                 payment_notes: 'Importado desde solicitud de texto',
                 payments: [],

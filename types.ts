@@ -215,6 +215,12 @@ export interface Booking {
   project_id?: string;
   field_sources?: string; // JSON: {field: module}
   updated_at?: number;
+
+  // Occupancy Details (Block 10)
+  pax_total?: number;
+  pax_adults?: number;
+  pax_children?: number;
+  pax_infants?: number;
 }
 
 export interface Stay {
@@ -261,6 +267,7 @@ export interface AccountingMovement {
   guests?: number;
   pax_adults?: number;
   pax_children?: number;
+  pax_infants?: number;
   source_event_type?: string; // e.g. 'STAY_RESERVATION', 'PAYMENT', 'ADJUSTMENT'
   event_state?: 'provisional' | 'confirmed';
   ical_uid?: string;
