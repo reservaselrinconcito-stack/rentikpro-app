@@ -47,10 +47,22 @@ const SiteConfigService = (() => {
 
         // 4. Network Fetch
         const start = performance.now();
-        const response = await fetch(`/public/site-config?slug=${slug}`);
+
+        // Use configured API Base or fallback
+        const apiBase = import.meta.env.VITE_PUBLIC_API_BASE || "https://rentikpro-public-api.reservas-elrinconcito.workers.dev";
+        const fetchUrl = `${apiBase}/public/site-config?slug=${slug}`;
+
+        console.log(`[SiteConfig] Fetching from: ${fetchUrl}`);
+
+        const response = await fetch(fetchUrl, { mode: 'cors' });
 
         if (!response.ok) {
-            const error = new Error(`Site config fetch failed: ${response.status}`);
+            const errorMsg = `Site config fetch failed. 
+URL: ${fetchUrl}
+Status: ${response.status} ${response.statusText}
+Slug: ${slug}`;
+            console.error(errorMsg);
+            const error = new Error(errorMsg);
             error.status = response.status;
             throw error;
         }

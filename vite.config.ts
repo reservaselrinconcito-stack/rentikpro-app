@@ -84,7 +84,8 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.VITE_BUILD_TIME': JSON.stringify(new Date().toISOString()),
       '__APP_VERSION__': JSON.stringify(process.env.npm_package_version || "2.0.0"),
       '__BUILD_TIME__': JSON.stringify(new Date().toISOString()),
-      'import.meta.env.VITE_PUBLIC_SITE_BASE_URL': JSON.stringify(process.env.VITE_PUBLIC_SITE_BASE_URL || "https://rp-web-6h9.pages.dev")
+      'import.meta.env.VITE_PUBLIC_SITE_BASE_URL': JSON.stringify(process.env.VITE_PUBLIC_SITE_BASE_URL || "https://rp-web-6h9.pages.dev"),
+      'import.meta.env.VITE_PUBLIC_API_BASE': JSON.stringify(process.env.VITE_PUBLIC_API_BASE || "https://rentikpro-public-api.reservas-elrinconcito.workers.dev")
     },
     resolve: {
       alias: {

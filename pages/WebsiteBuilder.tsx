@@ -5,8 +5,8 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { projectManager } from '../services/projectManager';
-import { WebSite } from '../types';
-import { WebSpec, normalizeWebSpec, createDefaultSections } from '../services/webSpec';
+import { WebSite, WebSpec } from '../types';
+import { normalizeWebSpec, createDefaultSections } from '../services/webSpec';
 
 const generateSlug = (name: string): string => {
    return name
@@ -187,12 +187,14 @@ export const WebsiteBuilder: React.FC = () => {
 
    // --- PREVIEW URL ---
    const getPreviewUrl = () => {
+      if (!slugDraft) return '';
       const baseUrl = (import.meta.env.VITE_PUBLIC_SITE_BASE_URL || window.location.origin).replace(/\/$/, '');
-      return `${baseUrl}/${slugDraft}`;
+      return `${baseUrl}/?slug=${slugDraft}`;
    };
 
    const copyToClipboard = () => {
-      navigator.clipboard.writeText(getPreviewUrl());
+      const url = getPreviewUrl();
+      if (url) navigator.clipboard.writeText(url);
       // Todo: visual feedback
    };
 
@@ -378,19 +380,28 @@ export const WebsiteBuilder: React.FC = () => {
                            )}
 
                            <div className="flex gap-2">
-                              <a
-                                 href={getPreviewUrl()}
-                                 target="_blank"
-                                 rel="noreferrer"
-                                 className="flex-1 block p-4 bg-indigo-50 border border-indigo-100 rounded-xl hover:bg-indigo-100 transition-colors group text-left"
-                              >
-                                 <div className="flex items-center gap-2 text-indigo-700 font-bold mb-1">
-                                    <Globe size={16} /> Abrir Página Web
+                              {getPreviewUrl() ? (
+                                 <a
+                                    href={getPreviewUrl()}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="flex-1 block p-4 bg-indigo-50 border border-indigo-100 rounded-xl hover:bg-indigo-100 transition-colors group text-left"
+                                 >
+                                    <div className="flex items-center gap-2 text-indigo-700 font-bold mb-1">
+                                       <Globe size={16} /> Abrir Página Web
+                                    </div>
+                                    <p className="text-xs text-indigo-600/70 truncate group-hover:underline font-mono">
+                                       {getPreviewUrl()}
+                                    </p>
+                                 </a>
+                              ) : (
+                                 <div className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-400">
+                                    <div className="flex items-center gap-2 font-bold mb-1">
+                                       <AlertCircle size={16} /> Slug no válido
+                                    </div>
+                                    <p className="text-xs">Define una dirección web para ver la previsualización.</p>
                                  </div>
-                                 <p className="text-xs text-indigo-600/70 truncate group-hover:underline font-mono">
-                                    {getPreviewUrl()}
-                                 </p>
-                              </a>
+                              )}
                               <button
                                  onClick={copyToClipboard}
                                  className="px-4 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-slate-600"
