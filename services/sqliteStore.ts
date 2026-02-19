@@ -1730,7 +1730,7 @@ export class SQLiteStore implements IDataStore {
       w.allowed_origins_json || '[]',
       w.features_json || '{}',
       w.config_json || '{}',
-      w.id, // for slug
+      w.subdomain || '', // Correctly use subdomain/slug
       w.created_at || now,
       w.updated_at || now
     ];

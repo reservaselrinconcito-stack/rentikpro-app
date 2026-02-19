@@ -40,11 +40,16 @@ export const WebsiteBuilder: React.FC = () => {
          // Prioritize config_json as the primary source of truth if available
          let config: any = {};
          if (existing.config_json) {
-            try { config = JSON.parse(existing.config_json); } catch (e) { }
+            try {
+               config = JSON.parse(existing.config_json);
+               console.log(`[WEB:LOAD] loaded config_json ok (brand.name=${config.brand?.name}, apartments=${config.apartments?.length || 0})`);
+            } catch (e) {
+               console.error("[WEB:LOAD] failed to parse config_json", e);
+            }
          }
 
          setSiteDraft({
-            name: config.name || existing.name || '',
+            name: config.brand?.name || existing.name || '',
             slug: config.slug || existing.subdomain || '',
             slugManuallyEdited: config.slugManuallyEdited ?? (!!existing.features_json && JSON.parse(existing.features_json).slugManuallyEdited)
          });
@@ -67,24 +72,21 @@ export const WebsiteBuilder: React.FC = () => {
 
       try {
          const now = Date.now();
-         const config_json = JSON.stringify({
-            name: draft.name,
-            slug: draft.slug,
-            slugManuallyEdited: draft.slugManuallyEdited
-         });
+         const { config, publicToken, propertyId } = await buildSiteConfigFromProject(draft, site);
+         const config_json = JSON.stringify(config);
 
          const websiteToSave: WebSite = {
             id: site?.id || crypto.randomUUID(),
-            property_id: site?.property_id || projectManager.getActivePropertyId() || 'prop_default',
+            property_id: propertyId,
             name: draft.name,
             subdomain: draft.slug,
-            slug: draft.slug, // New column
+            slug: draft.slug,
             template_slug: site?.template_slug || 'universal-v1',
             plan_type: site?.plan_type || 'basic',
-            public_token: site?.public_token || crypto.randomUUID(),
+            public_token: publicToken,
             is_published: site?.is_published || false,
             features_json: JSON.stringify({ slugManuallyEdited: draft.slugManuallyEdited }),
-            config_json, // New column as primary source
+            config_json,
             theme_config: site?.theme_config || '{}',
             seo_title: site?.seo_title || draft.name,
             seo_description: site?.seo_description || '',
@@ -96,7 +98,10 @@ export const WebsiteBuilder: React.FC = () => {
             updated_at: now
          };
 
+         console.log(`[WEB:SAVE] saving web_sites {id: ${websiteToSave.id}, slug: ${websiteToSave.subdomain}}`);
          await store.saveWebsite(websiteToSave);
+         console.log(`[WEB:SAVE] config_json bytes = ${config_json.length}`);
+
          setSite(websiteToSave);
       } catch (err) {
          console.error("Failed to save website:", err);
@@ -153,6 +158,48 @@ export const WebsiteBuilder: React.FC = () => {
          slug: regeneratedSlug,
          slugManuallyEdited: false
       }));
+   };
+
+   // --- HELPER: BUILD CONFIG ---
+   const buildSiteConfigFromProject = async (draft: typeof siteDraft, currentSite: WebSite | null) => {
+      const store = projectManager.getStore();
+      const propertyId = currentSite?.property_id || projectManager.getActivePropertyId() || 'prop_default';
+
+      // 1. Fetch related data
+      const [settings, apartments] = await Promise.all([
+         store.getSettings(),
+         store.getApartments(propertyId)
+      ]);
+
+      // 2. Resolve Public Token
+      let publicToken = currentSite?.public_token || crypto.randomUUID().replace(/-/g, '');
+
+      // 3. Build the config object
+      const config = {
+         brand: {
+            name: draft.name,
+            phone: settings.contact_phone || '',
+            email: settings.contact_email || '',
+            logoUrl: '' // Property logo could be fetched if needed, defaulting for now
+         },
+         apartments: apartments.map((a: any) => ({
+            id: a.id,
+            name: a.name,
+            capacity: (a as any).capacity || null,
+            description: (a as any).description || "",
+            photos: (a as any).photos_json ? JSON.parse((a as any).photos_json) : []
+         })),
+         experiences: [],
+         guides: [],
+         integrations: {
+            rentikpro: {
+               propertyId: propertyId,
+               publicToken: publicToken
+            }
+         }
+      };
+
+      return { config, publicToken, propertyId };
    };
 
    return (
