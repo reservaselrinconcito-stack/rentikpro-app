@@ -30,18 +30,46 @@ export const BackupVault = () => {
     };
 
     const handleExport = async () => {
+        let popup: Window | null = null;
         try {
             setIsExporting(true);
             setLogs([]); // Clear previous logs
             addLog("Iniciando exportación de backup...");
+
+            // SAFARI FIX: Open popup synchronously before async work
+            popup = window.open('', '_blank');
+            if (popup) {
+                popup.document.write('Generando backup... Espere por favor.');
+            } else {
+                addLog("⚠️ Popup bloqueado. Se intentará descarga directa (puede fallar en iOS).");
+            }
+
+            // Force UI update
+            await new Promise(r => setTimeout(r, 100));
+
             addLog("Generando archivo ZIP...");
             const { blob, filename } = await projectManager.exportFullBackupZip();
-            // SAFARI FIX: call triggerDownload after async work completes
-            ProjectManager.triggerDownload(blob, filename);
+            const url = URL.createObjectURL(blob);
+
+            if (popup && !popup.closed) {
+                popup.document.body.innerHTML = `<a id="dl" href="${url}" download="${filename}">Descargando...</a>`;
+                const a = popup.document.getElementById('dl');
+                if (a) a.click();
+                setTimeout(() => {
+                    URL.revokeObjectURL(url);
+                    popup.close();
+                }, 2000);
+            } else {
+                // Fallback
+                ProjectManager.triggerDownload(blob, filename);
+                setTimeout(() => URL.revokeObjectURL(url), 30000);
+            }
+
             addLog(`✅ Export generado: ${filename} (${(blob.size / 1024).toFixed(0)} KB)`);
             toast.success("Backup creado y descargado correctamente");
             setLastBackup(new Date().toLocaleString());
         } catch (e) {
+            if (popup && !popup.closed) popup.close();
             console.error(e);
             addLog(`ERROR: ${e}`);
             toast.error("Error al crear el backup");

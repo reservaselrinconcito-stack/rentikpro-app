@@ -1014,18 +1014,46 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                     {!lastBackupBlobUrl ? (
                         <button
                             onClick={async () => {
+                                const toastId = toast.loading("Generando Backup...");
+                                // SAFARI FIX: Open popup synchronously before async work
+                                const popup = window.open('', '_blank');
+                                if (popup) {
+                                    popup.document.write('Preparando descarga de backup, por favor espere...');
+                                }
+
                                 try {
                                     setExporting(true);
+                                    // Make sure state updates before heavy work
+                                    await new Promise(r => setTimeout(r, 100));
+
                                     const { blob, filename } = await projectManager.exportFullBackupZip();
-                                    // Trigger download immediately (Safari-safe: after async, still works here
-                                    // because we use the static helper with document.body.appendChild)
-                                    ProjectManager.triggerDownload(blob, filename);
                                     const url = URL.createObjectURL(blob);
-                                    setLastBackupBlobUrl(url);
+
+                                    // If we have a popup, use it to trigger download
+                                    if (popup && !popup.closed) {
+                                        popup.document.body.innerHTML = `<a id="dl" href="${url}" download="${filename}">Descargando...</a>`;
+                                        const a = popup.document.getElementById('dl');
+                                        if (a) a.click();
+
+                                        // Close popup after a delay
+                                        setTimeout(() => {
+                                            URL.revokeObjectURL(url);
+                                            popup.close();
+                                        }, 2000);
+                                    } else {
+                                        // Fallback if popup was blocked or closed
+                                        ProjectManager.triggerDownload(blob, filename);
+                                        setTimeout(() => URL.revokeObjectURL(url), 30000);
+                                    }
+
+                                    setLastBackupBlobUrl(url); // Keep for "click here if not started"
                                     setLastBackupFilename(filename);
-                                    toast.success(`Backup generado: ${filename}`);
-                                } catch (e) {
-                                    toast.error("Error al generar backup: " + e);
+                                    toast.dismiss(toastId);
+                                    toast.success("Backup completado con éxito");
+                                } catch (err) {
+                                    if (popup && !popup.closed) popup.close();
+                                    console.error("Export error:", err);
+                                    toast.error("Error exportando: " + err);
                                 } finally {
                                     setExporting(false);
                                 }
