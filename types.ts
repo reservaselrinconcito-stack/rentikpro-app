@@ -554,13 +554,14 @@ export interface WebSpec {
 export interface WebSite {
   id: string;
   name?: string;
-  property_id: string;
+  property_id?: string; // Made optional
   subdomain: string;
   template_slug: string; // Legacy, maps to WebSpec.templateId
   plan_type: 'basic' | 'plus' | 'pro';
   primary_domain?: string;
   public_token: string;
   is_published: boolean;
+  status?: 'draft' | 'published'; // Added
   theme_config: string; // JSON (Legacy backup)
   seo_title: string;
   seo_description: string;
