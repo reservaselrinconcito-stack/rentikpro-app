@@ -522,6 +522,9 @@ export class ProjectManager {
   /**
    * Opens a project from a file on disk.
    * Prompts the user via OS file picker, reads bytes, and loads the project.
+   *
+   * IMPORTANT: Uses store.load() (binary DB swap) — NOT importFullBackupZip/merge —
+   * so ALL tables (including bookings) are guaranteed to be restored exactly as saved.
    * Sets storageMode = 'file' so future saves go back to the file.
    */
   async openProjectFromFile(): Promise<void> {
@@ -529,10 +532,59 @@ export class ProjectManager {
       throw new Error('File System Access API no está disponible en este navegador (requiere Chrome/Edge).');
     }
     logger.log('[FileMode] Opening project from file...');
-    const bytes = await this.fileProvider.openProjectFile();
-    await this.loadProjectFromBytes(bytes, { setAsActive: true });
+    const zipBytes = await this.fileProvider.openProjectFile();
+
+    // Extract database.sqlite from the ZIP (same format as exportFullBackupZip)
+    const zip = await JSZip.loadAsync(zipBytes);
+    const dbFile = zip.file('database.sqlite');
+    if (!dbFile) {
+      throw new Error("El archivo no contiene 'database.sqlite'. ¿Es un archivo .rentikpro válido?");
+    }
+    const dbBytes = await dbFile.async('uint8array');
+
+    // --- DIAG 1: booking count in the extracted DB ---
+    try {
+      const SQL = await (this.store as any).getSQL();
+      const tempDb = new SQL.Database(dbBytes);
+      const res = tempDb.exec("SELECT COUNT(*) as c FROM bookings");
+      const count = res[0]?.values[0]?.[0] ?? 0;
+      console.log('[FILE OPEN] bookings in extracted db.sqlite =', count);
+      tempDb.close();
+    } catch (_) { }
+
+    // Binary swap: same path as loadProject() → guaranteed to preserve ALL tables
+    await this.store.load(dbBytes);
+
+    // Set project context (generate a stable ID from the file name)
+    const fileName = this.fileProvider.getProjectDisplayName();
+    const projectId = `proj_file_${btoa(fileName).replace(/[^a-z0-9]/gi, '').substring(0, 16)}`;
+    this.currentProjectId = projectId;
+    this.currentProjectMode = 'real';
+    this.lastSyncedAt = Date.now();
+
+    const counts = await this.store.getCounts();
+    this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
+
+    this.setActiveContext(projectId, 'real');
     this.storageMode = 'file';
-    logger.log(`[FileMode] Project loaded from: ${this.fileProvider.getProjectDisplayName()}`);
+
+    // Persist metadata to IDB so the project appears in "Mis Proyectos"
+    try {
+      await this.persistCurrentProject(fileName);
+    } catch (e) {
+      logger.warn('[FileMode] Could not persist project metadata to IDB', e);
+    }
+
+    this.startAutoSave();
+    notifyDataChanged('all');
+
+    // --- DIAG 4: booking count after load ---
+    try {
+      const rows = await this.store.query("SELECT COUNT(*) as c FROM bookings");
+      console.log('[FILE OPEN] bookings count after load =', rows[0]?.c ?? 0);
+    } catch (_) { }
+
+    logger.log(`[FileMode] Project loaded — ${fileName} | bookings: ${this.currentCounts.bookings}`);
   }
 
   /**
@@ -610,11 +662,37 @@ export class ProjectManager {
       this.fileSaveState = 'saving';
       this.isSavingToFile = true; // prevent re-entrance
       try {
-        // Export the raw ZIP bytes (without going through saveProject again)
+        // --- DIAG 1: booking count BEFORE serialize ---
+        try {
+          const rows = await this.store.query("SELECT COUNT(*) as c FROM bookings");
+          console.log('[FILE SAVE] bookings count before serialize =', rows[0]?.c ?? 0);
+        } catch (_) { }
+
+        // Export the raw ZIP bytes
         const { blob } = await this.exportFullBackupZip();
         const buffer = await blob.arrayBuffer();
         const bytes = new Uint8Array(buffer);
+
+        // --- DIAG 2: bytes size + check db.sqlite presence in ZIP ---
+        console.log('[FILE SAVE] bytes.length =', bytes.length);
+        try {
+          const JSZip = (await import('jszip')).default;
+          const inspectZip = await JSZip.loadAsync(buffer.slice(0));
+          const entries = Object.keys(inspectZip.files);
+          console.log('[FILE SAVE] ZIP entries =', entries);
+          console.log('[FILE SAVE] has database.sqlite =', entries.includes('database.sqlite'));
+        } catch (zipErr) {
+          console.log('[FILE SAVE] Could not inspect ZIP:', zipErr);
+        }
+
         await this.fileProvider.saveProjectFile(bytes);
+
+        // --- DIAG 3: booking count AFTER file write (confirms live DB state) ---
+        try {
+          const rows2 = await this.store.query("SELECT COUNT(*) as c FROM bookings");
+          console.log('[FILE SAVE] bookings count after save =', rows2[0]?.c ?? 0);
+        } catch (_) { }
+
         this.fileSaveState = 'saved';
         logger.log('[FileMode AutoSave] ✓ Saved to file');
       } catch (e) {
