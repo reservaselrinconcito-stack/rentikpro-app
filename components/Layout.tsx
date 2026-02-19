@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Calendar, Users, Building2, CalendarRange, Wallet, Globe, RefreshCw, Landmark, ScanFace, MessageSquare, Database, Save, XCircle, Activity, Sparkles, ExternalLink, ShieldAlert, ShieldCheck, Megaphone, Settings, Menu, X, ClipboardList, AlertTriangle, ZoomIn, ZoomOut, RotateCcw, Bug
+  LayoutDashboard, Calendar, Users, Building2, CalendarRange, Wallet, Globe, RefreshCw, Landmark, ScanFace, MessageSquare, Database, Save, XCircle, Activity, Sparkles, ExternalLink, ShieldAlert, ShieldCheck, Megaphone, Settings, Menu, X, ClipboardList, AlertTriangle, ZoomIn, ZoomOut, RotateCcw, Bug, Loader2, HardDrive
 } from 'lucide-react';
 import { projectManager } from '../services/projectManager';
 import { DebugOverlay } from './DebugOverlay';
@@ -55,6 +55,39 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  // File-mode save state (polls every 500ms — zero cost when in 'idb' mode)
+  const [fileSaveState, setFileSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [fileDisplayName, setFileDisplayName] = useState<string>('Sin archivo');
+  const isFileMode = projectManager.getStorageMode() === 'file';
+
+  useEffect(() => {
+    if (!isFileMode) return;
+    const interval = setInterval(() => {
+      setFileSaveState(projectManager.getFileSaveState());
+      setFileDisplayName(projectManager.getFileDisplayName());
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isFileMode]);
+
+  // FileSaveBadge — shown only in file mode
+  const FileSaveBadge = () => {
+    if (!isFileMode) return null;
+    const stateConfig = {
+      idle: { icon: <HardDrive size={11} />, label: fileDisplayName, color: 'text-sky-600 bg-sky-50 border-sky-100' },
+      saving: { icon: <Loader2 size={11} className="animate-spin" />, label: 'Guardando…', color: 'text-amber-600 bg-amber-50 border-amber-100' },
+      saved: { icon: <CheckCircle size={11} />, label: 'Guardado', color: 'text-emerald-600 bg-emerald-50 border-emerald-100' },
+      error: { icon: <AlertCircle size={11} />, label: 'Error al guardar', color: 'text-rose-600 bg-rose-50 border-rose-100' },
+    };
+    const { icon, label, color } = stateConfig[fileSaveState];
+    return (
+      <div className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest px-2 py-1.5 rounded-lg border w-full ${color}`}
+        title={fileDisplayName}>
+        {icon}
+        <span className="truncate max-w-[140px]">{label}</span>
+      </div>
+    );
+  };
 
   const isDebugMode = location.search.includes('debug=1');
 
@@ -249,6 +282,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
               <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest leading-none mb-2 ml-1 opacity-70">Escala interfaz (Móvil)</p>
               <ZoomControls />
             </div>
+
+            {isFileMode && (
+              <div className="mt-3 px-2">
+                <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest leading-none mb-1.5 ml-1 opacity-70">Archivo de proyecto</p>
+                <FileSaveBadge />
+              </div>
+            )}
           </div>
           <nav className="flex-1 px-4 pb-6 space-y-1.5 overflow-y-auto custom-scrollbar">
             <NavContent />
@@ -310,6 +350,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
                   <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest leading-none mb-2 ml-1">Tamaño de Interfaz</p>
                   <ZoomControls />
                 </div>
+                {isFileMode && (
+                  <div className="mt-3">
+                    <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest leading-none mb-1.5 ml-1">Archivo</p>
+                    <FileSaveBadge />
+                  </div>
+                )}
               </div>
               <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
                 <NavContent mobile={true} />

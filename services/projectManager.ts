@@ -6,6 +6,7 @@ import JSZip from 'jszip';
 import { APP_VERSION, SCHEMA_VERSION } from '../src/version';
 import { projectPersistence } from './projectPersistence';
 import { demoGenerator } from './demoGenerator';
+import { ProjectFileProvider } from './projectFileProvider';
 
 export class ProjectManager {
   public store: SQLiteStore;
@@ -14,6 +15,16 @@ export class ProjectManager {
   private lastSyncedAt: number | null = null;
   private autoSaveInterval: any = null;
   private currentCounts: { bookings: number, accounting: number } = { bookings: 0, accounting: 0 };
+
+  // Storage mode: 'idb' = IndexedDB (default, all browsers)
+  //               'file' = File System Access API (Chrome/Edge desktop only)
+  private storageMode: 'idb' | 'file' = 'idb';
+  private fileProvider: ProjectFileProvider = new ProjectFileProvider();
+
+  // File-mode autosave state
+  private fileSaveState: 'idle' | 'saving' | 'saved' | 'error' = 'idle';
+  private fileAutoSaveTimer: any = null;
+  private isSavingToFile: boolean = false; // reentrance guard to avoid saveToFile -> saveProject -> saveToFile loop
 
   constructor() {
     this.store = new SQLiteStore();
@@ -176,6 +187,17 @@ export class ProjectManager {
     localStorage.setItem('active_project_mode', mode);
   }
 
+  private ensureActiveProjectContext() {
+    if (!this.currentProjectId) {
+      const id = `proj_restored_${Date.now()}`;
+      logger.log(`[Import] No active project found. Creating context: ${id}`);
+      this.currentProjectId = id;
+      this.currentProjectMode = 'real';
+      this.setActiveContext(id, 'real');
+      // We don't save yet, the import function will save at the end.
+    }
+  }
+
   private startAutoSave() {
     if (this.autoSaveInterval) clearInterval(this.autoSaveInterval);
     this.autoSaveInterval = setInterval(() => {
@@ -186,11 +208,17 @@ export class ProjectManager {
   // --- PERSISTENCE ---
 
   async saveProject(): Promise<void> {
-    console.log("[SAVE:PM] begin", { projectId: this.currentProjectId });
+    console.log('[SAVE:PM] begin', { projectId: this.currentProjectId });
     if (!this.store || !this.currentProjectId) return;
-    const name = this.currentProjectMode === 'demo' ? 'DEMO RentikPro' : `Proyecto ${new Date().toLocaleDateString()}`; // Simplify name logic
+    const name = this.currentProjectMode === 'demo' ? 'DEMO RentikPro' : `Proyecto ${new Date().toLocaleDateString()}`;
     await this.persistCurrentProject(name);
     this.lastSyncedAt = Date.now();
+
+    // File-mode: schedule a debounced write to disk after every IDB save.
+    // Guard: skip if we are already mid-save to avoid save→export→save loop.
+    if (this.storageMode === 'file' && !this.isSavingToFile) {
+      this.scheduleAutoSaveFile();
+    }
   }
 
   private async persistCurrentProject(name: string) {
@@ -422,6 +450,174 @@ export class ProjectManager {
     }
   }
 
+  // --- SERIALIZATION UTILITIES (used by file-mode persistence and autosave) ---
+
+  /**
+   * Serializes the current project to raw bytes (ZIP format, same as full backup).
+   * Safe to call at any time while a project is loaded.
+   * Returns the same content as exportFullBackupZip(), but as Uint8Array instead of Blob.
+   */
+  async serializeProjectToBytes(): Promise<Uint8Array> {
+    logger.log('[Serialize] Building project bytes...');
+    const { blob } = await this.exportFullBackupZip();
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    logger.log(`[Serialize] Done — ${bytes.byteLength} bytes`);
+    return bytes;
+  }
+
+  /**
+   * Restores a project from raw bytes (ZIP format produced by serializeProjectToBytes).
+   * Equivalent to importFullBackupZip() but accepts Uint8Array instead of File.
+   *
+   * @param bytes  Raw ZIP bytes previously produced by serializeProjectToBytes()
+   * @param options.setAsActive  If true (default), sets this project as the active context
+   *                             and starts auto-save. Pass false for read-only inspection.
+   */
+  async loadProjectFromBytes(
+    bytes: Uint8Array,
+    options: { setAsActive?: boolean } = {}
+  ): Promise<void> {
+    const { setAsActive = true } = options;
+    logger.log(`[Deserialize] Loading project from ${bytes.byteLength} bytes...`);
+
+    // Wrap in a File so importFullBackupZip can use JSZip.loadAsync(file)
+    const blob = new Blob([bytes.buffer as ArrayBuffer], { type: 'application/zip' });
+    const file = new File([blob], 'project.rentikpro', { type: 'application/zip' });
+
+    const ok = await this.importFullBackupZip(file);
+
+    if (ok && !setAsActive) {
+      // If caller does NOT want auto-save (e.g. read-only check), stop the timer.
+      if (this.autoSaveInterval) {
+        clearInterval(this.autoSaveInterval);
+        this.autoSaveInterval = null;
+      }
+    }
+
+    logger.log(`[Deserialize] Load complete (setAsActive=${setAsActive})`);
+  }
+
+  // --- FILE-MODE OPERATIONS (Chrome/Edge only — Safari falls back to IDB) ---
+
+  /** Returns 'file' if using File System Access API, 'idb' otherwise. */
+  getStorageMode(): 'idb' | 'file' {
+    return this.storageMode;
+  }
+
+  /** Switch storage mode programmatically. Does NOT migrate data. */
+  setStorageMode(mode: 'idb' | 'file'): void {
+    this.storageMode = mode;
+    logger.log(`[StorageMode] Switched to '${mode}'`);
+  }
+
+  /**
+   * Opens a project from a file on disk.
+   * Prompts the user via OS file picker, reads bytes, and loads the project.
+   * Sets storageMode = 'file' so future saves go back to the file.
+   */
+  async openProjectFromFile(): Promise<void> {
+    if (!this.fileProvider.supportsFileSystemAccess()) {
+      throw new Error('File System Access API no está disponible en este navegador (requiere Chrome/Edge).');
+    }
+    logger.log('[FileMode] Opening project from file...');
+    const bytes = await this.fileProvider.openProjectFile();
+    await this.loadProjectFromBytes(bytes, { setAsActive: true });
+    this.storageMode = 'file';
+    logger.log(`[FileMode] Project loaded from: ${this.fileProvider.getProjectDisplayName()}`);
+  }
+
+  /**
+   * Prompts the user to pick a save location for a new project file,
+   * then initialises a blank project and writes the initial bytes to disk.
+   * Sets storageMode = 'file'.
+   * @param defaultName suggested file name, e.g. 'mi-proyecto.rentikpro'
+   */
+  async createNewProjectFileAndInit(defaultName: string = 'proyecto.rentikpro'): Promise<void> {
+    if (!this.fileProvider.supportsFileSystemAccess()) {
+      throw new Error('File System Access API no está disponible en este navegador (requiere Chrome/Edge).');
+    }
+    logger.log('[FileMode] Picking save location for new project...');
+    await this.fileProvider.createNewProjectFile(defaultName);
+
+    // Initialise a fresh blank project in the store
+    await this.createBlankProject();
+
+    // Write initial bytes to the chosen file
+    const bytes = await this.serializeProjectToBytes();
+    await this.fileProvider.saveProjectFile(bytes);
+
+    this.storageMode = 'file';
+    logger.log(`[FileMode] New project created at: ${this.fileProvider.getProjectDisplayName()}`);
+  }
+
+  /**
+   * Saves the current project to the open file on disk.
+   * Must be in 'file' mode (i.e. openProjectFromFile or createNewProjectFileAndInit called first).
+   * Throws if no file handle is available.
+   */
+  async saveToFile(): Promise<void> {
+    if (this.storageMode !== 'file') {
+      throw new Error('saveToFile() called but storageMode is not \'file\'. Use saveProject() for IDB mode.');
+    }
+    logger.log('[FileMode] Saving project to file...');
+    const bytes = await this.serializeProjectToBytes();
+    await this.fileProvider.saveProjectFile(bytes);
+    this.lastSyncedAt = Date.now();
+    logger.log('[FileMode] Saved ✓');
+  }
+
+  /** Returns the display name of the currently linked file (or 'Sin archivo'). */
+  getFileDisplayName(): string {
+    return this.fileProvider.getProjectDisplayName();
+  }
+
+  /** Returns the current file save state for UI feedback ('idle'|'saving'|'saved'|'error'). */
+  getFileSaveState(): 'idle' | 'saving' | 'saved' | 'error' {
+    return this.fileSaveState;
+  }
+
+  /**
+   * Schedules a debounced (1500 ms) write of the current project to disk.
+   * Safe to call many times in quick succession — only the last call triggers the write.
+   * No-op if not in 'file' mode or no file handle is open.
+   *
+   * IMPORTANT: uses isSavingToFile guard to prevent the re-entrance loop:
+   *   saveProject() -> scheduleAutoSaveFile() -> saveToFile()
+   *     -> serializeProjectToBytes() -> exportFullBackupZip() -> saveProject()
+   *     -> scheduleAutoSaveFile() would fire again → BLOCKED by isSavingToFile
+   */
+  scheduleAutoSaveFile(): void {
+    if (this.storageMode !== 'file' || !this.fileProvider.hasOpenFile()) return;
+
+    // Cancel any pending write
+    if (this.fileAutoSaveTimer) {
+      clearTimeout(this.fileAutoSaveTimer);
+    }
+
+    this.fileSaveState = 'idle';
+
+    this.fileAutoSaveTimer = setTimeout(async () => {
+      this.fileAutoSaveTimer = null;
+      this.fileSaveState = 'saving';
+      this.isSavingToFile = true; // prevent re-entrance
+      try {
+        // Export the raw ZIP bytes (without going through saveProject again)
+        const { blob } = await this.exportFullBackupZip();
+        const buffer = await blob.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        await this.fileProvider.saveProjectFile(bytes);
+        this.fileSaveState = 'saved';
+        logger.log('[FileMode AutoSave] ✓ Saved to file');
+      } catch (e) {
+        this.fileSaveState = 'error';
+        logger.error('[FileMode AutoSave] Failed', e);
+      } finally {
+        this.isSavingToFile = false;
+      }
+    }, 1500);
+  }
+
   // ...
 
   getStore() { return this.store; }
@@ -540,6 +736,9 @@ export class ProjectManager {
       }
       */
 
+      // 1. Ensure we have an active project context to attach data to
+      this.ensureActiveProjectContext();
+
       // Order matters for Foreign Keys? We disabled checks or handle order?
       // SQLiteStore init enables FKs: `PRAGMA foreign_keys = ON;`.
       // We should disable FKs during bulk import or delete in correct order.
@@ -584,6 +783,20 @@ export class ProjectManager {
         await this.store.execute("PRAGMA foreign_keys = ON;");
       }
 
+      // 2. Reconstruct Calendar Events from Bookings (Essential for Manual Reservations to show up)
+      logger.log("[Import] Reconstructing calendar events from imported bookings...");
+      try {
+        await this.store.execute("DELETE FROM calendar_events WHERE booking_id IS NOT NULL");
+        const allBookings = await this.store.query("SELECT * FROM bookings");
+        for (const b of allBookings) {
+          await this.store.upsertCalendarEventFromBooking(b);
+        }
+        logger.log(`[Import] Reconstructed events for ${allBookings.length} bookings.`);
+      } catch (evtErr) {
+        logger.error("[Import] Failed to reconstruct calendar events", evtErr);
+        // Non-fatal, return warning
+      }
+
       const realCounts = await this.store.getCounts();
 
       await this.saveProject();
@@ -598,6 +811,8 @@ export class ProjectManager {
 
   async importProjectStructureOnly(jsonString: string): Promise<any> {
     try {
+      // 1. Ensure we have an active project context
+      this.ensureActiveProjectContext();
       const data = JSON.parse(jsonString);
 
       await this.store.execute("PRAGMA foreign_keys = OFF;");

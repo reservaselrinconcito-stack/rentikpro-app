@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Play, FilePlus, Upload, ShieldCheck, Gamepad2, ArrowRight, Loader2, CheckCircle, AlertCircle, Database } from 'lucide-react';
+import { Play, FilePlus, Upload, ShieldCheck, Gamepad2, ArrowRight, Loader2, CheckCircle, AlertCircle, Database, FolderOpen, FileText } from 'lucide-react';
 import { projectManager } from '../services/projectManager';
 import { projectPersistence, ProjectMetadata } from '../services/projectPersistence'; // Import persistence
 import { notifyDataChanged } from '../services/dataRefresher';
@@ -7,6 +7,11 @@ import { notifyDataChanged } from '../services/dataRefresher';
 export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
     const [loading, setLoading] = useState(false);
     const [recentProjects, setRecentProjects] = useState<ProjectMetadata[]>([]);
+    const [supportsFile] = useState(() =>
+        typeof window !== 'undefined' &&
+        typeof (window as any).showOpenFilePicker === 'function' &&
+        typeof (window as any).showSaveFilePicker === 'function'
+    );
 
     useEffect(() => {
         loadRecent();
@@ -111,6 +116,14 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
         };
         input.click();
     };
+
+    const handleOpenFile = () => wrapAction("Abriendo proyecto desde archivo", async () => {
+        await projectManager.openProjectFromFile();
+    });
+
+    const handleNewFile = () => wrapAction("Creando proyecto en archivo", async () => {
+        await projectManager.createNewProjectFileAndInit('rentikpro.rentikpro');
+    });
 
     if (loading || error) {
         const isTimeout = loadingTimer > 12; // 12s threshold
@@ -316,6 +329,55 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
                                 <div className="text-left">
                                     <h3 className="font-bold text-slate-800">Importar</h3>
                                     <p className="text-xs text-slate-500">Desde archivo .sqlite</p>
+                                </div>
+                            </div>
+                        </button>
+
+                        {/* ── File System Access API (Chrome/Edge only) ── */}
+                        <div className="h-px bg-slate-100 my-1" />
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1"
+                            title={supportsFile ? '' : 'Solo disponible en Chrome / Edge'}>
+                            Modo Escritorio {!supportsFile && <span className="text-amber-500">· No disponible en este navegador</span>}
+                        </p>
+
+                        <button
+                            onClick={supportsFile ? handleOpenFile : undefined}
+                            disabled={!supportsFile}
+                            title={supportsFile ? 'Abre un archivo .rentikpro desde disco' : 'Disponible en Chrome / Edge'}
+                            className={`w-full flex items-center justify-between p-4 border rounded-xl transition-all group ${supportsFile
+                                    ? 'bg-white border-slate-200 hover:border-sky-500 hover:shadow-md cursor-pointer'
+                                    : 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed'
+                                }`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-lg transition-colors ${supportsFile ? 'bg-sky-50 text-sky-600 group-hover:bg-sky-500 group-hover:text-white' : 'bg-slate-100 text-slate-400'
+                                    }`}>
+                                    <FolderOpen size={20} />
+                                </div>
+                                <div className="text-left">
+                                    <h3 className="font-bold text-slate-800">Abrir proyecto (archivo)</h3>
+                                    <p className="text-xs text-slate-500">Abre .rentikpro desde disco</p>
+                                </div>
+                            </div>
+                        </button>
+
+                        <button
+                            onClick={supportsFile ? handleNewFile : undefined}
+                            disabled={!supportsFile}
+                            title={supportsFile ? 'Crea un nuevo proyecto guardado como archivo' : 'Disponible en Chrome / Edge'}
+                            className={`w-full flex items-center justify-between p-4 border rounded-xl transition-all group ${supportsFile
+                                    ? 'bg-white border-slate-200 hover:border-violet-500 hover:shadow-md cursor-pointer'
+                                    : 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed'
+                                }`}
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className={`p-2 rounded-lg transition-colors ${supportsFile ? 'bg-violet-50 text-violet-600 group-hover:bg-violet-500 group-hover:text-white' : 'bg-slate-100 text-slate-400'
+                                    }`}>
+                                    <FileText size={20} />
+                                </div>
+                                <div className="text-left">
+                                    <h3 className="font-bold text-slate-800">Nuevo proyecto (archivo)</h3>
+                                    <p className="text-xs text-slate-500">Guarda en disco directamente</p>
                                 </div>
                             </div>
                         </button>
