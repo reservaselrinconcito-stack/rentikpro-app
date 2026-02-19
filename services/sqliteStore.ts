@@ -361,6 +361,23 @@ export class SQLiteStore implements IDataStore {
     await this.ensureColumn("marketing_email_logs", "project_id", "TEXT");
     await this.ensureColumn("stays", "project_id", "TEXT");
 
+    // Web Sites Migrations (v2.1)
+    await this.ensureColumn("web_sites", "name", "TEXT");
+    await this.ensureColumn("web_sites", "theme_config", "TEXT");
+    await this.ensureColumn("web_sites", "seo_title", "TEXT");
+    await this.ensureColumn("web_sites", "seo_description", "TEXT");
+    await this.ensureColumn("web_sites", "sections_json", "TEXT");
+    await this.ensureColumn("web_sites", "booking_config", "TEXT");
+    await this.ensureColumn("web_sites", "property_ids_json", "TEXT");
+    await this.ensureColumn("web_sites", "allowed_origins_json", "TEXT");
+    await this.ensureColumn("web_sites", "features_json", "TEXT");
+    await this.ensureColumn("web_sites", "config_json", "TEXT");
+    await this.ensureColumn("web_sites", "slug", "TEXT");
+    await this.ensureColumn("web_sites", "is_published", "INTEGER DEFAULT 0");
+    await this.ensureColumn("web_sites", "updated_at", "INTEGER");
+
+    logger.log("[WEBBUILDER:MIGRATE] web_sites schema verified");
+
     // 2. Indexes (A4 Hardened)
     try {
       await this.execute(`
@@ -1693,6 +1710,7 @@ export class SQLiteStore implements IDataStore {
   }
 
   async saveWebsite(w: WebSite): Promise<void> {
+    const now = Date.now();
     const row = [
       w.id,
       w.property_id,
@@ -1711,8 +1729,10 @@ export class SQLiteStore implements IDataStore {
       w.property_ids_json || '[]',
       w.allowed_origins_json || '[]',
       w.features_json || '{}',
-      w.created_at || Date.now(),
-      w.updated_at || Date.now()
+      w.config_json || '{}',
+      w.id, // for slug
+      w.created_at || now,
+      w.updated_at || now
     ];
     await this.executeWithParams(
       `INSERT OR REPLACE INTO web_sites (
@@ -1720,10 +1740,11 @@ export class SQLiteStore implements IDataStore {
         primary_domain, public_token, is_published, 
         theme_config, seo_title, seo_description, 
         sections_json, booking_config, property_ids_json,
-        allowed_origins_json, features_json, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        allowed_origins_json, features_json, config_json, slug, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       row
     );
+    logger.log(`[WEBBUILDER:SAVE] ok id=${w.id} name="${w.name}" slug="${w.subdomain}"`);
     // Notify file-mode autosave
     this.onWriteHook?.();
   }
@@ -2145,10 +2166,15 @@ export class SQLiteStore implements IDataStore {
     const rows = await this.query("SELECT * FROM web_sites ORDER BY updated_at DESC LIMIT 1");
     if (rows.length === 0) return null;
     const r = rows[0];
+    logger.log(`[WEBBUILDER:LOAD] loaded id=${r.id} name="${r.name}"`);
     return {
       ...r,
       is_published: !!r.is_published,
     };
+  }
+
+  async loadWebsite(): Promise<WebSite | null> {
+    return this.getMyWebsite();
   }
 
   async getMovements(bucket?: string): Promise<AccountingMovement[]> {

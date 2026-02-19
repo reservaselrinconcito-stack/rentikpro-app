@@ -32,17 +32,21 @@ export const WebsiteBuilder: React.FC = () => {
    // --- LOAD ---
    const loadSite = useCallback(async () => {
       const store = projectManager.getStore();
-      const existing = await store.getMyWebsite();
+      const existing = await store.loadWebsite(); // Use loadWebsite as requested
 
       if (existing) {
          setSite(existing);
-         let features: any = {};
-         try { features = JSON.parse(existing.features_json || '{}'); } catch (e) { }
+
+         // Prioritize config_json as the primary source of truth if available
+         let config: any = {};
+         if (existing.config_json) {
+            try { config = JSON.parse(existing.config_json); } catch (e) { }
+         }
 
          setSiteDraft({
-            name: existing.name || '',
-            slug: existing.subdomain || '',
-            slugManuallyEdited: !!features.slugManuallyEdited
+            name: config.name || existing.name || '',
+            slug: config.slug || existing.subdomain || '',
+            slugManuallyEdited: config.slugManuallyEdited ?? (!!existing.features_json && JSON.parse(existing.features_json).slugManuallyEdited)
          });
       } else {
          // Default state for new site
@@ -63,17 +67,24 @@ export const WebsiteBuilder: React.FC = () => {
 
       try {
          const now = Date.now();
+         const config_json = JSON.stringify({
+            name: draft.name,
+            slug: draft.slug,
+            slugManuallyEdited: draft.slugManuallyEdited
+         });
+
          const websiteToSave: WebSite = {
             id: site?.id || crypto.randomUUID(),
             property_id: site?.property_id || projectManager.getActivePropertyId() || 'prop_default',
             name: draft.name,
             subdomain: draft.slug,
+            slug: draft.slug, // New column
             template_slug: site?.template_slug || 'universal-v1',
             plan_type: site?.plan_type || 'basic',
             public_token: site?.public_token || crypto.randomUUID(),
             is_published: site?.is_published || false,
-            // Perist the manual flag in features_json as requested
             features_json: JSON.stringify({ slugManuallyEdited: draft.slugManuallyEdited }),
+            config_json, // New column as primary source
             theme_config: site?.theme_config || '{}',
             seo_title: site?.seo_title || draft.name,
             seo_description: site?.seo_description || '',

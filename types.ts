@@ -523,6 +523,8 @@ export interface WebSite {
   property_ids_json: string; // JSON
   allowed_origins_json: string;
   features_json: string;
+  config_json?: string; // Main content JSON
+  slug?: string;
   created_at: number;
   updated_at: number;
 }
