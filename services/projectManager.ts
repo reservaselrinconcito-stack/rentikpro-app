@@ -224,6 +224,18 @@ export class ProjectManager {
     }
   }
 
+  async waitForFileSave(): Promise<void> {
+    if (!this.isSavingToFile) return;
+    return new Promise(resolve => {
+      const check = setInterval(() => {
+        if (!this.isSavingToFile) {
+          clearInterval(check);
+          resolve();
+        }
+      }, 50);
+    });
+  }
+
   private async persistCurrentProject(name: string) {
     if (!this.currentProjectId) return;
     const data = this.store.export();
@@ -319,6 +331,8 @@ export class ProjectManager {
   // synchronously from an onClick handler to avoid Safari's async-gesture block.
   async exportFullBackupZip(): Promise<{ blob: Blob; filename: string }> {
     console.log("[EXPORT:FULL] Beginning export process...");
+    await this.waitForFileSave();
+
 
     // 0. Force save to ensure IndexedDB is up to date
     await this.saveProject();
@@ -737,6 +751,7 @@ export class ProjectManager {
 
   // NEW: Download SQLite plain
   async downloadSqlite() {
+    await this.waitForFileSave();
     const data = this.store.export();
     const blob = new Blob([data as any], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);

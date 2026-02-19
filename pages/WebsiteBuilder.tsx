@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft, RefreshCw, Globe, CheckCircle2, AlertCircle, Save } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Globe, CheckCircle2, AlertCircle, Save, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { projectManager } from '../services/projectManager';
 import { WebSite } from '../types';
@@ -29,6 +29,7 @@ export const WebsiteBuilder: React.FC = () => {
    const [validationError, setValidationError] = useState<string | null>(null);
    const [isSaving, setIsSaving] = useState(false);
    const [isNewDraft, setIsNewDraft] = useState(false);
+   const [saveError, setSaveError] = useState<string | null>(null);
 
    // --- LOAD ---
    const loadSite = useCallback(async () => {
@@ -116,8 +117,14 @@ export const WebsiteBuilder: React.FC = () => {
          console.log(`[WEB:SAVE] config_json bytes = ${config_json.length}`);
 
          setSite(websiteToSave);
-      } catch (err) {
+      } catch (err: any) {
          console.error("Failed to save website:", err);
+         const msg = err.message || String(err);
+         if (msg.includes("DB not ready") || msg.includes("closed")) {
+            setSaveError("Error crítico de base de datos. Por favor, recarga la página para restaurar la conexión.");
+         } else {
+            setSaveError(`Error al guardar: ${msg}`);
+         }
       } finally {
          setIsSaving(false);
       }
@@ -240,6 +247,32 @@ export const WebsiteBuilder: React.FC = () => {
             <h1 className="text-3xl font-black text-slate-800 tracking-tight">Constructor de Web</h1>
             <p className="text-slate-500">Configura la identidad y dirección de tu página pública.</p>
          </header>
+
+         {saveError && (
+            <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-r shadow-sm animate-pulse-fast">
+               <div className="flex">
+                  <div className="flex-shrink-0">
+                     <AlertCircle className="h-5 w-5 text-red-500" />
+                  </div>
+                  <div className="ml-3">
+                     <p className="text-sm text-red-700 font-bold">
+                        {saveError}
+                     </p>
+                  </div>
+                  <div className="ml-auto pl-3">
+                     <div className="-mx-1.5 -my-1.5">
+                        <button
+                           onClick={() => setSaveError(null)}
+                           className="inline-flex rounded-md p-1.5 text-red-500 hover:bg-red-100 focus:outline-none"
+                        >
+                           <span className="sr-only">Dismiss</span>
+                           <X className="h-5 w-5" />
+                        </button>
+                     </div>
+                  </div>
+               </div>
+            </div>
+         )}
 
          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="bg-white rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100 p-8 space-y-6">

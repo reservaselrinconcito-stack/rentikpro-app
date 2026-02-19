@@ -175,7 +175,13 @@ export class SQLiteStore implements IDataStore {
 
     await this.ensureSettings();
     await this.seedMarketingEmailTemplates();
+    await this.ensureSettings();
+    await this.seedMarketingEmailTemplates();
     await this.detectSchema();
+
+    // CRITICAL: Ensure web_sites table exists for Builder persistence
+    await this.ensureWebSitesSchema();
+    logger.log(`[DB] Initialization complete. State: ${this.db ? 'READY' : 'CLOSED'}`);
 
     // SCHEMA VERSION PERSISTENCE & BACKFILL (v2 Hardening)
     const currentDbVersion = await this.getDbSchemaVersion();
@@ -361,21 +367,7 @@ export class SQLiteStore implements IDataStore {
     await this.ensureColumn("marketing_email_logs", "project_id", "TEXT");
     await this.ensureColumn("stays", "project_id", "TEXT");
 
-    // Web Sites Migrations (v2.1)
-    await this.ensureColumn("web_sites", "name", "TEXT");
-    await this.ensureColumn("web_sites", "theme_config", "TEXT");
-    await this.ensureColumn("web_sites", "seo_title", "TEXT");
-    await this.ensureColumn("web_sites", "seo_description", "TEXT");
-    await this.ensureColumn("web_sites", "sections_json", "TEXT");
-    await this.ensureColumn("web_sites", "booking_config", "TEXT");
-    await this.ensureColumn("web_sites", "property_ids_json", "TEXT");
-    await this.ensureColumn("web_sites", "allowed_origins_json", "TEXT");
-    await this.ensureColumn("web_sites", "features_json", "TEXT");
-    await this.ensureColumn("web_sites", "config_json", "TEXT");
-    await this.ensureColumn("web_sites", "slug", "TEXT");
-    await this.ensureColumn("web_sites", "is_published", "INTEGER DEFAULT 0");
-    await this.ensureColumn("web_sites", "updated_at", "INTEGER");
-
+    await this.ensureWebSitesSchema();
     logger.log("[WEBBUILDER:MIGRATE] web_sites schema verified");
 
     // 2. Indexes (A4 Hardened)
@@ -407,6 +399,51 @@ export class SQLiteStore implements IDataStore {
       logger.log("[DB] Robust unique keys and indexes verified.");
     } catch (e) {
       logger.error("[DB] Migration indexes failed (maybe missing project_id column?)", e);
+    }
+
+  }
+
+  // --- CRITICAL PERSISTENCE HELPERS ---
+  private async ensureWebSitesSchema() {
+    try {
+      await this.execute(`CREATE TABLE IF NOT EXISTS web_sites (
+            id TEXT PRIMARY KEY, 
+            property_id TEXT, 
+            name TEXT, 
+            subdomain TEXT, 
+            template_slug TEXT, 
+            plan_type TEXT,
+            primary_domain TEXT, 
+            public_token TEXT, 
+            is_published INTEGER DEFAULT 0,
+            theme_config TEXT, 
+            seo_title TEXT, 
+            seo_description TEXT,
+            sections_json TEXT, 
+            booking_config TEXT, 
+            property_ids_json TEXT,
+            allowed_origins_json TEXT, 
+            features_json TEXT, 
+            config_json TEXT, 
+            slug TEXT, 
+            created_at INTEGER, 
+            updated_at INTEGER
+        )`);
+
+      // Ensure columns exist (for migration from older versions)
+      const cols = [
+        "name", "theme_config", "seo_title", "seo_description", "sections_json",
+        "booking_config", "property_ids_json", "allowed_origins_json", "features_json",
+        "config_json", "slug", "is_published", "updated_at"
+      ];
+
+      for (const col of cols) {
+        await this.ensureColumn("web_sites", col, "TEXT"); // Most are TEXT, is_published handled by verify
+      }
+
+    } catch (e) {
+      logger.error("[DB:SCHEMA:WEBSITE] Failed to ensure web_sites schema", e);
+      throw e;
     }
   }
 
@@ -910,9 +947,7 @@ export class SQLiteStore implements IDataStore {
     await this.safeMigration("ALTER TABLE user_settings ADD COLUMN ui_scale REAL DEFAULT 1.0", "Add ui_scale to user_settings");
   }
 
-  private sanitizeParams(params: any[]): any[] {
-    return params.map(p => (p === undefined || (typeof p === 'number' && isNaN(p))) ? null : p);
-  }
+
 
   // --- COMUNICACIONES METHODS ---
 
@@ -1709,8 +1744,65 @@ export class SQLiteStore implements IDataStore {
     }));
   }
 
+  async loadWebsite(id?: string): Promise<WebSite | null> {
+    if (!id) return this.getMyWebsite();
+    const res = await this.query("SELECT * FROM web_sites WHERE id = ?", [id]);
+    if (res.length === 0) return null;
+    const w = res[0];
+    return {
+      ...w,
+      is_published: !!w.is_published,
+      theme_config: w.theme_config ? JSON.parse(w.theme_config) : {},
+      seo_title: w.seo_title || '',
+      seo_description: w.seo_description || '',
+      sections_json: w.sections_json ? JSON.parse(w.sections_json) : [],
+      booking_config: w.booking_config ? JSON.parse(w.booking_config) : {},
+      property_ids_json: w.property_ids_json ? JSON.parse(w.property_ids_json) : [],
+      allowed_origins_json: w.allowed_origins_json ? JSON.parse(w.allowed_origins_json) : [],
+      features_json: w.features_json ? JSON.parse(w.features_json) : {},
+      config_json: w.config_json ? JSON.parse(w.config_json) : {},
+      slug: w.slug || ''
+    };
+  }
+
   async saveWebsite(w: WebSite): Promise<void> {
     const now = Date.now();
+
+    // 1. Ensure schema exists (vital for File Mode)
+    await this.ensureWebSitesSchema();
+
+    // 2. Atomic UPSERT using modern SQLite syntax
+    // We use INSERT INTO ... ON CONFLICT DO UPDATE to ensure strict persistence
+    const sql = `
+      INSERT INTO web_sites (
+        id, property_id, name, subdomain, template_slug, plan_type,
+        primary_domain, public_token, is_published, 
+        theme_config, seo_title, seo_description, 
+        sections_json, booking_config, property_ids_json,
+        allowed_origins_json, features_json, config_json, slug, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(id) DO UPDATE SET
+        property_id=excluded.property_id,
+        name=excluded.name,
+        subdomain=excluded.subdomain,
+        template_slug=excluded.template_slug,
+        plan_type=excluded.plan_type,
+        primary_domain=excluded.primary_domain,
+        public_token=excluded.public_token,
+        is_published=excluded.is_published,
+        theme_config=excluded.theme_config,
+        seo_title=excluded.seo_title,
+        seo_description=excluded.seo_description,
+        sections_json=excluded.sections_json,
+        booking_config=excluded.booking_config,
+        property_ids_json=excluded.property_ids_json,
+        allowed_origins_json=excluded.allowed_origins_json,
+        features_json=excluded.features_json,
+        config_json=excluded.config_json,
+        slug=excluded.slug,
+        updated_at=excluded.updated_at
+    `;
+
     const row = [
       w.id,
       w.property_id,
@@ -1730,21 +1822,21 @@ export class SQLiteStore implements IDataStore {
       w.allowed_origins_json || '[]',
       w.features_json || '{}',
       w.config_json || '{}',
-      w.subdomain || '', // Correctly use subdomain/slug
+      w.subdomain || '',
       w.created_at || now,
       w.updated_at || now
     ];
-    await this.executeWithParams(
-      `INSERT OR REPLACE INTO web_sites (
-        id, property_id, name, subdomain, template_slug, plan_type,
-        primary_domain, public_token, is_published, 
-        theme_config, seo_title, seo_description, 
-        sections_json, booking_config, property_ids_json,
-        allowed_origins_json, features_json, config_json, slug, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      row
-    );
-    logger.log(`[WEBBUILDER:SAVE] ok id=${w.id} name="${w.name}" slug="${w.subdomain}"`);
+
+    await this.executeWithParams(sql, row);
+
+    // Log result
+    try {
+      const changes = this.db.getRowsModified ? this.db.getRowsModified() : 'unknown';
+      logger.log(`[WEB:SAVE] sql ok changes=${changes} id=${w.id}`);
+    } catch (e) {
+      logger.log(`[WEB:SAVE] sql ok (changes check failed) id=${w.id}`);
+    }
+
     // Notify file-mode autosave
     this.onWriteHook?.();
   }
@@ -2173,9 +2265,7 @@ export class SQLiteStore implements IDataStore {
     };
   }
 
-  async loadWebsite(): Promise<WebSite | null> {
-    return this.getMyWebsite();
-  }
+
 
   async getMovements(bucket?: string): Promise<AccountingMovement[]> {
     const projectId = localStorage.getItem('active_project_id');
@@ -2633,18 +2723,16 @@ export class SQLiteStore implements IDataStore {
 
   // --- BASE HELPERS ---
   async execute(sql: string) {
-    await this.ensureInitialized();
     if (!this.db) {
-      console.warn("DB not initialized during execute:", sql);
-      return;
+      console.error("[DB] EXECUTE FAILED: DB not initialized or closed", sql);
+      throw new Error("DB not ready/closed");
     }
     this.db.run(sql);
   }
   async executeWithParams(sql: string, params: any[]) {
-    await this.ensureInitialized();
     if (!this.db) {
-      console.warn("DB not initialized during executeWithParams:", sql);
-      return;
+      console.error("[DB] EXECUTE_PARAMS FAILED: DB not initialized or closed", sql);
+      throw new Error("DB not ready/closed");
     }
     const sanitized = this.sanitizeParams(params);
     this.db.run(sql, sanitized);
@@ -2652,9 +2740,11 @@ export class SQLiteStore implements IDataStore {
 
   // Generic query method
   public async query(sql: string, params: any[] = []): Promise<any[]> {
-    await this.ensureInitialized();
     if (!this.db) {
-      return [];
+      // In query we default to empty array if not ready, but arguably query should also throw if critical.
+      // For now, let's throw to be strict as requested.
+      console.error("[DB] QUERY FAILED: DB not initialized or closed", sql);
+      throw new Error("DB not ready/closed");
     }
     const sanitized = this.sanitizeParams(params);
 
@@ -2665,6 +2755,14 @@ export class SQLiteStore implements IDataStore {
       const obj: any = {};
       columns.forEach((col: string, i: number) => { obj[col] = row[i]; });
       return obj;
+    });
+  }
+
+  private sanitizeParams(params: any[]): any[] {
+    return params.map(p => {
+      if (p === undefined) return null;
+      if (typeof p === 'boolean') return p ? 1 : 0;
+      return p;
     });
   }
 
