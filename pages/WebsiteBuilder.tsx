@@ -28,14 +28,21 @@ export const WebsiteBuilder: React.FC = () => {
 
    const [validationError, setValidationError] = useState<string | null>(null);
    const [isSaving, setIsSaving] = useState(false);
+   const [isNewDraft, setIsNewDraft] = useState(false);
 
    // --- LOAD ---
    const loadSite = useCallback(async () => {
+      const activeProjectId = localStorage.getItem('active_project_id') || 'unknown';
+      console.log(`[WEBBUILDER:SESSION] projectId=${activeProjectId}`);
+
       const store = projectManager.getStore();
-      const existing = await store.loadWebsite(); // Use loadWebsite as requested
+      const existing = await store.loadWebsite();
+
+      console.log(`[WEBBUILDER:LOAD] websiteFound=${!!existing} configLen=${existing?.config_json?.length || 0}`);
 
       if (existing) {
          setSite(existing);
+         setIsNewDraft(false);
 
          // Prioritize config_json as the primary source of truth if available
          let config: any = {};
@@ -54,12 +61,18 @@ export const WebsiteBuilder: React.FC = () => {
             slugManuallyEdited: config.slugManuallyEdited ?? (!!existing.features_json && JSON.parse(existing.features_json).slugManuallyEdited)
          });
       } else {
-         // Default state for new site
+         // FALLBACK: Load business name from settings
+         const settings = await store.getSettings();
+         const businessName = settings.business_name || '';
+
+         console.log(`[WEBBUILDER:PREFILL] source=config businessName=${businessName}`);
+
          setSiteDraft({
-            name: '',
-            slug: '',
+            name: businessName,
+            slug: generateSlug(businessName),
             slugManuallyEdited: false
          });
+         setIsNewDraft(true);
       }
    }, []);
 
@@ -286,6 +299,16 @@ export const WebsiteBuilder: React.FC = () => {
             </div>
 
             <div className="space-y-6">
+               {isNewDraft && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 flex items-start gap-4">
+                     <AlertCircle className="w-6 h-6 text-amber-500 shrink-0 mt-1" />
+                     <div>
+                        <h4 className="text-sm font-black text-amber-900 uppercase tracking-tight">Borrador nuevo</h4>
+                        <p className="text-xs text-amber-700 font-medium">Hemos pre-completado los datos usando el <strong>Nombre del negocio</strong> de tu configuración para ahorrarte tiempo.</p>
+                     </div>
+                  </div>
+               )}
+
                <div className="bg-slate-900 rounded-[2rem] p-8 text-white">
                   <h3 className="text-lg font-bold mb-4">Estado del Borrador</h3>
                   <div className="space-y-4">
