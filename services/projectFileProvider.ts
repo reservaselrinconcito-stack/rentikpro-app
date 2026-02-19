@@ -28,29 +28,38 @@ export class ProjectFileProvider {
      * Stores the file handle and name for future saves.
      * @returns the raw file bytes as Uint8Array
      */
-    async openProjectFile(): Promise<Uint8Array> {
+    async openProjectFile(): Promise<Uint8Array | null> {
         if (!this.supportsFileSystemAccess()) {
             throw new Error('File System Access API no está disponible en este navegador.');
         }
 
-        const [handle] = await window.showOpenFilePicker({
-            multiple: false,
-            types: [
-                {
-                    description: 'RentikPro Project',
-                    accept: {
-                        'application/octet-stream': ['.rentikpro', '.sqlite', '.zip'],
+        try {
+            const [handle] = await window.showOpenFilePicker({
+                multiple: false,
+                types: [
+                    {
+                        description: 'RentikPro Project',
+                        accept: {
+                            'application/octet-stream': ['.rentikpro', '.sqlite', '.zip'],
+                        },
                     },
-                },
-            ],
-        });
+                ],
+                excludeAcceptAllOption: false
+            });
 
-        this.fileHandle = handle;
-        this.fileName = handle.name;
+            this.fileHandle = handle;
+            this.fileName = handle.name;
 
-        const file = await handle.getFile();
-        const buffer = await file.arrayBuffer();
-        return new Uint8Array(buffer);
+            const file = await handle.getFile();
+            const buffer = await file.arrayBuffer();
+            return new Uint8Array(buffer);
+        } catch (err: any) {
+            // User cancelled picker
+            if (err.name === 'AbortError') {
+                return null;
+            }
+            throw err;
+        }
     }
 
     /**
@@ -58,25 +67,36 @@ export class ProjectFileProvider {
      * Does NOT write any data yet — call saveProjectFile() after creating the DB.
      * @param defaultName suggested file name (e.g. 'mi-proyecto.rentikpro')
      */
-    async createNewProjectFile(defaultName: string): Promise<void> {
+    async createNewProjectFile(defaultName: string): Promise<boolean> {
         if (!this.supportsFileSystemAccess()) {
             throw new Error('File System Access API no está disponible en este navegador.');
         }
 
-        const handle = await window.showSaveFilePicker({
-            suggestedName: defaultName,
-            types: [
-                {
-                    description: 'RentikPro Project',
-                    accept: {
-                        'application/octet-stream': ['.rentikpro'],
-                    },
-                },
-            ],
-        });
+        try {
+            // Ensure extension
+            const suggestedName = defaultName.endsWith('.rentikpro') ? defaultName : `${defaultName}.rentikpro`;
 
-        this.fileHandle = handle;
-        this.fileName = handle.name;
+            const handle = await window.showSaveFilePicker({
+                suggestedName,
+                types: [
+                    {
+                        description: 'RentikPro Project',
+                        accept: {
+                            'application/octet-stream': ['.rentikpro'],
+                        },
+                    },
+                ],
+            });
+
+            this.fileHandle = handle;
+            this.fileName = handle.name;
+            return true;
+        } catch (err: any) {
+            if (err.name === 'AbortError') {
+                return false;
+            }
+            throw err;
+        }
     }
 
     /**

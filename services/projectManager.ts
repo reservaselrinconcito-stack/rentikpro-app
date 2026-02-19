@@ -527,12 +527,16 @@ export class ProjectManager {
    * so ALL tables (including bookings) are guaranteed to be restored exactly as saved.
    * Sets storageMode = 'file' so future saves go back to the file.
    */
-  async openProjectFromFile(): Promise<void> {
+  async openProjectFromFile(): Promise<boolean> {
     if (!this.fileProvider.supportsFileSystemAccess()) {
       throw new Error('File System Access API no está disponible en este navegador (requiere Chrome/Edge).');
     }
     logger.log('[FileMode] Opening project from file...');
     const zipBytes = await this.fileProvider.openProjectFile();
+    if (!zipBytes) {
+      logger.log('[FileMode] Open cancelled by user.');
+      return false;
+    }
 
     // Extract database.sqlite from the ZIP (same format as exportFullBackupZip)
     const zip = await JSZip.loadAsync(zipBytes);
@@ -585,6 +589,7 @@ export class ProjectManager {
     } catch (_) { }
 
     logger.log(`[FileMode] Project loaded — ${fileName} | bookings: ${this.currentCounts.bookings}`);
+    return true;
   }
 
   /**
@@ -593,12 +598,16 @@ export class ProjectManager {
    * Sets storageMode = 'file'.
    * @param defaultName suggested file name, e.g. 'mi-proyecto.rentikpro'
    */
-  async createNewProjectFileAndInit(defaultName: string = 'proyecto.rentikpro'): Promise<void> {
+  async createNewProjectFileAndInit(defaultName: string = 'proyecto.rentikpro'): Promise<boolean> {
     if (!this.fileProvider.supportsFileSystemAccess()) {
       throw new Error('File System Access API no está disponible en este navegador (requiere Chrome/Edge).');
     }
     logger.log('[FileMode] Picking save location for new project...');
-    await this.fileProvider.createNewProjectFile(defaultName);
+    const created = await this.fileProvider.createNewProjectFile(defaultName);
+    if (!created) {
+      logger.log('[FileMode] Create cancelled by user.');
+      return false;
+    }
 
     // Initialise a fresh blank project in the store
     await this.createBlankProject();
@@ -609,6 +618,7 @@ export class ProjectManager {
 
     this.storageMode = 'file';
     logger.log(`[FileMode] New project created at: ${this.fileProvider.getProjectDisplayName()}`);
+    return true;
   }
 
   /**
