@@ -61,6 +61,15 @@ export class SQLiteStore implements IDataStore {
     bookings_updated_at: false
   };
 
+  // Optional callback registered by ProjectManager to trigger file-mode autosave
+  // when data changes. Using a callback avoids a circular import.
+  private onWriteHook: (() => void) | null = null;
+
+  /** Register a callback to be invoked after every saveBooking / deleteBooking. */
+  setWriteHook(fn: () => void): void {
+    this.onWriteHook = fn;
+  }
+
 
   constructor() {
     // DO NOT init automatically to avoid async race conditions in boot
@@ -1143,6 +1152,9 @@ export class SQLiteStore implements IDataStore {
       }));
     }
 
+    // Notify file-mode autosave (no-op if not in file mode)
+    this.onWriteHook?.();
+
     notifyDataChanged('bookings');
   }
 
@@ -1342,6 +1354,8 @@ export class SQLiteStore implements IDataStore {
 
   async deleteBooking(id: string): Promise<void> {
     await this.executeWithParams("DELETE FROM bookings WHERE id = ?", [id]);
+    // Notify file-mode autosave (no-op if not in file mode)
+    this.onWriteHook?.();
   }
 
   async getCounts(): Promise<any> {

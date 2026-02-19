@@ -28,6 +28,9 @@ export class ProjectManager {
 
   constructor() {
     this.store = new SQLiteStore();
+    // Register the autosave hook so every booking write/delete
+    // schedules a debounced file-save when in file mode.
+    this.store.setWriteHook(() => this.scheduleAutoSaveFile());
   }
 
   // --- INITIALIZATION ---
@@ -459,6 +462,11 @@ export class ProjectManager {
    */
   async serializeProjectToBytes(): Promise<Uint8Array> {
     logger.log('[Serialize] Building project bytes...');
+    // Debug: log booking count to verify records are in DB before serializing
+    try {
+      const rows = await this.store.query("SELECT COUNT(*) as c FROM bookings");
+      logger.log(`[Serialize] bookings count = ${rows[0]?.c ?? 0}`);
+    } catch (_) { }
     const { blob } = await this.exportFullBackupZip();
     const buffer = await blob.arrayBuffer();
     const bytes = new Uint8Array(buffer);
