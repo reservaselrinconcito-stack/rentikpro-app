@@ -14,6 +14,83 @@
 
     let currentConfig = null;
 
+    // --- Helpers ---
+    const validateConfig = (config) => {
+        if (!config) throw new Error("Configuración vacía");
+        if (!config.slug) throw new Error("Configuración inválida: falta slug");
+        // Fallbacks
+        config.theme = config.theme || {};
+        config.properties = Array.isArray(config.properties) ? config.properties : [];
+        config.integrations = config.integrations || {};
+        config.brand = config.brand || {};
+        return config;
+    };
+
+    const updateSEO = (config, titleOverride = null) => {
+        const title = titleOverride ? `${titleOverride} - ${config.title}` : config.title;
+        document.title = title;
+
+        // Meta Description
+        let metaDesc = document.querySelector('meta[name="description"]');
+        if (!metaDesc) {
+            metaDesc = document.createElement('meta');
+            metaDesc.name = "description";
+            document.head.appendChild(metaDesc);
+        }
+        metaDesc.content = config.seo_description || `Reserva en ${config.title}`;
+
+        // Canonical
+        let linkCanon = document.querySelector('link[rel="canonical"]');
+        if (!linkCanon) {
+            linkCanon = document.createElement('link');
+            linkCanon.rel = "canonical";
+            document.head.appendChild(linkCanon);
+        }
+        linkCanon.href = window.location.href.split('#')[0];
+
+        // JSON-LD
+        let scriptLD = document.getElementById('json-ld');
+        if (!scriptLD) {
+            scriptLD = document.createElement('script');
+            scriptLD.id = "json-ld";
+            scriptLD.type = "application/ld+json";
+            document.head.appendChild(scriptLD);
+        }
+        const schema = {
+            "@context": "https://schema.org",
+            "@type": "LodgingBusiness",
+            "name": config.title,
+            "url": window.location.href,
+            "telephone": config.brand?.phone,
+            "email": config.brand?.email
+        };
+        scriptLD.textContent = JSON.stringify(schema);
+    };
+
+    const renderDebug = (config) => {
+        const params = new URLSearchParams(window.location.search);
+        if (!params.has('debug')) return;
+
+        const existing = document.getElementById('debug-overlay');
+        if (existing) existing.remove();
+
+        const debugDiv = document.createElement('div');
+        debugDiv.id = 'debug-overlay';
+        debugDiv.innerHTML = `
+            <strong>DEBUG MODE</strong><br>
+            Slug: ${config.slug}<br>
+            Source: ${config._meta?.source || 'unknown'}<br>
+            Fetch: ${config._meta?.fetchDuration || 'n/a'}<br>
+            Props: ${config.properties.length}
+        `;
+        document.body.appendChild(debugDiv);
+    };
+
+    const renderImage = (src, alt, height = '200px') => {
+        if (!src) return `<div style="height:${height}; background:#e2e8f0; display:flex; align-items:center; justify-content:center; color:#94a3b8; border-radius:1rem;">${alt}</div>`;
+        return `<img src="${src}" alt="${alt}" loading="lazy" class="fade-in" onload="this.classList.add('loaded')" style="width:100%; height:${height}; object-fit:cover; border-radius:1rem;">`;
+    };
+
     const showScreen = (id) => {
         [loader, content, errorScreen].forEach(s => s.classList.add('hidden'));
         document.getElementById(id).classList.remove('hidden');
@@ -88,6 +165,7 @@
     };
 
     const renderHome = (config) => {
+        updateSEO(config); // Reset SEO to home
         const container = document.createElement('div');
         container.className = 'container';
         container.innerHTML = `
@@ -96,9 +174,11 @@
             <div class="grid">
                 ${config.properties.map(p => `
                     <a href="#/a/${p.id}" class="card">
-                        <div style="height:200px; background:#e2e8f0; border-radius:1rem; margin-bottom:1rem; display:flex; align-items:center; justify-content:center; color:#94a3b8;">[ Imagen Apartamento ]</div>
+                        <div style="margin-bottom:1rem;">
+                           ${renderImage(p.photos?.[0], p.name)}
+                        </div>
                         <h3 style="margin:0 0 0.5rem 0">${p.name}</h3>
-                        <p style="font-size:0.875rem; color:var(--text-muted); margin:0">${p.description}</p>
+                        <p style="font-size:0.875rem; color:var(--text-muted); margin:0">${p.description || ''}</p>
                     </a>
                 `).join('')}
             </div>
@@ -110,6 +190,8 @@
         const prop = config.properties.find(p => p.id === id);
         if (!prop) return renderError('Extravío', 'El alojamiento solicitado no existe.');
 
+        updateSEO(config, prop.name); // Specific SEO
+
         const container = document.createElement('div');
         container.className = 'container';
         container.innerHTML = `
@@ -117,8 +199,13 @@
             <h1 style="margin-top:1rem;">${prop.name}</h1>
             <div style="display:grid; grid-template-columns: 2fr 1fr; gap:2rem; margin-top:2rem;">
                 <div>
-                    <div style="height:400px; background:#e2e8f0; border-radius:1.5rem; display:flex; align-items:center; justify-content:center; color:#94a3b8;">[ Galería de Imágenes ]</div>
-                    <p style="margin-top:2rem; line-height:1.7;">${prop.description}</p>
+                    <div>
+                        ${renderImage(prop.photos?.[0], prop.name + ' Main', '400px')}
+                    </div>
+                    <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap:0.5rem; margin-top:1rem;">
+                        ${(prop.photos || []).slice(1, 5).map(photo => renderImage(photo, prop.name, '80px')).join('')}
+                    </div>
+                    <p style="margin-top:2rem; line-height:1.7;">${prop.description || 'Sin descripción disponible.'}</p>
                 </div>
                 <div>
                     <div class="card" style="background:#f8fafc; border-style:dashed;">
@@ -211,14 +298,18 @@
     }
 
     try {
-        currentConfig = await SiteConfigService.fetchConfig(slug);
+        const rawConfig = await SiteConfigService.fetchConfig(slug);
+        currentConfig = validateConfig(rawConfig);
 
         // Apply Theme
         if (currentConfig.theme) {
             document.documentElement.style.setProperty('--primary', currentConfig.theme.primaryColor || '#4f46e5');
             document.documentElement.style.setProperty('--accent', currentConfig.theme.accentColor || '#f43f5e');
         }
-        document.title = currentConfig.title;
+
+        // Initial SEO & Debug
+        updateSEO(currentConfig);
+        renderDebug(currentConfig);
 
         window.onhashchange = handleRoute;
         handleRoute();
