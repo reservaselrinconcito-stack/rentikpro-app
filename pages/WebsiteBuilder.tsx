@@ -8,16 +8,16 @@ import { projectManager } from '../services/projectManager';
 import { WebSite, WebSpec } from '../types';
 import { normalizeWebSpec, createDefaultSections } from '../services/webSpec';
 
-const generateSlug = (name: string): string => {
-   return name
+const normalizeSlug = (input: string): string => {
+   return input
       .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s-]/g, '')
       .trim()
-      .replace(/\s+/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replace(/ñ/g, 'n') // Explicitly handle ñ -> n
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove accents
+      .replace(/[^a-z0-9-]/g, '-') // Replace non-alphanumeric with hyphen
+      .replace(/-+/g, '-') // Collapse hyphens
+      .replace(/^-+|-+$/g, ''); // Trim hyphens
 };
 
 const TEMPLATES = [
@@ -49,7 +49,8 @@ export const WebsiteBuilder: React.FC = () => {
 
       if (existing) {
          setSite(existing);
-         setSlugDraft(existing.subdomain);
+         // Prioritize explicit slug, fallback to subdomain
+         setSlugDraft(existing.slug || existing.subdomain);
 
          // Parse and Normalize config_json
          let config: any = {};
@@ -87,7 +88,7 @@ export const WebsiteBuilder: React.FC = () => {
             integrations: undefined
          };
 
-         setSlugDraft(generateSlug(businessName));
+         setSlugDraft(normalizeSlug(businessName));
       }
 
       setWebSpec(spec);
@@ -121,8 +122,8 @@ export const WebsiteBuilder: React.FC = () => {
             id: site?.id || crypto.randomUUID(),
             property_id: propertyId,
             name: webSpec.brand.name,
-            subdomain: slugDraft, // Use draft slug
-            slug: slugDraft,
+            subdomain: normalizeSlug(slugDraft),
+            slug: normalizeSlug(slugDraft),
             template_slug: webSpec.templateId,
             plan_type: site?.plan_type || 'basic',
             public_token: publicToken,
@@ -179,7 +180,7 @@ export const WebsiteBuilder: React.FC = () => {
    // Slug Sync
    useEffect(() => {
       if (!slugManuallyEdited && webSpec?.brand.name) {
-         const newSlug = generateSlug(webSpec.brand.name);
+         const newSlug = normalizeSlug(webSpec.brand.name);
          if (newSlug !== slugDraft) setSlugDraft(newSlug);
       }
    }, [webSpec?.brand.name, slugManuallyEdited, slugDraft]);
@@ -187,9 +188,10 @@ export const WebsiteBuilder: React.FC = () => {
 
    // --- PREVIEW URL ---
    const getPreviewUrl = () => {
-      if (!slugDraft) return '';
+      const effectiveSlug = normalizeSlug(site?.slug || slugDraft);
+      if (!effectiveSlug) return '';
       const baseUrl = (import.meta.env.VITE_PUBLIC_SITE_BASE_URL || window.location.origin).replace(/\/$/, '');
-      return `${baseUrl}/?slug=${slugDraft}`;
+      return `${baseUrl}/?slug=${effectiveSlug}`;
    };
 
    const copyToClipboard = () => {
@@ -366,53 +368,60 @@ export const WebsiteBuilder: React.FC = () => {
                                  className="flex-1 p-3 bg-transparent outline-none font-mono text-sm text-slate-800 font-bold"
                               />
                            </div>
-                           <p className="text-xs text-slate-400 mt-2">Esta es la dirección única donde tus huéspedes verán tu página.</p>
                         </div>
+                        <p className="text-xs text-slate-400 mt-2">
+                           Slug final publicado: <span className="font-mono font-bold text-slate-600">{normalizeSlug(slugDraft)}</span>
+                        </p>
+                        {normalizeSlug(slugDraft) !== slugDraft && (
+                           <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">
+                              <AlertCircle size={12} /> Se ha normalizado para URL (ñ -&gt; n, sin tildes)
+                           </p>
+                        )}
+                     </div>
 
-                        <div className="pt-6 border-t space-y-3">
-                           <h3 className="font-bold text-sm text-slate-800">Previsualización</h3>
+                     <div className="pt-6 border-t space-y-3">
+                        <h3 className="font-bold text-sm text-slate-800">Previsualización</h3>
 
-                           {!import.meta.env.VITE_PUBLIC_SITE_BASE_URL && (
-                              <div className="p-3 bg-amber-50 rounded-lg text-amber-700 text-xs flex gap-2">
-                                 <AlertCircle size={16} />
-                                 <span>Base URL no configurada (VITE_PUBLIC_SITE_BASE_URL)</span>
+                        {!import.meta.env.VITE_PUBLIC_SITE_BASE_URL && (
+                           <div className="p-3 bg-amber-50 rounded-lg text-amber-700 text-xs flex gap-2">
+                              <AlertCircle size={16} />
+                              <span>Base URL no configurada (VITE_PUBLIC_SITE_BASE_URL)</span>
+                           </div>
+                        )}
+
+                        <div className="flex gap-2">
+                           {getPreviewUrl() ? (
+                              <a
+                                 href={getPreviewUrl()}
+                                 target="_blank"
+                                 rel="noreferrer"
+                                 className="flex-1 block p-4 bg-indigo-50 border border-indigo-100 rounded-xl hover:bg-indigo-100 transition-colors group text-left"
+                              >
+                                 <div className="flex items-center gap-2 text-indigo-700 font-bold mb-1">
+                                    <Globe size={16} /> Abrir Página Web
+                                 </div>
+                                 <p className="text-xs text-indigo-600/70 truncate group-hover:underline font-mono">
+                                    {getPreviewUrl()}
+                                 </p>
+                              </a>
+                           ) : (
+                              <div className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-400">
+                                 <div className="flex items-center gap-2 font-bold mb-1">
+                                    <AlertCircle size={16} /> Slug no válido
+                                 </div>
+                                 <p className="text-xs">Define una dirección web para ver la previsualización.</p>
                               </div>
                            )}
-
-                           <div className="flex gap-2">
-                              {getPreviewUrl() ? (
-                                 <a
-                                    href={getPreviewUrl()}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="flex-1 block p-4 bg-indigo-50 border border-indigo-100 rounded-xl hover:bg-indigo-100 transition-colors group text-left"
-                                 >
-                                    <div className="flex items-center gap-2 text-indigo-700 font-bold mb-1">
-                                       <Globe size={16} /> Abrir Página Web
-                                    </div>
-                                    <p className="text-xs text-indigo-600/70 truncate group-hover:underline font-mono">
-                                       {getPreviewUrl()}
-                                    </p>
-                                 </a>
-                              ) : (
-                                 <div className="flex-1 p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-400">
-                                    <div className="flex items-center gap-2 font-bold mb-1">
-                                       <AlertCircle size={16} /> Slug no válido
-                                    </div>
-                                    <p className="text-xs">Define una dirección web para ver la previsualización.</p>
-                                 </div>
-                              )}
-                              <button
-                                 onClick={copyToClipboard}
-                                 className="px-4 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-slate-600"
-                                 title="Copiar URL"
-                              >
-                                 <div className="flex flex-col items-center gap-1">
-                                    <RefreshCw size={16} className="rotate-90" /> {/* Using refresh icon as distinct from link for now */}
-                                    <span className="text-[10px] font-bold">COPIAR</span>
-                                 </div>
-                              </button>
-                           </div>
+                           <button
+                              onClick={copyToClipboard}
+                              className="px-4 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors text-slate-600"
+                              title="Copiar URL"
+                           >
+                              <div className="flex flex-col items-center gap-1">
+                                 <RefreshCw size={16} className="rotate-90" /> {/* Using refresh icon as distinct from link for now */}
+                                 <span className="text-[10px] font-bold">COPIAR</span>
+                              </div>
+                           </button>
                         </div>
                      </div>
                   </div>
@@ -469,18 +478,12 @@ export const WebsiteBuilder: React.FC = () => {
                </div>
             </div>
          </div>
-         <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-lg ${slugManuallyEdited ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-700 text-slate-400'}`}>
-               {slugManuallyEdited ? <RefreshCw size={16} className="rotate-45" /> : <RefreshCw size={16} className="animate-spin-slow" />}
-            </div>
-            <div>
-               <p className="text-xs font-bold">{slugManuallyEdited ? 'Slug Manual' : 'Sincronización Activa'}</p>
-               <p className="text-[10px] text-slate-500">{slugManuallyEdited ? 'Editas la URL de forma independiente' : 'La URL sigue cambios en el nombre'}</p>
-            </div>
-         </div>
-      </div>
+         {/* Footer / Status Bar Area */}
+      </div >
    );
 };
+
+// --- SUBCOMPONENTS ---
 
 const TabIcon = ({ icon: Icon, label, active, onClick }: any) => (
    <button
