@@ -507,13 +507,20 @@ export interface RegistryPresentation {
 // Websites
 export interface WebSite {
   id: string;
-  property_id: string; // Changed from implicit to explicit FK
+  name?: string;
+  property_id: string;
   subdomain: string;
   template_slug: string;
   plan_type: 'basic' | 'plus' | 'pro';
   primary_domain?: string;
   public_token: string;
-  is_published: boolean; // boolean (0/1 in SQLite)
+  is_published: boolean;
+  theme_config: string; // JSON
+  seo_title: string;
+  seo_description: string;
+  sections_json: string; // JSON
+  booking_config: string; // JSON
+  property_ids_json: string; // JSON
   allowed_origins_json: string;
   features_json: string;
   created_at: number;

@@ -603,19 +603,26 @@ export class SQLiteStore implements IDataStore {
       updated_at INTEGER
     );`);
 
-    // Re-create web_sites with strict schema (v2)
-    await this.execute("DROP TABLE IF EXISTS web_sites");
+    // Re-create web_sites with full schema (v2.1)
+    // We update this table to include content fields previously missing
     await this.execute(`CREATE TABLE IF NOT EXISTS web_sites (
       id TEXT PRIMARY KEY, -- UUID
       property_id TEXT,
+      name TEXT,
       subdomain TEXT UNIQUE,
       template_slug TEXT,
       plan_type TEXT, -- basic | plus | pro
       primary_domain TEXT,
       public_token TEXT,
       is_published INTEGER, -- 0 or 1
+      theme_config TEXT, -- JSON
+      seo_title TEXT,
+      seo_description TEXT,
+      sections_json TEXT, -- JSON
+      booking_config TEXT, -- JSON
+      property_ids_json TEXT, -- JSON
       allowed_origins_json TEXT, -- JSON array
-      features_json TEXT, -- JSON: { blogEnabled, experiencesEnabled, showPrices }
+      features_json TEXT, -- JSON
       created_at INTEGER,
       updated_at INTEGER,
       FOREIGN KEY(property_id) REFERENCES properties(id)
@@ -1689,25 +1696,36 @@ export class SQLiteStore implements IDataStore {
     const row = [
       w.id,
       w.property_id,
+      w.name || null,
       w.subdomain,
       w.template_slug,
       w.plan_type,
-      w.primary_domain || null, // handle optional
+      w.primary_domain || null,
       w.public_token,
-      w.is_published ? 1 : 0, // Convert boolean to integer
-      w.allowed_origins_json,
-      w.features_json,
-      w.created_at,
-      w.updated_at
+      w.is_published ? 1 : 0,
+      w.theme_config || '{}',
+      w.seo_title || '',
+      w.seo_description || '',
+      w.sections_json || '[]',
+      w.booking_config || '{}',
+      w.property_ids_json || '[]',
+      w.allowed_origins_json || '[]',
+      w.features_json || '{}',
+      w.created_at || Date.now(),
+      w.updated_at || Date.now()
     ];
     await this.executeWithParams(
       `INSERT OR REPLACE INTO web_sites (
-        id, property_id, subdomain, template_slug, plan_type,
-        primary_domain, public_token, is_published, allowed_origins_json,
-        features_json, created_at, updated_at
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        id, property_id, name, subdomain, template_slug, plan_type,
+        primary_domain, public_token, is_published, 
+        theme_config, seo_title, seo_description, 
+        sections_json, booking_config, property_ids_json,
+        allowed_origins_json, features_json, created_at, updated_at
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       row
     );
+    // Notify file-mode autosave
+    this.onWriteHook?.();
   }
 
   async deleteWebsite(id: string): Promise<void> {
@@ -2124,14 +2142,12 @@ export class SQLiteStore implements IDataStore {
   }
 
   async getMyWebsite(): Promise<WebSite | null> {
-    const rows = await this.query("SELECT * FROM websites ORDER BY updated_at DESC LIMIT 1");
+    const rows = await this.query("SELECT * FROM web_sites ORDER BY updated_at DESC LIMIT 1");
     if (rows.length === 0) return null;
     const r = rows[0];
     return {
       ...r,
-      theme_config: r.theme_config ? JSON.parse(r.theme_config) : {},
-      sections_json: r.sections_json, // Already string in interface?
-      booking_config: r.booking_config ? JSON.parse(r.booking_config) : {}
+      is_published: !!r.is_published,
     };
   }
 

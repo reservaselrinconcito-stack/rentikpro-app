@@ -264,10 +264,24 @@ export class DemoGenerator {
 
             // Website
             await store.saveWebsite({
-                id: 'web_demo_1', name: 'Web Demo', subdomain: 'demo-rentikpro', status: 'published',
-                theme_config: { color: 'blue' }, seo_title: 'Apartamentos Demo', seo_description: 'Best place in town',
-                sections_json: '[]', booking_config: {}, property_ids_json: JSON.stringify([prop1.id, prop2.id]),
-                created_at: now, updated_at: now
+                id: 'web_demo_1',
+                property_id: prop1.id,
+                name: 'Web Demo',
+                subdomain: 'demo-rentikpro',
+                template_slug: 'universal-v1',
+                plan_type: 'pro',
+                public_token: 'demo-token',
+                is_published: true,
+                theme_config: JSON.stringify({ color: 'blue' }),
+                seo_title: 'Apartamentos Demo',
+                seo_description: 'Best place in town',
+                sections_json: '[]',
+                booking_config: '{}',
+                property_ids_json: JSON.stringify([prop1.id, prop2.id]),
+                allowed_origins_json: '[]',
+                features_json: JSON.stringify({ slugManuallyEdited: false }),
+                created_at: now,
+                updated_at: now
             });
 
             // Settings
