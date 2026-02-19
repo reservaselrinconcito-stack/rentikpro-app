@@ -504,26 +504,72 @@ export interface RegistryPresentation {
   created_at: number;
 }
 
-// Websites
+// Websites & WebSpec v1
+export type WebTemplateId = 'modern' | 'classic' | 'minimal';
+export type WebSectionType = 'hero' | 'apartments' | 'calendar' | 'chatbot' | 'contact' | 'gallery' | 'location' | 'features';
+
+export interface WebSection {
+  id: string; // unique
+  type: WebSectionType;
+  enabled: boolean;
+  order: number;
+  data: any; // Flexible payload per type
+}
+
+export interface WebBrand {
+  name: string;
+  logoUrl?: string;
+  phone?: string;
+  email?: string;
+  socials?: {
+    instagram?: string;
+    facebook?: string;
+    whatsapp?: string;
+  };
+}
+
+export interface WebTheme {
+  primaryColor?: string;
+  borderRadius?: string;
+  fontHeading?: string;
+  fontBody?: string;
+}
+
+export interface WebSpec {
+  version: 1;
+  templateId: WebTemplateId;
+  brand: WebBrand;
+  theme: WebTheme;
+  sections: WebSection[];
+
+  // Flattened settings for easy access
+  integrations?: {
+    rentikpro?: {
+      propertyId: string;
+      publicToken: string;
+    }
+  };
+}
+
 export interface WebSite {
   id: string;
   name?: string;
   property_id: string;
   subdomain: string;
-  template_slug: string;
+  template_slug: string; // Legacy, maps to WebSpec.templateId
   plan_type: 'basic' | 'plus' | 'pro';
   primary_domain?: string;
   public_token: string;
   is_published: boolean;
-  theme_config: string; // JSON
+  theme_config: string; // JSON (Legacy backup)
   seo_title: string;
   seo_description: string;
-  sections_json: string; // JSON
+  sections_json: string; // JSON (Legacy backup)
   booking_config: string; // JSON
   property_ids_json: string; // JSON
   allowed_origins_json: string;
   features_json: string;
-  config_json?: string; // Main content JSON
+  config_json?: string; // Main content JSON -> WebSpec v1
   slug?: string;
   created_at: number;
   updated_at: number;

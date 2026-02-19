@@ -16,358 +16,208 @@ const generateSlug = (name: string): string => {
       .replace(/^-+|-+$/g, '');
 };
 
+const TEMPLATES = [
+   { id: 'modern', name: 'Moderno', desc: 'Diseño limpio y espacioso', color: 'bg-indigo-500' },
+   { id: 'classic', name: 'Clásico', desc: 'Elegancia tradicional', color: 'bg-slate-600' },
+   { id: 'minimal', name: 'Minimal', desc: 'Solo lo esencial', color: 'bg-zinc-800' }
+];
+
 export const WebsiteBuilder: React.FC = () => {
    const navigate = useNavigate();
+   const [activeTab, setActiveTab] = useState<'template' | 'content' | 'publish'>('content');
 
    const [site, setSite] = useState<WebSite | null>(null);
-   const [siteDraft, setSiteDraft] = useState({
-      name: '',
-      slug: '',
-      slugManuallyEdited: false
-   });
+   const [webSpec, setWebSpec] = useState<WebSpec | null>(null);
 
-   const [validationError, setValidationError] = useState<string | null>(null);
    const [isSaving, setIsSaving] = useState(false);
-   const [isNewDraft, setIsNewDraft] = useState(false);
    const [saveError, setSaveError] = useState<string | null>(null);
+   const [validationError, setValidationError] = useState<string | null>(null);
+
+   // Draft State for Slug (separate from WebSpec for validation/debouncing)
+   const [slugDraft, setSlugDraft] = useState('');
+   const [slugManuallyEdited, setSlugManuallyEdited] = useState(false);
 
    // --- LOAD ---
    const loadSite = useCallback(async () => {
-      const activeProjectId = localStorage.getItem('active_project_id') || 'unknown';
-      console.log(`[WEBBUILDER:SESSION] projectId=${activeProjectId}`);
-
       const store = projectManager.getStore();
       const existing = await store.loadWebsite();
-
-      console.log(`[WEBBUILDER:LOAD] websiteFound=${!!existing} configLen=${existing?.config_json?.length || 0}`);
+      let spec: WebSpec;
 
       if (existing) {
          setSite(existing);
-         setIsNewDraft(false);
+         setSlugDraft(existing.subdomain);
 
-         // Prioritize config_json as the primary source of truth if available
+         // Parse and Normalize config_json
          let config: any = {};
          if (existing.config_json) {
             try {
                config = JSON.parse(existing.config_json);
-               console.log(`[WEB:LOAD] loaded config_json ok (brand.name=${config.brand?.name}, apartments=${config.apartments?.length || 0})`);
             } catch (e) {
-               console.error("[WEB:LOAD] failed to parse config_json", e);
+               console.error("Failed to parse config", e);
             }
          }
+         spec = normalizeWebSpec(config);
 
-         setSiteDraft({
-            name: config.brand?.name || existing.name || '',
-            slug: config.slug || existing.subdomain || '',
-            slugManuallyEdited: config.slugManuallyEdited ?? (!!existing.features_json && JSON.parse(existing.features_json).slugManuallyEdited)
-         });
+         // Helper: if slug manually edited flag stored
+         if (existing.features_json) {
+            try {
+               const feats = JSON.parse(existing.features_json);
+               setSlugManuallyEdited(feats.slugManuallyEdited || false);
+            } catch { }
+         }
       } else {
-         // FALLBACK: Load business name from settings
+         // NEW SITE
          const settings = await store.getSettings();
-         const businessName = settings.business_name || '';
+         const businessName = settings.business_name || 'Mi Alojamiento';
 
-         console.log(`[WEBBUILDER:PREFILL] source=config businessName=${businessName}`);
+         spec = {
+            version: 1,
+            templateId: 'modern',
+            brand: {
+               name: businessName,
+               phone: settings.contact_phone,
+               email: settings.contact_email
+            },
+            theme: {},
+            sections: createDefaultSections(),
+            integrations: undefined
+         };
 
-         setSiteDraft({
-            name: businessName,
-            slug: generateSlug(businessName),
-            slugManuallyEdited: false
-         });
-         setIsNewDraft(true);
+         setSlugDraft(generateSlug(businessName));
       }
+
+      setWebSpec(spec);
    }, []);
 
    useEffect(() => { loadSite(); }, [loadSite]);
 
    // --- SAVE ---
-   const handleSave = async (draft = siteDraft) => {
-      const store = projectManager.getStore();
+   const handleSave = async (publish = false) => {
+      if (!webSpec) return;
       setIsSaving(true);
+      setSaveError(null);
+
+      const store = projectManager.getStore();
+      const propertyId = site?.property_id || projectManager.getActivePropertyId() || 'prop_default';
+      const publicToken = site?.public_token || crypto.randomUUID().replace(/-/g, '');
 
       try {
+         // Prepare WebSpec for persistence
+         const configToSave: WebSpec = {
+            ...webSpec,
+            integrations: {
+               rentikpro: { propertyId, publicToken }
+            }
+         };
+
+         const config_json = JSON.stringify(configToSave);
          const now = Date.now();
-         const { config, publicToken, propertyId } = await buildSiteConfigFromProject(draft, site);
-         const config_json = JSON.stringify(config);
 
          const websiteToSave: WebSite = {
             id: site?.id || crypto.randomUUID(),
             property_id: propertyId,
-            name: draft.name,
-            subdomain: draft.slug,
-            slug: draft.slug,
-            template_slug: site?.template_slug || 'universal-v1',
+            name: webSpec.brand.name,
+            subdomain: slugDraft, // Use draft slug
+            slug: slugDraft,
+            template_slug: webSpec.templateId,
             plan_type: site?.plan_type || 'basic',
             public_token: publicToken,
-            is_published: site?.is_published || false,
-            features_json: JSON.stringify({ slugManuallyEdited: draft.slugManuallyEdited }),
+            is_published: publish ? true : (site?.is_published || false),
+            features_json: JSON.stringify({ slugManuallyEdited }),
             config_json,
-            theme_config: site?.theme_config || '{}',
-            seo_title: site?.seo_title || draft.name,
-            seo_description: site?.seo_description || '',
-            sections_json: site?.sections_json || '[]',
-            booking_config: site?.booking_config || '{}',
-            property_ids_json: site?.property_ids_json || '[]',
-            allowed_origins_json: site?.allowed_origins_json || '[]',
+            theme_config: JSON.stringify(webSpec.theme),
+            // Legacy/SEO fallbacks
+            seo_title: webSpec.brand.name,
+            seo_description: '',
+            sections_json: JSON.stringify(webSpec.sections),
+            booking_config: '{}',
+            property_ids_json: '[]',
+            allowed_origins_json: '[]',
             created_at: site?.created_at || now,
             updated_at: now
          };
 
-         console.log(`[WEB:SAVE] saving web_sites {id: ${websiteToSave.id}, slug: ${websiteToSave.subdomain}}`);
          await store.saveWebsite(websiteToSave);
-         console.log(`[WEB:SAVE] config_json bytes = ${config_json.length}`);
-
          setSite(websiteToSave);
+         if (publish) navigate(0); // Optional refresh/notify
+
       } catch (err: any) {
-         console.error("Failed to save website:", err);
-         const msg = err.message || String(err);
-         if (msg.includes("DB not ready") || msg.includes("closed")) {
-            setSaveError("Error crítico de base de datos. Por favor, recarga la página para restaurar la conexión.");
-         } else {
-            setSaveError(`Error al guardar: ${msg}`);
-         }
+         console.error("Save failed", err);
+         setSaveError(err.message || String(err));
       } finally {
          setIsSaving(false);
       }
    };
 
-   // Auto-generación del slug (si no es manual)
-   useEffect(() => {
-      if (!siteDraft.slugManuallyEdited && siteDraft.name) {
-         const newSlug = generateSlug(siteDraft.name);
-         if (newSlug !== siteDraft.slug) {
-            setSiteDraft(prev => ({ ...prev, slug: newSlug }));
-         }
-      }
-   }, [siteDraft.name, siteDraft.slugManuallyEdited, siteDraft.slug]);
-
-   // Validación del slug
-   useEffect(() => {
-      const slug = siteDraft.slug;
-      if (slug.length > 0 && slug.length < 3) {
-         setValidationError('El slug debe tener al menos 3 caracteres');
-      } else if (slug.length > 50) {
-         setValidationError('El slug no puede superar los 50 caracteres');
-      } else if (slug.length > 0 && !/^[a-z0-9-]+$/.test(slug)) {
-         setValidationError('Solo se permiten letras minúsculas, números y guiones');
-      } else if (slug.startsWith('-') || slug.endsWith('-')) {
-         setValidationError('El slug no puede empezar ni terminar con guión');
-      } else if (slug.includes('--')) {
-         setValidationError('No se permiten guiones consecutivos');
-      } else {
-         setValidationError(null);
-      }
-   }, [siteDraft.slug]);
-
-   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const newName = e.target.value;
-      const newDraft = { ...siteDraft, name: newName };
-      setSiteDraft(newDraft);
-      // Persist immediate change or debounced? Manual save button used here to be safe
+   // --- LOGIC ---
+   const updateWebSpec = (fn: (prev: WebSpec) => WebSpec) => {
+      setWebSpec(prev => prev ? fn(prev) : null);
    };
 
-   const handleSlugChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      // Limpieza básica inmediata mientras escribe
-      const val = e.target.value.toLowerCase().replace(/\s+/g, '-');
-      setSiteDraft(prev => ({ ...prev, slug: val, slugManuallyEdited: true }));
-   };
-
-   const handleRegenerateSlug = () => {
-      const regeneratedSlug = generateSlug(siteDraft.name);
-      setSiteDraft(prev => ({
+   const toggleSection = (id: string, enabled: boolean) => {
+      updateWebSpec(prev => ({
          ...prev,
-         slug: regeneratedSlug,
-         slugManuallyEdited: false
+         sections: prev.sections.map(s => s.id === id ? { ...s, enabled } : s)
       }));
    };
 
-   // --- HELPER: BUILD CONFIG ---
-   const buildSiteConfigFromProject = async (draft: typeof siteDraft, currentSite: WebSite | null) => {
-      const store = projectManager.getStore();
-      const propertyId = currentSite?.property_id || projectManager.getActivePropertyId() || 'prop_default';
-
-      // 1. Fetch related data
-      const [settings, apartments] = await Promise.all([
-         store.getSettings(),
-         store.getApartments(propertyId)
-      ]);
-
-      // 2. Resolve Public Token
-      let publicToken = currentSite?.public_token || crypto.randomUUID().replace(/-/g, '');
-
-      // 3. Build the config object
-      const config = {
-         brand: {
-            name: draft.name,
-            phone: settings.contact_phone || '',
-            email: settings.contact_email || '',
-            logoUrl: '' // Property logo could be fetched if needed, defaulting for now
-         },
-         apartments: apartments.map((a: any) => ({
-            id: a.id,
-            name: a.name,
-            capacity: (a as any).capacity || null,
-            description: (a as any).description || "",
-            photos: (a as any).photos_json ? JSON.parse((a as any).photos_json) : []
-         })),
-         experiences: [],
-         guides: [],
-         integrations: {
-            rentikpro: {
-               propertyId: propertyId,
-               publicToken: publicToken
-            }
-         }
-      };
-
-      return { config, publicToken, propertyId };
+   const moveSection = (index: number, direction: 'up' | 'down') => {
+      if (!webSpec) return;
+      const newSections = [...webSpec.sections];
+      if (direction === 'up' && index > 0) {
+         [newSections[index], newSections[index - 1]] = [newSections[index - 1], newSections[index]];
+      } else if (direction === 'down' && index < newSections.length - 1) {
+         [newSections[index], newSections[index + 1]] = [newSections[index + 1], newSections[index]];
+      }
+      updateWebSpec(prev => ({ ...prev, sections: newSections }));
    };
 
+   // Slug Sync
+   useEffect(() => {
+      if (!slugManuallyEdited && webSpec?.brand.name) {
+         const newSlug = generateSlug(webSpec.brand.name);
+         if (newSlug !== slugDraft) setSlugDraft(newSlug);
+      }
+   }, [webSpec?.brand.name, slugManuallyEdited, slugDraft]);
+
+
+   if (!webSpec) return <div className="p-10 text-center">Cargando constructor...</div>;
+
    return (
-      <div className="p-8 max-w-4xl mx-auto space-y-6">
-         <div className="flex justify-between items-center">
-            <button
-               onClick={() => navigate(-1)}
-               className="flex items-center gap-2 text-slate-600 hover:text-slate-900 transition-colors"
-            >
-               <ArrowLeft className="w-5 h-5" />
-               Volver
-            </button>
-
-            <button
-               onClick={() => handleSave()}
-               disabled={isSaving || !!validationError}
-               className={`flex items-center gap-2 px-6 py-2 rounded-xl font-black text-xs transition-all shadow-lg ${isSaving ? 'bg-slate-100 text-slate-400' : 'bg-slate-900 text-white hover:bg-slate-800 active:scale-95'}`}
-            >
-               {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-               GUARDAR CAMBIOS
-            </button>
-         </div>
-
-         <header>
-            <h1 className="text-3xl font-black text-slate-800 tracking-tight">Constructor de Web</h1>
-            <p className="text-slate-500">Configura la identidad y dirección de tu página pública.</p>
-         </header>
-
-         {saveError && (
-            <div className="bg-red-50 border-l-4 border-red-500 p-4 mb-6 rounded-r shadow-sm animate-pulse-fast">
-               <div className="flex">
-                  <div className="flex-shrink-0">
-                     <AlertCircle className="h-5 w-5 text-red-500" />
-                  </div>
-                  <div className="ml-3">
-                     <p className="text-sm text-red-700 font-bold">
-                        {saveError}
-                     </p>
-                  </div>
-                  <div className="ml-auto pl-3">
-                     <div className="-mx-1.5 -my-1.5">
-                        <button
-                           onClick={() => setSaveError(null)}
-                           className="inline-flex rounded-md p-1.5 text-red-500 hover:bg-red-100 focus:outline-none"
-                        >
-                           <span className="sr-only">Dismiss</span>
-                           <X className="h-5 w-5" />
-                        </button>
-                     </div>
-                  </div>
-               </div>
-            </div>
-         )}
-
-         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="bg-white rounded-[2rem] shadow-xl shadow-slate-200/50 border border-slate-100 p-8 space-y-6">
-               <div className="space-y-2">
-                  <label className="text-xs font-black uppercase tracking-widest text-slate-400">Nombre de la Propiedad</label>
-                  <input
-                     type="text"
-                     value={siteDraft.name}
-                     onChange={handleNameChange}
-                     placeholder="Ej: El Rinconcito Rural"
-                     className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none font-medium"
-                  />
-               </div>
-
-               <div className="space-y-2">
-                  <div className="flex justify-between items-center">
-                     <label className="text-xs font-black uppercase tracking-widest text-slate-400">Slug de la URL</label>
-                     {siteDraft.slugManuallyEdited && (
-                        <button
-                           onClick={handleRegenerateSlug}
-                           className="flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-700 uppercase tracking-tighter"
-                        >
-                           <RefreshCw className="w-3 h-3" /> Regenerar automáticament
-                        </button>
-                     )}
-                  </div>
-                  <div className="relative">
-                     <input
-                        type="text"
-                        value={siteDraft.slug}
-                        onChange={handleSlugChange}
-                        placeholder="el-rinconcito-rural"
-                        className={`w-full px-5 py-4 bg-slate-50 border ${validationError ? 'border-rose-300 ring-4 ring-rose-500/5' : 'border-slate-200'} rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none font-mono text-sm`}
-                     />
-                     <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                        {validationError ? (
-                           <AlertCircle className="w-5 h-5 text-rose-500" />
-                        ) : siteDraft.slug.length >= 3 ? (
-                           <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                        ) : null}
-                     </div>
-                  </div>
-                  {validationError && (
-                     <p className="text-rose-500 text-[11px] font-bold pl-1">{validationError}</p>
-                  )}
-               </div>
-
-               <div className="pt-4 p-5 bg-indigo-50/50 border border-indigo-100 rounded-3xl space-y-2">
-                  <div className="flex items-center gap-2 text-indigo-600">
-                     <Globe size={16} />
-                     <span className="text-[10px] font-black uppercase tracking-widest">Previsualización de URL</span>
-                  </div>
-                  <p className="text-slate-700 font-mono text-xs break-all">
-                     rp-web.pages.dev/<span className="text-indigo-600 font-bold">{siteDraft.slug || '...'}</span>
+      <div className="h-screen flex flex-col bg-slate-50">
+         {/* HEADER */}
+         <div className="bg-white border-b px-6 py-4 flex justify-between items-center shrink-0 z-10">
+            <div className="flex items-center gap-4">
+               <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-100 rounded-full text-slate-500">
+                  <ArrowLeft size={20} />
+               </button>
+               <div>
+                  <h1 className="font-bold text-lg text-slate-800">Constructor Web</h1>
+                  <p className="text-xs text-slate-500 flex items-center gap-1">
+                     {site?.is_published ? <span className="text-emerald-600 font-bold">● PUBLICADO</span> : <span className="text-amber-500 font-bold">● BORRADOR</span>}
+                     <span className="text-slate-300">|</span> {slugDraft}
                   </p>
                </div>
             </div>
+            <div>
+               <p className="text-xs font-bold">{site ? 'Persistido en el Proyecto' : 'Pendiente de Guardar'}</p>
+               <p className="text-[10px] text-slate-500">{site ? `ID: ${site.id.slice(0, 8)}...` : 'Se creará al guardar por primera vez'}</p>
+            </div>
+         </div>
 
-            <div className="space-y-6">
-               {isNewDraft && (
-                  <div className="bg-amber-50 border border-amber-200 rounded-3xl p-6 flex items-start gap-4">
-                     <AlertCircle className="w-6 h-6 text-amber-500 shrink-0 mt-1" />
-                     <div>
-                        <h4 className="text-sm font-black text-amber-900 uppercase tracking-tight">Borrador nuevo</h4>
-                        <p className="text-xs text-amber-700 font-medium">Hemos pre-completado los datos usando el <strong>Nombre del negocio</strong> de tu configuración para ahorrarte tiempo.</p>
-                     </div>
-                  </div>
-               )}
-
-               <div className="bg-slate-900 rounded-[2rem] p-8 text-white">
-                  <h3 className="text-lg font-bold mb-4">Estado del Borrador</h3>
-                  <div className="space-y-4">
-                     <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${site ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                           {site ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-                        </div>
-                        <div>
-                           <p className="text-xs font-bold">{site ? 'Persistido en el Proyecto' : 'Pendiente de Guardar'}</p>
-                           <p className="text-[10px] text-slate-500">{site ? `ID: ${site.id.slice(0, 8)}...` : 'Se creará al guardar por primera vez'}</p>
-                        </div>
-                     </div>
-
-                     <div className="flex items-center gap-3">
-                        <div className={`p-2 rounded-lg ${siteDraft.slugManuallyEdited ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-700 text-slate-400'}`}>
-                           {siteDraft.slugManuallyEdited ? <RefreshCw size={16} className="rotate-45" /> : <RefreshCw size={16} className="animate-spin-slow" />}
-                        </div>
-                        <div>
-                           <p className="text-xs font-bold">{siteDraft.slugManuallyEdited ? 'Slug Manual' : 'Sincronización Activa'}</p>
-                           <p className="text-[10px] text-slate-500">{siteDraft.slugManuallyEdited ? 'Editas la URL de forma independiente' : 'La URL sigue cambios en el nombre'}</p>
-                        </div>
-                     </div>
-                  </div>
-               </div>
+         <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${siteDraft.slugManuallyEdited ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-700 text-slate-400'}`}>
+               {siteDraft.slugManuallyEdited ? <RefreshCw size={16} className="rotate-45" /> : <RefreshCw size={16} className="animate-spin-slow" />}
+            </div>
+            <div>
+               <p className="text-xs font-bold">{siteDraft.slugManuallyEdited ? 'Slug Manual' : 'Sincronización Activa'}</p>
+               <p className="text-[10px] text-slate-500">{siteDraft.slugManuallyEdited ? 'Editas la URL de forma independiente' : 'La URL sigue cambios en el nombre'}</p>
             </div>
          </div>
       </div>
+               </div >
+            </div >
+         </div >
+      </div >
    );
 };
