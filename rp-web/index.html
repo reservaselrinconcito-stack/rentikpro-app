@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cargando...</title>
+    <link rel="stylesheet" href="site.css">
+    <!-- Mock Config for Local Dev (only if slug matches 'demo') -->
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('slug') === 'demo') {
+            window.SITE_CONFIG = {
+                title: "Reserva Demo El Rinconcito",
+                slug: "demo",
+                integrations: {
+                    rentikpro: {
+                        publicToken: "mock-token-123456"
+                    }
+                },
+                theme: {
+                    primaryColor: "#4f46e5",
+                    accentColor: "#f43f5e"
+                },
+                properties: [
+                    { id: "prop1", name: "Apartamento Vista Mar", description: "Vistas increíbles al mediterráneo." },
+                    { id: "prop2", name: "Cabaña en la Montaña", description: "Tranquilidad total en los pirineos." }
+                ]
+            };
+            console.log("Mock SITE_CONFIG loaded for demo");
+        }
+    </script>
+</head>
+<body>
+    <div id="app">
+        <div id="loader" class="screen">
+            <div class="spinner"></div>
+            <p>Sincronizando configuración...</p>
+        </div>
+        <div id="content" class="screen hidden"></div>
+        <div id="error-screen" class="screen hidden">
+            <h1 id="error-title">Vaya...</h1>
+            <p id="error-message"></p>
+            <div id="error-actions"></div>
+        </div>
+    </div>
+
+    <!-- Application Scripts -->
+    <script src="useSiteConfig.js"></script>
+    <script src="site.js"></script>
+</body>
+</html>
