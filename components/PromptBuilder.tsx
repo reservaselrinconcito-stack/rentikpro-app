@@ -77,10 +77,24 @@ export const PromptBuilder: React.FC<PromptBuilderProps> = ({ onClose, currentSi
   }, [currentSite]);
 
   const loadHistory = useCallback(async () => {
-    const recent = await promptHistory.getRecent(20);
-    const favs = await promptHistory.getFavorites();
-    setHistoryRecords(recent);
-    setFavoriteRecords(favs);
+    const projectId = projectManager.getCurrentProjectId();
+
+    // Si no hay proyecto activo, no intentamos cargar historial de favoritos
+    // que podría depender de una key válida en IDB.
+    if (!projectId) {
+      setHistoryRecords([]);
+      setFavoriteRecords([]);
+      return;
+    }
+
+    try {
+      const recent = await promptHistory.getRecent(20);
+      const favs = await promptHistory.getFavorites(projectId);
+      setHistoryRecords(recent);
+      setFavoriteRecords(favs);
+    } catch (err) {
+      console.error("Failed to load prompt history:", err);
+    }
   }, []);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
@@ -99,8 +113,8 @@ export const PromptBuilder: React.FC<PromptBuilderProps> = ({ onClose, currentSi
   useEffect(() => {
     if (initialTemplateId) {
       setSelectedTemplateId(initialTemplateId);
-      // If it's the refinement template, prep load
-      if (initialTemplateId === 'WEB_REFINE_IMPORTED' && currentSite) {
+      // If it's a refinement template, prep load
+      if (selectedTemplateId === 'WEB_UPDATE_FROM_WEBSPEC' && currentSite) {
         handleImportActive();
       }
     }
