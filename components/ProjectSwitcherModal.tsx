@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Database, Play, CheckCircle, AlertCircle, Trash2, Clock } from 'lucide-react';
+import { X, Database, Play, CheckCircle, AlertCircle, Trash2, Clock, FolderOpen, FileText } from 'lucide-react';
 import { projectPersistence, ProjectMetadata } from '../services/projectPersistence';
 import { projectManager } from '../services/projectManager';
 import { notifyDataChanged } from '../services/dataRefresher';
@@ -12,7 +12,14 @@ interface ProjectSwitcherModalProps {
 export const ProjectSwitcherModal: React.FC<ProjectSwitcherModalProps> = ({ isOpen, onClose }) => {
     const [projects, setProjects] = useState<ProjectMetadata[]>([]);
     const [loading, setLoading] = useState(false);
+    const [fileError, setFileError] = useState<string | null>(null);
     const activeId = projectManager.getCurrentProjectId();
+
+    // Check once at mount — avoids re-renders
+    const supportsFile =
+        typeof window !== 'undefined' &&
+        typeof (window as any).showOpenFilePicker === 'function' &&
+        typeof (window as any).showSaveFilePicker === 'function';
 
     useEffect(() => {
         if (isOpen) {
@@ -33,20 +40,41 @@ export const ProjectSwitcherModal: React.FC<ProjectSwitcherModalProps> = ({ isOp
     };
 
     const handleSwitch = async (id: string) => {
-        if (id === activeId) {
-            onClose();
-            return;
-        }
-
+        if (id === activeId) { onClose(); return; }
         setLoading(true);
         const success = await projectManager.loadProject(id);
-        if (success) {
+        if (success) { notifyDataChanged(); onClose(); }
+        else alert('Error al cambiar de proyecto.');
+        setLoading(false);
+    };
+
+    const handleOpenFile = async () => {
+        setFileError(null);
+        setLoading(true);
+        try {
+            await projectManager.openProjectFromFile();
             notifyDataChanged();
             onClose();
-        } else {
-            alert("Error al cambiar de proyecto.");
+        } catch (e: any) {
+            // AbortError = user cancelled picker — not a real error
+            if (e?.name !== 'AbortError') setFileError(e?.message || 'Error al abrir archivo.');
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
+    };
+
+    const handleNewFile = async () => {
+        setFileError(null);
+        setLoading(true);
+        try {
+            await projectManager.createNewProjectFileAndInit('rentikpro.rentikpro');
+            notifyDataChanged();
+            onClose();
+        } catch (e: any) {
+            if (e?.name !== 'AbortError') setFileError(e?.message || 'Error al crear archivo.');
+        } finally {
+            setLoading(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -65,6 +93,38 @@ export const ProjectSwitcherModal: React.FC<ProjectSwitcherModalProps> = ({ isOp
                 </div>
 
                 <div className="p-8 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-4">
+
+                    {/* ── File System Access (Chrome/Edge only) ── */}
+                    {supportsFile && (
+                        <div className="p-4 bg-sky-50 border border-sky-100 rounded-2xl space-y-2">
+                            <p className="text-[9px] font-black uppercase tracking-widest text-sky-600 mb-2">Modo Escritorio (Archivo)</p>
+                            {fileError && (
+                                <p className="text-[10px] text-rose-600 font-bold bg-rose-50 border border-rose-100 px-3 py-2 rounded-xl">{fileError}</p>
+                            )}
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={handleOpenFile}
+                                    disabled={loading}
+                                    className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 bg-white border border-sky-200 text-sky-700 rounded-xl text-xs font-black hover:bg-sky-600 hover:text-white hover:border-sky-600 transition-all active:scale-95 disabled:opacity-50"
+                                >
+                                    <FolderOpen size={14} /> Abrir archivo
+                                </button>
+                                <button
+                                    onClick={handleNewFile}
+                                    disabled={loading}
+                                    className="flex-1 flex items-center justify-center gap-2 py-2.5 px-3 bg-white border border-violet-200 text-violet-700 rounded-xl text-xs font-black hover:bg-violet-600 hover:text-white hover:border-violet-600 transition-all active:scale-95 disabled:opacity-50"
+                                >
+                                    <FileText size={14} /> Nuevo archivo
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {!supportsFile && (
+                        <div className="px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl">
+                            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Modo escritorio · Disponible en Chrome/Edge</p>
+                        </div>
+                    )}
                     {loading && projects.length === 0 ? (
                         <div className="py-20 text-center space-y-4">
                             <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
@@ -144,8 +204,9 @@ export const ProjectSwitcherModal: React.FC<ProjectSwitcherModalProps> = ({ isOp
                     <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Selecciona un proyecto para cargar sus datos</p>
                     <button
                         onClick={() => {
-                            window.location.hash = '/';
-                            onClose();
+                            // Signal to App.tsx bootstrap that user explicitly wants startup screen
+                            sessionStorage.setItem('forceShowStart', '1');
+                            window.location.reload();
                         }}
                         className="text-[10px] font-black text-indigo-600 uppercase tracking-[0.2em] hover:text-indigo-700 transition-colors"
                     >

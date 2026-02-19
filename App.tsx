@@ -56,7 +56,14 @@ const App: React.FC = () => {
       try {
         await projectManager.initialize();
         (window as any).projectManager = projectManager;
-        if (projectManager.isProjectLoaded()) {
+
+        // If user explicitly requested the startup screen (e.g. from ProjectSwitcherModal),
+        // skip auto-loading the last active project and show the startup selector instead.
+        const forceStart = sessionStorage.getItem('forceShowStart') === '1';
+        if (forceStart) {
+          sessionStorage.removeItem('forceShowStart');
+          // Don't auto-load; fall through to show StartupScreen
+        } else if (projectManager.isProjectLoaded()) {
           setIsProjectOpen(true);
         }
       } catch (e) {
