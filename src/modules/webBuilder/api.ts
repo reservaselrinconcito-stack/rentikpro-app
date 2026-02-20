@@ -1,10 +1,9 @@
-import { SiteConfig } from './types';
-import { migrateConfig } from './adapters';
-import { projectManager } from '../../services/projectManager'; // Assuming this exists based on previous file
-import { WebSite } from '../../types';
+import { SiteConfigV1 } from './types';
+import { projectManager } from '@/services/projectManager';
+import { WebSite } from '@/types';
 
 // Allow for strict typing if WebSite interface is available, otherwise any
-export const saveSiteConfig = async (website: any, config: SiteConfig): Promise<void> => {
+export const saveSiteConfig = async (website: any, config: SiteConfigV1): Promise<void> => {
     if (!website || !website.id) throw new Error("Sitio web inválido");
 
     // 1. Update the local object state
@@ -46,7 +45,7 @@ export const checkSlugCollision = async (slug: string): Promise<boolean> => {
     }
 };
 
-export const publishSiteConfig = async (slug: string, config: SiteConfig): Promise<any> => {
+export const publishSiteConfig = async (slug: string, config: SiteConfigV1): Promise<any> => {
     const apiBase = import.meta.env.VITE_PUBLIC_API_BASE || "https://rentikpro-public-api.reservas-elrinconcito.workers.dev";
     const url = `${apiBase}/admin/site-config?slug=${encodeURIComponent(slug)}`;
     const token = import.meta.env.VITE_ADMIN_TOKEN || "";

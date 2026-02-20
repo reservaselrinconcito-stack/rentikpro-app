@@ -1,5 +1,5 @@
 import React from 'react';
-import { SiteConfig } from '../types';
+import { SiteConfigLegacy as SiteConfig } from '../types';
 import {
     LayoutTemplate, Image as ImageIcon, Home, MapPin,
     Phone, MessageSquare, GripVertical, Eye, EyeOff, Trash2

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tablet, Smartphone, Monitor, Save, Globe, ArrowLeft, Loader2, Play } from 'lucide-react';
+import { Tablet, Smartphone, Monitor, Save, Globe, ArrowLeft, Loader2, Play, Undo2, Redo2, Cloud, CloudOff, CloudCog, CheckCircle2 } from 'lucide-react';
 import { WebSite } from '@/types';
 
 interface BuilderHeaderProps {
@@ -15,6 +15,11 @@ interface BuilderHeaderProps {
     lastSavedRequest?: number;
     status: 'draft' | 'published';
     liveUrl?: string; // e.g. subdomain.rentik.pro
+    saveStatus?: 'idle' | 'unsaved' | 'saving' | 'saved' | 'error';
+    canUndo?: boolean;
+    canRedo?: boolean;
+    onUndo?: () => void;
+    onRedo?: () => void;
 }
 
 export const BuilderHeader: React.FC<BuilderHeaderProps> = ({
@@ -22,27 +27,54 @@ export const BuilderHeader: React.FC<BuilderHeaderProps> = ({
     device, setDevice,
     onSave, onPublish,
     isSaving, hasChanges,
-    status, liveUrl
+    status, liveUrl,
+    saveStatus = 'idle',
+    canUndo = false,
+    canRedo = false,
+    onUndo, onRedo
 }) => {
     return (
         <header className="bg-white border-b border-slate-200 px-6 h-16 flex items-center justify-between shrink-0 z-50">
             {/* Left: Back & Title */}
             <div className="flex items-center gap-4 w-1/3">
-                <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors">
+                <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors mr-2">
                     <ArrowLeft size={20} />
                 </button>
-                <div className="flex flex-col">
+
+                {/* Undo / Redo */}
+                <div className="flex bg-slate-100 rounded-xl p-1 shrink-0">
+                    <button
+                        onClick={onUndo}
+                        disabled={!canUndo}
+                        className={`p-1.5 rounded-lg transition-colors ${canUndo ? 'text-slate-600 hover:bg-white hover:shadow-sm' : 'text-slate-300 cursor-not-allowed'}`}
+                    >
+                        <Undo2 size={16} />
+                    </button>
+                    <button
+                        onClick={onRedo}
+                        disabled={!canRedo}
+                        className={`p-1.5 rounded-lg transition-colors ${canRedo ? 'text-slate-600 hover:bg-white hover:shadow-sm' : 'text-slate-300 cursor-not-allowed'}`}
+                    >
+                        <Redo2 size={16} />
+                    </button>
+                </div>
+
+                <div className="flex flex-col ml-2">
                     <input
                         className="font-black text-slate-800 bg-transparent outline-none text-base placeholder-slate-300"
                         value={siteName}
                         onChange={e => onNameChange(e.target.value)}
                         placeholder="Nombre del Sitio"
                     />
-                    <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${status === 'published' ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
-                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                    <div className="flex items-center gap-2 mt-0.5">
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${status === 'published' ? 'bg-emerald-500' : 'bg-amber-400'}`}></span>
+                        <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-2">
                             {status === 'published' ? 'PUBLICADO' : 'BORRADOR'}
-                            {hasChanges && <span className="text-amber-500 ml-2">● Cambios sin guardar</span>}
+                            {/* Autosave Indicator */}
+                            {saveStatus === 'saving' && <span className="text-indigo-500 flex items-center gap-1"><CloudCog size={12} className="animate-spin" /> Guardando...</span>}
+                            {saveStatus === 'saved' && <span className="text-emerald-500 flex items-center gap-1"><CheckCircle2 size={12} /> Guardado</span>}
+                            {saveStatus === 'unsaved' && <span className="text-amber-500 flex items-center gap-1"><CloudOff size={12} /> Cambios sin guardar</span>}
+                            {saveStatus === 'error' && <span className="text-red-500 flex items-center gap-1"><CloudOff size={12} /> Error al guardar</span>}
                         </span>
                     </div>
                 </div>

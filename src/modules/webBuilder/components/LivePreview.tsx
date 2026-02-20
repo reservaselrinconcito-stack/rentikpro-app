@@ -1,18 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { SiteConfig } from '../types';
-import { Loader2, RefreshCw } from 'lucide-react';
+import React from 'react';
+import { SiteConfigV1 } from '../types';
+import { WebsiteRenderer } from './WebsiteRenderer';
 
 interface LivePreviewProps {
-    config: SiteConfig;
+    config: SiteConfigV1;
     device: 'mobile' | 'tablet' | 'desktop';
-    refreshTrigger?: number; // Optional timestamp to force reload
 }
 
-export const LivePreview: React.FC<LivePreviewProps> = ({ config, device, refreshTrigger }) => {
-    const iframeRef = useRef<HTMLIFrameElement>(null);
-    const [loading, setLoading] = useState(true);
+export const LivePreview: React.FC<LivePreviewProps> = ({ config, device }) => {
 
-    // Determine dimensions based on device
     const getContainerStyle = () => {
         switch (device) {
             case 'mobile': return { width: '375px', height: '100%', maxHeight: '812px' };
@@ -23,75 +19,25 @@ export const LivePreview: React.FC<LivePreviewProps> = ({ config, device, refres
 
     const containerStyle = getContainerStyle();
 
-    // Preview URL - In production this would be the actual site URL or a special preview route
-    // For local dev, we might point to localhost:3000/preview or similar if it exists
-    // Fallback to a data blob or srcDoc if we are generating static HTML
-    // We point to the static rp-web/index.html. Logic in site.js will handle the postMessage.
-    // We add ?preview=true to potentially trigger specific logic if needed, but postMessage is key.
-    const previewUrl = '/rp-web/index.html?preview=true';
-
-    useEffect(() => {
-        if (iframeRef.current?.contentWindow) {
-            // Send config updates to the iframe
-            // Ensure we never send partial config, although parent should handle it.
-            // But extra safety:
-            const message = {
-                type: 'PREVIEW_UPDATE_CONFIG',
-                payload: config // Assumes config is already hydrated by parent
-            };
-            iframeRef.current.contentWindow.postMessage(message, '*');
-        }
-    }, [config]);
-
-    const handleLoad = () => {
-        setLoading(false);
-        // Initial config push on load
-        if (iframeRef.current?.contentWindow) {
-            iframeRef.current.contentWindow.postMessage({
-                type: 'PREVIEW_UPDATE_CONFIG',
-                payload: config
-            }, '*');
-        }
-    };
-
     return (
         <div className="w-full h-full flex flex-col items-center justify-center p-8 bg-slate-200/50 overflow-hidden">
-
-            {/* Device Frame */}
             <div
-                className={`transition-all duration-500 ease-in-out relative shadow-2xl ${device === 'mobile' ? 'rounded-[3rem] border-8 border-slate-800 bg-slate-800' : 'rounded-lg border border-slate-300 bg-white'}`}
+                className={`transition-all duration-500 ease-in-out relative shadow-2xl flex flex-col ${device === 'mobile' ? 'rounded-[3rem] border-8 border-slate-800 bg-slate-800' : 'rounded-lg border border-slate-300 bg-white'}`}
                 style={containerStyle}
             >
-                {/* Mobile Notch/Camera (Visual/Cosmetic) */}
                 {device === 'mobile' && (
                     <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-slate-800 rounded-b-xl z-20 pointer-events-none"></div>
                 )}
 
-                {/* Loading Overlay */}
-                {loading && (
-                    <div className="absolute inset-0 bg-white z-10 flex items-center justify-center">
-                        <div className="flex flex-col items-center gap-3">
-                            <Loader2 size={32} className="text-indigo-600 animate-spin" />
-                            <span className="text-xs font-bold text-slate-400">Cargando vista previa...</span>
-                        </div>
-                    </div>
-                )}
-
-                <iframe
-                    ref={iframeRef}
-                    src={previewUrl}
-                    className={`w-full h-full bg-white ${device === 'mobile' ? 'rounded-[2.5rem]' : 'rounded-lg'}`}
-                    onLoad={handleLoad}
-                    title="Live Preview"
-                />
+                <div className={`w-full h-full bg-white overflow-y-auto relative ${device === 'mobile' ? 'rounded-[2.5rem]' : 'rounded-lg'}`}>
+                    <WebsiteRenderer config={config} currentPath="/" />
+                </div>
             </div>
 
-            {/* Device Label */}
             <div className="mt-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
                 {device === 'mobile' && 'iPhone 13 / Mobile View'}
                 {device === 'tablet' && 'iPad / Tablet View'}
                 {device === 'desktop' && 'Desktop / Full Width'}
-                {loading && <Loader2 size={10} className="animate-spin" />}
             </div>
         </div>
     );

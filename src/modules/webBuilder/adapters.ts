@@ -1,117 +1,113 @@
-import { SiteConfig } from './types';
-import { DEFAULT_SITE_CONFIG } from './defaults';
+import { SiteConfigLegacy, SiteConfigV1, BlockInstance } from './types';
+import { DEFAULT_SITE_CONFIG, DEFAULT_SITE_CONFIG_V1 } from './defaults';
+
 
 /**
- * Migrates any existing config (string, array, or partial object) to strictly typed SiteConfig.
- * Ensures no data loss if possible.
+ * Migrates any existing config (string, array, or object) to strictly typed SiteConfigV1.
  */
-export const migrateConfig = (
+export const migrateToV1 = (
     savedJson: string | null | undefined,
     projectInfo?: { name?: string, phone?: string, email?: string }
-): SiteConfig => {
+): SiteConfigV1 => {
 
-    // Start with defaults
-    let config: SiteConfig = { ...DEFAULT_SITE_CONFIG };
+    // Start with the solid V1 default
+    let v1Config: SiteConfigV1 = JSON.parse(JSON.stringify(DEFAULT_SITE_CONFIG_V1));
 
-    // Hydrate from Project Info if available (and config is empty/default)
-    if (projectInfo) {
-        config.brand.name = projectInfo.name || '';
-        config.brand.phone = projectInfo.phone || '';
-        config.brand.email = projectInfo.email || '';
-        config.contact.email = projectInfo.email || '';
-        // If phone is mobile, maybe whatsapp too
-        if (projectInfo.phone?.startsWith('+') || projectInfo.phone?.startsWith('6')) {
-            config.contact.whatsapp = projectInfo.phone;
-        }
+    if (projectInfo && projectInfo.name) {
+        v1Config.globalData.brandName = projectInfo.name;
     }
 
-    if (!savedJson) return config;
+    if (!savedJson) return v1Config;
 
     try {
         const parsed = JSON.parse(savedJson);
 
-        // CASE A: Old Array Format (from previous builder default)
-        if (Array.isArray(parsed)) {
-            // Attempt to extract known sections
+        // If it's already V1, just return it (after deep merging with defaults if needed)
+        if (parsed && parsed.version === '1.0') {
+            if (!parsed.assets) parsed.assets = [];
+            return parsed as SiteConfigV1;
+        }
+
+        // --- MIGRATION FROM LEGACY --- //
+        // Determine if it was legacy shape (SiteConfigLegacy)
+        const isLegacyObject = typeof parsed === 'object' && !Array.isArray(parsed) && parsed !== null;
+
+        let legacyData: Partial<SiteConfigLegacy> = {};
+
+        if (isLegacyObject) {
+            legacyData = parsed;
+        } else if (Array.isArray(parsed)) {
+            // Very old array format
             const hero = parsed.find((s: any) => s.type === 'hero');
             if (hero && hero.content) {
-                config.hero.title = hero.content.title || config.hero.title;
-                config.hero.subtitle = hero.content.subtitle || config.hero.subtitle;
-                config.hero.imageUrl = hero.content.bg_image || config.hero.imageUrl;
+                legacyData.hero = { title: hero.content.title, subtitle: hero.content.subtitle, imageUrl: hero.content.bg_image };
             }
-
-            const about = parsed.find((s: any) => s.type === 'text');
-            if (about && about.content) {
-                // We don't have a direct field for "about", maybe put it in hero subtitle or ignore for now?
-                // Or mapped to a generic field. For now, we prefer cleaning up.
-            }
-
-            const contact = parsed.find((s: any) => s.type === 'contact');
-            if (contact && contact.content) {
-                config.contact.email = contact.content.email || config.contact.email;
-                config.contact.phone = contact.content.phone || config.contact.phone;
-            }
-
-            return config;
         }
 
-        // CASE B: Already a SiteConfig object (or partial)
-        if (typeof parsed === 'object' && parsed !== null) {
-            // Merge recursively-ish or just spread if structure matches
-            // match keys
-            return {
-                ...config,
-                ...parsed,
-                brand: { ...config.brand, ...(parsed.brand || {}) },
-                hero: { ...config.hero, ...(parsed.hero || {}) },
-                contact: { ...config.contact, ...(parsed.contact || {}) },
-                location: { ...config.location, ...(parsed.location || {}) },
-                chatbot: { ...config.chatbot, ...(parsed.chatbot || {}) },
-                // Arrays: replace or merge? Replace is safer for lists to avoid dupe
-                apartments: Array.isArray(parsed.apartments) ? { title: 'Alojamientos', items: parsed.apartments } : (parsed.apartments || config.apartments),
-                experiences: Array.isArray(parsed.experiences) ? { title: 'Experiencias', items: parsed.experiences } : (parsed.experiences || config.experiences),
-                sectionOrder: Array.isArray(parsed.sectionOrder) ? parsed.sectionOrder : ['hero', 'apartments', 'location', 'contact']
-            };
+        // Apply Legacy Data to V1 Structure
+        if (legacyData.slug) v1Config.slug = legacyData.slug;
+        if (legacyData.brand?.name) v1Config.globalData.brandName = legacyData.brand.name;
+
+        // Build the blocks for the home page based on legacy data
+        const homeBlocks: BlockInstance[] = [];
+
+        // 1. Navigation (derived from global/brand if needed, or use default)
+        homeBlocks.push({
+            id: 'block-nav-1',
+            type: 'Navigation',
+            data: {
+                brandName: legacyData.brand?.name || v1Config.globalData.brandName,
+                links: [{ label: 'Inicio', href: '/' }, { label: 'Alojamientos', href: '#apartments' }]
+            },
+            styles: {}
+        });
+
+        // 2. Hero
+        if (legacyData.hero) {
+            homeBlocks.push({
+                id: 'block-hero-1',
+                type: 'Hero',
+                data: {
+                    title: legacyData.hero.title || 'Bienvenido',
+                    subtitle: legacyData.hero.subtitle || '',
+                    ctaLabel: legacyData.hero.ctaLabel || 'Reservar Ahora',
+                    ctaHref: legacyData.hero.ctaHref || '#apartments',
+                    imageUrl: legacyData.hero.imageUrl || DEFAULT_SITE_CONFIG.hero.imageUrl
+                },
+                styles: {
+                    desktop: { padding: '8rem 2rem' },
+                    mobile: { padding: '4rem 1rem' }
+                }
+            });
+        } else {
+            // Keep default hero
+            homeBlocks.push(v1Config.pages['/'].blocks.find(b => b.type === 'Hero')!);
         }
+
+        // 3. Add the rest of the default blocks to complete the page layout
+        const otherBlocks = v1Config.pages['/'].blocks.filter(b => b.type !== 'Hero' && b.type !== 'Navigation');
+        homeBlocks.push(...otherBlocks);
+
+        v1Config.pages['/'].blocks = homeBlocks.filter(Boolean);
 
     } catch (e) {
-        console.warn("Failed to migrate config JSON", e);
+        console.warn("Failed to migrate config JSON to V1", e);
     }
 
-    return config;
+    return v1Config;
 };
 
+// Deprecated: keeping only so we don't break until we wire everything up
+export const migrateConfig = migrateToV1;
 // --- HYDRATION & VALIDATION HELPERS ---
 
-/**
- * Perform a deep merge of the partial config onto the default config.
- */
-export const hydrateConfig = (partial: Partial<SiteConfig>): SiteConfig => {
-    // Deep clone defaults
-    const base = JSON.parse(JSON.stringify(DEFAULT_SITE_CONFIG));
-
+export const hydrateConfig = (partial: Partial<SiteConfigV1>): SiteConfigV1 => {
+    const base = JSON.parse(JSON.stringify(DEFAULT_SITE_CONFIG_V1));
     if (!partial) return base;
-
-    return {
-        ...base,
-        ...partial,
-        // Nested Objects Merging
-        brand: { ...base.brand, ...partial.brand },
-        hero: { ...base.hero, ...partial.hero },
-        location: { ...base.location, ...partial.location },
-        contact: { ...base.contact, ...partial.contact },
-        chatbot: { ...base.chatbot, ...partial.chatbot },
-        integrations: { ...base.integrations, ...partial.integrations },
-
-        // Arrays: Overwrite if present and valid array
-        sectionOrder: Array.isArray(partial.sectionOrder) ? partial.sectionOrder : base.sectionOrder,
-
-        apartments: partial.apartments ? { ...base.apartments, ...partial.apartments } : base.apartments,
-        experiences: partial.experiences ? { ...base.experiences, ...partial.experiences } : base.experiences,
-    };
+    return { ...base, ...partial, pages: { ...base.pages, ...(partial.pages || {}) } };
 };
 
-export const validateConfig = (config: SiteConfig): string[] => {
+export const validateConfig = (config: SiteConfigV1): string[] => {
     const errors: string[] = [];
     if (!config.slug) errors.push('Slug is required');
     return errors;

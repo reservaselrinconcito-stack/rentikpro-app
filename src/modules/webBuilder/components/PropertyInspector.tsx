@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SiteConfig } from '../types';
+import { SiteConfigLegacy as SiteConfig } from '../types';
 import { User, Image as ImageIcon, Home, MapPin, Phone, MessageSquare, Play, UploadCloud } from 'lucide-react';
 
 interface PropertyInspectorProps {

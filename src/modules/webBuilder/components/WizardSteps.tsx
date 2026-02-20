@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SiteConfig } from '../types';
+import { SiteConfigLegacy as SiteConfig } from '../types';
 import {
     User, Type, Image as ImageIcon, MapPin,
     MessageSquare, UploadCloud, Globe, Phone, ListChecks

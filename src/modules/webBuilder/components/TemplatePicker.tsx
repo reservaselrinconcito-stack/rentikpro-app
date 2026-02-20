@@ -1,5 +1,5 @@
 import React from 'react';
-import { SiteConfig, ThemeId } from '../types';
+import { SiteConfigLegacy as SiteConfig, ThemeId } from '../types';
 import { LayoutTemplate, CheckCircle2 } from 'lucide-react';
 
 interface TemplateOption {

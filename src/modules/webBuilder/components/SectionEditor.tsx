@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { SiteConfig } from '../types';
+import { SiteConfigLegacy as SiteConfig } from '../types';
 import { ChevronDown, ChevronRight, User, Home, MapPin, Phone, MessageSquare, Image as ImageIcon, Plus, Trash2 } from 'lucide-react';
 
 interface SectionEditorProps {

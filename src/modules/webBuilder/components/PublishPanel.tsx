@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { SiteConfig } from '../types';
+import { SiteConfigLegacy as SiteConfig } from '../types';
 import { validateSlug, normalizeSlug } from '../slug';
 import { Globe, Save, UploadCloud, AlertCircle, CheckCircle } from 'lucide-react';
 
