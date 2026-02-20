@@ -322,4 +322,22 @@
         }
         console.error(err);
     }
+    // --- PostMessage Listener for Live Preview ---
+    window.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'PREVIEW_UPDATE_CONFIG') {
+            console.log('[Preview] Received config update', event.data.payload);
+            currentConfig = validateConfig(event.data.payload);
+
+            // Re-apply Theme
+            if (currentConfig.theme) {
+                document.documentElement.style.setProperty('--primary', currentConfig.theme.primaryColor || '#4f46e5');
+                document.documentElement.style.setProperty('--accent', currentConfig.theme.accentColor || '#f43f5e');
+            }
+
+            updateSEO(currentConfig, 'Preview');
+            // Force re-render
+            handleRoute();
+        }
+    });
+
 })();

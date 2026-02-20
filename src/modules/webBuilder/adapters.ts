@@ -70,6 +70,7 @@ export const migrateConfig = (
                 // Arrays: replace or merge? Replace is safer for lists to avoid dupe
                 apartments: Array.isArray(parsed.apartments) ? { title: 'Alojamientos', items: parsed.apartments } : (parsed.apartments || config.apartments),
                 experiences: Array.isArray(parsed.experiences) ? { title: 'Experiencias', items: parsed.experiences } : (parsed.experiences || config.experiences),
+                sectionOrder: Array.isArray(parsed.sectionOrder) ? parsed.sectionOrder : ['hero', 'apartments', 'location', 'contact']
             };
         }
 

@@ -16,8 +16,14 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
         ctaLabel: 'Reservar Ahora',
         ctaHref: '#apartments'
     },
-    apartments: [], // Will be populated from existing properties if available
-    experiences: [],
+    apartments: {
+        title: 'Nuestros Alojamientos',
+        items: []
+    },
+    experiences: {
+        title: 'Experiencias',
+        items: []
+    },
     location: {
         mapEnabled: true,
         addressText: ''
@@ -30,5 +36,6 @@ export const DEFAULT_SITE_CONFIG: SiteConfig = {
         enabled: true,
         welcomeMessage: '¡Hola! ¿En qué puedo ayudarte hoy?',
         leadCapture: true
-    }
+    },
+    sectionOrder: ['hero', 'apartments', 'location', 'contact']
 };

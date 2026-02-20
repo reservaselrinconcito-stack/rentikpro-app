@@ -50,6 +50,7 @@ export interface SiteConfig {
             publicToken?: string;
         };
     };
+    sectionOrder: string[]; // Array of section IDs (e.g., ['hero', 'apartments', 'contact'])
 }
 
 export interface ApartmentSummary {
