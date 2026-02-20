@@ -1,4 +1,4 @@
-export type ThemeId = 'modernWarm' | 'rusticPremium' | 'minimalLux';
+export type ThemeId = 'modern' | 'rural' | 'minimal' | 'premium' | 'modernWarm' | 'rusticPremium' | 'minimalLux';
 
 export interface SiteConfig {
     slug: string;

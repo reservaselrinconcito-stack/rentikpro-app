@@ -7,6 +7,16 @@ bindings = [
   { name = "RATE_LIMITER", class_name = "PublicRateLimiterDO" }
 ]
 
+
+[[kv_namespaces]]
+binding = "RENTIKPRO_CONFIGS"
+id = "RENTIKPRO_CONFIGS_ID_PLACEHOLDER"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rentikpro-db"
+database_id = "RENTIKPRO_DB_ID_PLACEHOLDER"
+
 [[migrations]]
-tag = "v1" # Adjust tag as needed
+tag = "v1"
 new_classes = ["PublicRateLimiterDO"]

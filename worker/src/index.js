@@ -238,22 +238,58 @@ export default {
 
       // 1. GET /public/site-config
       if (path === "/public/site-config" && request.method === "GET") {
-        const subdomain = url.searchParams.get("subdomain");
+        const slug = url.searchParams.get("slug") || url.searchParams.get("subdomain");
 
-        // C. Load Site & Validate Published (404 / 403)
-        const { site, response } = await resolveAndValidateSite(subdomain, env, origin);
+        if (!slug) {
+          return addCors(new Response(JSON.stringify({ error: "Missing slug or subdomain" }), { status: 400 }), origin);
+        }
+
+        // 1.1. Try KV First (Fast Path)
+        const cachedConfig = await env.RENTIKPRO_CONFIGS.get(slug);
+        if (cachedConfig) {
+          return new Response(cachedConfig, {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": origin || "*",
+              "Vary": "Origin"
+            }
+          });
+        }
+
+        // 1.2. Fallback to DB
+        const { site, response } = await resolveAndValidateSite(slug, env, origin);
         if (response) return response;
 
-        // Token Verification (Match site's token)
+        // Token Verification
         if (site.public_token !== token) {
           return addCors(new Response(JSON.stringify({ error: "Invalid public token" }), { status: 401 }), origin);
         }
 
-        // D. Validate CORS (403)
         const corsError = enforceCors(request, site);
-        if (corsError) return corsError; // Headers will be added by addCors if needed, but here we return strict error
+        if (corsError) return corsError;
 
         try {
+          // If we are here, we might want to return the full JSON from sections_json if available
+          if (site.sections_json) {
+            const fullConfig = JSON.parse(site.sections_json);
+            // Ensure it has the slug
+            fullConfig.slug = site.subdomain;
+
+            // Populate KV for next time
+            ctx.waitUntil(env.RENTIKPRO_CONFIGS.put(slug, JSON.stringify(fullConfig)));
+
+            return new Response(JSON.stringify(fullConfig), {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+                "Access-Control-Allow-Origin": origin || "*",
+                "Vary": "Origin"
+              }
+            });
+          }
+
+          // Legacy Legacy Fallback
           const property = await env.DB.prepare(
             "SELECT name, location, logo, phone, email FROM properties WHERE id = ?"
           ).bind(site.property_id).first();
@@ -261,6 +297,7 @@ export default {
           const features = site.features_json ? JSON.parse(site.features_json) : {};
 
           const config = {
+            slug: site.subdomain,
             property: property || { name: site.subdomain },
             template: site.template_slug,
             plan: site.plan_type,
@@ -271,28 +308,83 @@ export default {
             }
           };
 
-          // E. Respond with JSON + CORS Headers
-          // enforceCors checks specific origin. addCors reflects it if allowed (we know it is allowed now).
-          // However, addCors uses a hardcoded list in this file. We should extend addCors to support the site's allowedOrigins dynamically?
-          // Or just use the helper to set headers here.
-          // Given existing addCors logic, strict enforcement was done above.
-          // We can manually set the allow-origin header to the request origin since we validated it.
-
-          const resp = new Response(JSON.stringify(config), {
+          return new Response(JSON.stringify(config), {
             status: 200,
-            headers: { "Content-Type": "application/json" }
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": origin || "*",
+              "Vary": "Origin"
+            }
           });
 
-          // Manually handling dynamic CORS here to override the static list in addCors if needed,
-          // OR rely on addCors if we update it.
-          // Let's use a custom response wrapper for authorized dynamic CORS.
-          const h = new Headers(resp.headers);
-          if (origin) {
-            h.set("Access-Control-Allow-Origin", origin);
-            h.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-            h.set("Access-Control-Allow-Headers", "Content-Type, X-PUBLIC-TOKEN");
+        } catch (err) {
+          return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
+        }
+      }
+
+      // 1.1 POST /public/site-config (Public publish endpoint)
+      if (path === "/public/site-config" && request.method === "POST") {
+        const adminKey = request.headers.get("X-Admin-Key");
+        const publicToken = request.headers.get("X-PUBLIC-TOKEN");
+
+        try {
+          const config = await request.json();
+          if (!config.slug) {
+            return addCors(new Response(JSON.stringify({ error: "Config must have a slug" }), { status: 400 }), origin);
           }
-          return new Response(resp.body, { status: 200, headers: h });
+
+          // Security: Admin Key OR matching Public Token
+          let siteInDb = null; // Declare siteInDb here for broader scope
+          if (adminKey !== env.ADMIN_KEY) {
+            siteInDb = await env.DB.prepare("SELECT * FROM web_sites WHERE subdomain = ?").bind(config.slug).first();
+            if (siteInDb && siteInDb.public_token !== publicToken) {
+              return addCors(new Response(JSON.stringify({ error: "Unauthorized update" }), { status: 403 }), origin);
+            }
+            if (!siteInDb && !publicToken) {
+              return addCors(new Response(JSON.stringify({ error: "Admin Key or Public Token required for new slugs" }), { status: 401 }), origin);
+            }
+          }
+
+          // Save to KV (Primary Slug)
+          const configStr = JSON.stringify(config);
+          await env.RENTIKPRO_CONFIGS.put(config.slug, configStr);
+
+          // Handle Aliases (e.g. el-rinconcito-matarrana, el-rinconcito-matarraña)
+          let aliases = config.aliases || [];
+          if (config.slug === "el-rinconcito") {
+            // Forced consistency for the requested slugs
+            if (!aliases.includes("el-rinconcito-matarrana")) aliases.push("el-rinconcito-matarrana");
+            if (!aliases.includes("el-rinconcito-matarraña")) aliases.push("el-rinconcito-matarraña");
+          }
+
+          if (Array.isArray(aliases)) {
+            for (const alias of aliases) {
+              if (alias && typeof alias === 'string') {
+                // Normalizar alias si es necesario o guardar tal cual
+                await env.RENTIKPRO_CONFIGS.put(alias, configStr);
+              }
+            }
+          }
+
+          // Update DB if exists
+          // Re-fetch siteInDb if it wasn't fetched in the auth block (i.e., if adminKey was used)
+          if (!siteInDb) {
+            siteInDb = await env.DB.prepare("SELECT * FROM web_sites WHERE subdomain = ?").bind(config.slug).first();
+          }
+          if (siteInDb) {
+            await env.DB.prepare("UPDATE web_sites SET is_published = 1, sections_json = ? WHERE subdomain = ?")
+              .bind(configStr, config.slug)
+              .run();
+          }
+
+          return new Response(JSON.stringify({ success: true, slug: config.slug, aliases }), {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": origin || "*",
+              "Vary": "Origin"
+            }
+          });
 
         } catch (err) {
           return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
