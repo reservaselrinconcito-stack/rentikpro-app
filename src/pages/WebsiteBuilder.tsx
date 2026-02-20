@@ -172,55 +172,78 @@ export const WebsiteBuilder: React.FC = () => {
    const handlePublish = async () => {
       if (!selectedSite) return;
       setIsSaving(true);
-      try {
-         // Generate slug if empty
-         let baseSlug = config.slug;
-         if (!baseSlug) {
-            baseSlug = normalizeSlug(config.brand?.name || selectedSite.name || 'sitio');
-         }
 
-         // Collision check
+      try {
+         // 1. Determine slug
+         let baseSlug = normalizeSlug(config.slug || config.brand?.name || selectedSite.name || 'sitio');
+
+         // 2. Collision check loop
          let finalSlug = baseSlug;
          let suffix = 1;
+         let isCollision = true;
 
-         while (true) {
+         while (isCollision) {
             const exists = await checkSlugCollision(finalSlug);
-            // If it doesn't exist, it's free
+
             if (!exists) {
-               break;
+               isCollision = false;
+            } else if (exists && finalSlug === selectedSite.subdomain && selectedSite.is_published) {
+               // It's already ours and published, we can overwrite
+               isCollision = false;
+            } else {
+               // Real collision with another site
+               finalSlug = `${baseSlug}-${suffix}`;
+               suffix++;
+               if (suffix > 99) break; // Infinite loop guard
             }
-            // If it exists but it's our currently published slug, we can overwrite it
-            if (exists && finalSlug === selectedSite.subdomain && selectedSite.is_published) {
-               break;
-            }
-            // Collision with another site
-            finalSlug = `${baseSlug}-${suffix}`;
-            suffix++;
          }
 
-         const finalConfig = { ...config, slug: finalSlug };
+         // 3. Prepare final config and state
+         const now = new Date().toISOString();
+         const finalConfig = {
+            ...config,
+            slug: finalSlug,
+            updatedAt: now
+         };
+
+         // Ensure UI is updated
          setConfig(finalConfig);
 
-         await saveSiteConfig(selectedSite, finalConfig);
-         await publishSiteConfig(finalConfig);
+         // 4. Publish to Worker + KV
+         const publishRes = await publishSiteConfig(finalSlug, finalConfig);
+         console.log("Publish result:", publishRes);
 
-         const updated = {
+         // 5. Persist locally to IndexedDB/SQLite
+         const updatedWebSite: WebSite = {
             ...selectedSite,
-            status: 'published' as const,
-            subdomain: finalConfig.slug,
+            status: 'published',
+            subdomain: finalSlug,
             is_published: true,
-            updated_at: Date.now()
+            updated_at: Date.now(),
+            sections_json: JSON.stringify(finalConfig)
          };
-         await projectManager.getStore().saveWebsite(updated);
 
+         await projectManager.getStore().saveWebsite(updatedWebSite);
+
+         // 6. Update local state and finish
          await loadData();
-         setSelectedSite(updated);
+         setSelectedSite(updatedWebSite);
          setHasChanges(false);
          setIsDirty(false);
-         alert("¡Sitio publicado con éxito!");
+
+         const publicBase = import.meta.env.VITE_PUBLIC_WEB_BASE || "https://rp-web.pages.dev";
+         const publicUrl = publicBase.includes('?')
+            ? `${publicBase}&slug=${finalSlug}`
+            : `${publicBase}/?slug=${finalSlug}`;
+
+         alert(`¡Sitio publicado con éxito!\n\nTu web está disponible en:\n${publicUrl}`);
+
+         // Open optionally?
+         // window.open(publicUrl, '_blank');
+
       } catch (e: any) {
-         console.error(e);
-         alert(`Error al publicar: ${e.message}`);
+         console.error("Publishing error:", e);
+         alert(`Error al publicar: ${e.message || "Ocurrió un error inesperado"}`);
       } finally {
          setIsSaving(false);
       }

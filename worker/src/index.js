@@ -83,17 +83,27 @@ export default {
 
       try {
         const body = await request.json();
-        const { slug, config } = body;
+        // Allow slug from query param OR body
+        const slug = url.searchParams.get("slug") || body.slug;
+        const config = body.config || body; // Compatibility with both {slug, config} and direct config body
 
         if (!slug || typeof slug !== "string" || !config || typeof config !== "object") {
-          return addCors(new Response(JSON.stringify({ error: "Invalid payload" }), {
+          return addCors(new Response(JSON.stringify({ error: "Invalid payload: missing slug or config", received: { slug, hasConfig: !!config } }), {
             status: 400, headers: { "Content-Type": "application/json" }
           }), origin);
         }
 
-        await env.SITE_CONFIGS.put(slug, JSON.stringify(config));
+        const configStr = JSON.stringify(config);
+        const bytes = new TextEncoder().encode(configStr).length;
 
-        return addCors(new Response(JSON.stringify({ ok: true, slug }), {
+        await env.SITE_CONFIGS.put(slug, configStr);
+
+        return addCors(new Response(JSON.stringify({
+          ok: true,
+          slug,
+          bytes,
+          savedAt: new Date().toISOString()
+        }), {
           status: 200, headers: { "Content-Type": "application/json" }
         }), origin);
       } catch (err) {

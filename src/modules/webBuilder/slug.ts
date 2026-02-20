@@ -19,7 +19,8 @@ export const normalizeSlug = (text: string): string => {
         .replace(/[^\w\-]+/g, '') // Remove all non-word chars
         .replace(/\-\-+/g, '-') // Replace multiple - with single -
         .replace(/^-+/, '') // Trim - from start
-        .replace(/-+$/, ''); // Trim - from end
+        .replace(/-+$/, '') // Trim - from end
+        .substring(0, 40); // Max length 40
 };
 
 export const validateSlug = (slug: string): string | null => {

@@ -25,25 +25,30 @@ export const saveSiteConfig = async (website: any, config: SiteConfig): Promise<
 
 export const checkSlugCollision = async (slug: string): Promise<boolean> => {
     const apiBase = import.meta.env.VITE_PUBLIC_API_BASE || "https://rentikpro-public-api.reservas-elrinconcito.workers.dev";
-    const url = `${apiBase}/admin/site-config?slug=${slug}`;
+    const url = `${apiBase}/admin/site-config?slug=${encodeURIComponent(slug)}`;
     const token = import.meta.env.VITE_ADMIN_TOKEN || "";
 
-    const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            ...(token && { 'Authorization': `Bearer ${token}` })
-        }
-    });
+    try {
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token && { 'Authorization': `Bearer ${token}` })
+            }
+        });
 
-    if (response.status === 200) return true; // Exists
-    if (response.status === 404) return false; // Free
-    throw new Error(`Error verificando slug: ${response.status}`);
+        if (response.status === 200) return true; // Exists
+        if (response.status === 404) return false; // Free
+        return false; // Treat other errors as free or handle specifically
+    } catch (e) {
+        console.error("Collision check failed", e);
+        return false;
+    }
 };
 
-export const publishSiteConfig = async (config: SiteConfig): Promise<void> => {
+export const publishSiteConfig = async (slug: string, config: SiteConfig): Promise<any> => {
     const apiBase = import.meta.env.VITE_PUBLIC_API_BASE || "https://rentikpro-public-api.reservas-elrinconcito.workers.dev";
-    const url = `${apiBase}/admin/site-config`;
+    const url = `${apiBase}/admin/site-config?slug=${encodeURIComponent(slug)}`;
     const token = import.meta.env.VITE_ADMIN_TOKEN || "";
 
     const response = await fetch(url, {
@@ -52,13 +57,22 @@ export const publishSiteConfig = async (config: SiteConfig): Promise<void> => {
             'Content-Type': 'application/json',
             ...(token && { 'Authorization': `Bearer ${token}` })
         },
-        body: JSON.stringify({ slug: config.slug, config })
+        body: JSON.stringify(config)
     });
 
     if (!response.ok) {
-        if (response.status === 401) {
-            throw new Error(`No autorizado: Verifica VITE_ADMIN_TOKEN en tu .env`);
+        const errorText = await response.text();
+        let errorMsg = `Error publicando: ${response.status}`;
+        try {
+            const errJson = JSON.parse(errorText);
+            errorMsg = errJson.error || errorMsg;
+        } catch (e) {
+            errorMsg = errorText || errorMsg;
         }
-        throw new Error(`Error publicando: ${response.status} ${response.statusText}`);
+
+        if (response.status === 401) throw new Error(`No autorizado: Verifica VITE_ADMIN_TOKEN`);
+        throw new Error(errorMsg);
     }
+
+    return await response.json(); // {ok, slug, bytes, savedAt}
 };
