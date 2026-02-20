@@ -80,3 +80,39 @@ export const migrateConfig = (
 
     return config;
 };
+
+// --- HYDRATION & VALIDATION HELPERS ---
+
+/**
+ * Perform a deep merge of the partial config onto the default config.
+ */
+export const hydrateConfig = (partial: Partial<SiteConfig>): SiteConfig => {
+    // Deep clone defaults
+    const base = JSON.parse(JSON.stringify(DEFAULT_SITE_CONFIG));
+
+    if (!partial) return base;
+
+    return {
+        ...base,
+        ...partial,
+        // Nested Objects Merging
+        brand: { ...base.brand, ...partial.brand },
+        hero: { ...base.hero, ...partial.hero },
+        location: { ...base.location, ...partial.location },
+        contact: { ...base.contact, ...partial.contact },
+        chatbot: { ...base.chatbot, ...partial.chatbot },
+        integrations: { ...base.integrations, ...partial.integrations },
+
+        // Arrays: Overwrite if present and valid array
+        sectionOrder: Array.isArray(partial.sectionOrder) ? partial.sectionOrder : base.sectionOrder,
+
+        apartments: partial.apartments ? { ...base.apartments, ...partial.apartments } : base.apartments,
+        experiences: partial.experiences ? { ...base.experiences, ...partial.experiences } : base.experiences,
+    };
+};
+
+export const validateConfig = (config: SiteConfig): string[] => {
+    const errors: string[] = [];
+    if (!config.slug) errors.push('Slug is required');
+    return errors;
+};

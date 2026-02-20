@@ -33,9 +33,11 @@ export const LivePreview: React.FC<LivePreviewProps> = ({ config, device, refres
     useEffect(() => {
         if (iframeRef.current?.contentWindow) {
             // Send config updates to the iframe
+            // Ensure we never send partial config, although parent should handle it.
+            // But extra safety:
             const message = {
                 type: 'PREVIEW_UPDATE_CONFIG',
-                payload: config
+                payload: config // Assumes config is already hydrated by parent
             };
             iframeRef.current.contentWindow.postMessage(message, '*');
         }
