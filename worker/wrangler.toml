@@ -12,6 +12,10 @@ bindings = [
 binding = "RENTIKPRO_CONFIGS"
 id = "RENTIKPRO_CONFIGS_ID_PLACEHOLDER"
 
+[[kv_namespaces]]
+binding = "SITE_CONFIGS"
+id = "SITE_CONFIGS_ID_PLACEHOLDER"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "rentikpro-db"

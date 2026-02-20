@@ -36,9 +36,102 @@ export default {
       return addCors(new Response(null, { status: 204 }), origin);
     }
 
-    // --- ENPOINTS NUEVOS (ICAL OUTBOUND) ---
+    // --- ENPOINTS NUEVOS (SITE CONFIGS) ---
 
-    // POST /ical/publish -> Guarda ICS en KV
+    // Health checks
+    if ((path === "/" || path === "/health") && request.method === "GET") {
+      return addCors(new Response("OK", { status: 200 }), origin);
+    }
+
+    // GET /public/site-config?slug=...
+    if (path === "/public/site-config" && request.method === "GET") {
+      const slug = url.searchParams.get("slug");
+      if (!slug || typeof slug !== "string" || slug.length > 100) {
+        return addCors(new Response(JSON.stringify({ error: "Invalid slug" }), {
+          status: 400, headers: { "Content-Type": "application/json" }
+        }), origin);
+      }
+
+      const configStr = await env.SITE_CONFIGS.get(slug);
+      if (!configStr) {
+        return addCors(new Response(JSON.stringify({ error: "Not found" }), {
+          status: 404, headers: { "Content-Type": "application/json" }
+        }), origin);
+      }
+
+      return addCors(new Response(configStr, {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      }), origin);
+    }
+
+    // Helper for admin auth
+    function getAdminToken(req) {
+      const authHeader = req.headers.get("Authorization");
+      if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
+      return authHeader.split(" ")[1];
+    }
+
+    // PUT /admin/site-config
+    if (path === "/admin/site-config" && (request.method === "PUT" || request.method === "POST")) {
+      const token = getAdminToken(request);
+      if (token !== env.ADMIN_TOKEN) {
+        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { "Content-Type": "application/json" }
+        }), origin);
+      }
+
+      try {
+        const body = await request.json();
+        const { slug, config } = body;
+
+        if (!slug || typeof slug !== "string" || !config || typeof config !== "object") {
+          return addCors(new Response(JSON.stringify({ error: "Invalid payload" }), {
+            status: 400, headers: { "Content-Type": "application/json" }
+          }), origin);
+        }
+
+        await env.SITE_CONFIGS.put(slug, JSON.stringify(config));
+
+        return addCors(new Response(JSON.stringify({ ok: true, slug }), {
+          status: 200, headers: { "Content-Type": "application/json" }
+        }), origin);
+      } catch (err) {
+        return addCors(new Response(JSON.stringify({ error: err.message }), {
+          status: 500, headers: { "Content-Type": "application/json" }
+        }), origin);
+      }
+    }
+
+    // GET /admin/site-config?slug=...
+    if (path === "/admin/site-config" && request.method === "GET") {
+      const token = getAdminToken(request);
+      if (token !== env.ADMIN_TOKEN) {
+        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401, headers: { "Content-Type": "application/json" }
+        }), origin);
+      }
+
+      const slug = url.searchParams.get("slug");
+      if (!slug) {
+        return addCors(new Response(JSON.stringify({ error: "Missing slug" }), {
+          status: 400, headers: { "Content-Type": "application/json" }
+        }), origin);
+      }
+
+      const configStr = await env.SITE_CONFIGS.get(slug);
+      if (!configStr) {
+        return addCors(new Response(JSON.stringify({ error: "Not found" }), {
+          status: 404, headers: { "Content-Type": "application/json" }
+        }), origin);
+      }
+
+      return addCors(new Response(configStr, {
+        status: 200, headers: { "Content-Type": "application/json" }
+      }), origin);
+    }
+
+    // --- ENPOINTS NUEVOS (ICAL OUTBOUND) ---    // POST /ical/publish -> Guarda ICS en KV
     if (path === "/ical/publish" && request.method === "POST") {
       const adminKey = request.headers.get("X-Admin-Key");
       if (adminKey !== env.ADMIN_KEY) {

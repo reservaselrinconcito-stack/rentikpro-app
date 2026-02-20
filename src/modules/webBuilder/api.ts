@@ -23,22 +23,42 @@ export const saveSiteConfig = async (website: any, config: SiteConfig): Promise<
     // await fetch('/api/publish', { method: 'POST', body: JSON.stringify(config) });
 };
 
-export const publishSiteConfig = async (config: SiteConfig): Promise<void> => {
-    // In a real scenario, this would push to Cloudflare KV or similar
-    // For now, improved persistence is enough as rp-web reads from the same source? 
-    // Wait, rp-web reads from public API or similar. 
-    // The user requirement says: "Publicar: hacer POST/PUT al public-api/worker"
-
+export const checkSlugCollision = async (slug: string): Promise<boolean> => {
     const apiBase = import.meta.env.VITE_PUBLIC_API_BASE || "https://rentikpro-public-api.reservas-elrinconcito.workers.dev";
-    const url = `${apiBase}/public/site-config`; // Endpoint to create/update
+    const url = `${apiBase}/admin/site-config?slug=${slug}`;
+    const token = import.meta.env.VITE_ADMIN_TOKEN || "";
 
     const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config)
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` })
+        }
+    });
+
+    if (response.status === 200) return true; // Exists
+    if (response.status === 404) return false; // Free
+    throw new Error(`Error verificando slug: ${response.status}`);
+};
+
+export const publishSiteConfig = async (config: SiteConfig): Promise<void> => {
+    const apiBase = import.meta.env.VITE_PUBLIC_API_BASE || "https://rentikpro-public-api.reservas-elrinconcito.workers.dev";
+    const url = `${apiBase}/admin/site-config`;
+    const token = import.meta.env.VITE_ADMIN_TOKEN || "";
+
+    const response = await fetch(url, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(token && { 'Authorization': `Bearer ${token}` })
+        },
+        body: JSON.stringify({ slug: config.slug, config })
     });
 
     if (!response.ok) {
-        throw new Error(`Error publicando: ${response.statusText}`);
+        if (response.status === 401) {
+            throw new Error(`No autorizado: Verifica VITE_ADMIN_TOKEN en tu .env`);
+        }
+        throw new Error(`Error publicando: ${response.status} ${response.statusText}`);
     }
 };

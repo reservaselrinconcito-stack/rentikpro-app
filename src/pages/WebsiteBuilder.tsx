@@ -11,7 +11,8 @@ import {
 import { SiteConfig } from '@/modules/webBuilder/types';
 import { DEFAULT_SITE_CONFIG } from '@/modules/webBuilder/defaults';
 import { migrateConfig, hydrateConfig, validateConfig } from '@/modules/webBuilder/adapters';
-import { saveSiteConfig, publishSiteConfig } from '@/modules/webBuilder/api';
+import { saveSiteConfig, publishSiteConfig, checkSlugCollision } from '@/modules/webBuilder/api';
+import { normalizeSlug } from '@/modules/webBuilder/slug';
 import { getTemplateConfig, TemplateId } from '@/modules/webBuilder/templates';
 
 // Components
@@ -172,13 +173,41 @@ export const WebsiteBuilder: React.FC = () => {
       if (!selectedSite) return;
       setIsSaving(true);
       try {
-         await saveSiteConfig(selectedSite, config);
-         await publishSiteConfig(config);
+         // Generate slug if empty
+         let baseSlug = config.slug;
+         if (!baseSlug) {
+            baseSlug = normalizeSlug(config.brand?.name || selectedSite.name || 'sitio');
+         }
+
+         // Collision check
+         let finalSlug = baseSlug;
+         let suffix = 1;
+
+         while (true) {
+            const exists = await checkSlugCollision(finalSlug);
+            // If it doesn't exist, it's free
+            if (!exists) {
+               break;
+            }
+            // If it exists but it's our currently published slug, we can overwrite it
+            if (exists && finalSlug === selectedSite.subdomain && selectedSite.is_published) {
+               break;
+            }
+            // Collision with another site
+            finalSlug = `${baseSlug}-${suffix}`;
+            suffix++;
+         }
+
+         const finalConfig = { ...config, slug: finalSlug };
+         setConfig(finalConfig);
+
+         await saveSiteConfig(selectedSite, finalConfig);
+         await publishSiteConfig(finalConfig);
 
          const updated = {
             ...selectedSite,
             status: 'published' as const,
-            subdomain: config.slug,
+            subdomain: finalConfig.slug,
             is_published: true,
             updated_at: Date.now()
          };
