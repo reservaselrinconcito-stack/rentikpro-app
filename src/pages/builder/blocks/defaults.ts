@@ -55,6 +55,52 @@ export const createDefaultBlock = (type: string): BlockInstance => {
                 },
                 styles: commonStyles
             };
+        case 'CTA':
+            return {
+                id, type, variant: 'A',
+                data: {
+                    title: '¿Listo para reservar?',
+                    subtitle: 'Haz click en el botón para consultar disponibilidad y precios.',
+                    ctaLabel: 'Reservar Ahora',
+                    ctaHref: '#contact'
+                },
+                styles: commonStyles
+            };
+        case 'Pricing':
+            return {
+                id, type, variant: 'A',
+                data: {
+                    title: 'Nuestras Tarifas',
+                    subtitle: 'Elige el plan que mejor se adapte a tu estancia.',
+                    plans: [
+                        { name: 'Estándar', price: '99', period: '/noche', features: ['WiFi Gratis', 'Cocina Equipada', 'Limpieza básica'], cta: 'Reservar' },
+                        { name: 'Premium', price: '149', period: '/noche', features: ['Vistas al mar', 'Parking incluido', 'Late check-out'], cta: 'El más popular', featured: true }
+                    ]
+                },
+                styles: commonStyles
+            };
+        case 'FAQ':
+            return {
+                id, type, variant: 'A',
+                data: {
+                    title: 'Preguntas Frecuentes',
+                    items: [
+                        { question: '¿Cómo hago el check-in?', answer: 'Recibirás un email con los detalles de acceso 24h antes.' },
+                        { question: '¿Aceptáis mascotas?', answer: 'Sí, en la mayoría de nuestras propiedades.' }
+                    ]
+                },
+                styles: commonStyles
+            };
+        case 'ContactForm':
+            return {
+                id, type, variant: 'A',
+                data: {
+                    title: 'Contacta con nosotros',
+                    subtitle: 'Estamos encantados de escucharte.',
+                    submitLabel: 'Enviar Mensaje'
+                },
+                styles: commonStyles
+            };
         default:
             return {
                 id, type, variant: 'A',

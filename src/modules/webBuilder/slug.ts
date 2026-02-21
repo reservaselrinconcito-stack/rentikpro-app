@@ -23,6 +23,7 @@ export const normalizeSlug = (text: string): string => {
         .substring(0, 40); // Max length 40
 };
 
+export const generateSlug = normalizeSlug;
 export const validateSlug = (slug: string): string | null => {
     if (!slug) return "El slug es obligatorio.";
     if (slug.length < 3) return "El slug debe tener al menos 3 caracteres.";

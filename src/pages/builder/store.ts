@@ -69,6 +69,15 @@ export const builderReducer = (state: BuilderState, action: BuilderAction): Buil
                 selectedBlockId: state.selectedBlockId === action.payload ? null : state.selectedBlockId
             };
 
+        case 'SET_THEME':
+            return {
+                ...state,
+                config: {
+                    ...state.config,
+                    theme: { ...state.config.theme, ...action.payload }
+                }
+            };
+
         case 'SET_SAVING':
             return { ...state, isSaving: action.payload };
 

@@ -10,6 +10,10 @@ import { Gallery } from './Gallery';
 import { Testimonials } from './Testimonials';
 import { Location } from './Location';
 import { ContactFooter } from './ContactFooter';
+import { CTA } from './CTA';
+import { FAQ } from './FAQ';
+import { Pricing } from './Pricing';
+import { ContactForm } from './ContactForm';
 
 // The canonical block registry
 export const BlockRegistry: Record<string, React.FC<any>> = {
@@ -22,6 +26,10 @@ export const BlockRegistry: Record<string, React.FC<any>> = {
     'Testimonials': Testimonials,
     'Location': Location,
     'ContactFooter': ContactFooter,
+    'CTA': CTA,
+    'FAQ': FAQ,
+    'Pricing': Pricing,
+    'ContactForm': ContactForm,
 };
 
 // Fallback registry to prevent crashes

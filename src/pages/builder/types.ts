@@ -20,4 +20,5 @@ export type BuilderAction =
     | { type: 'REORDER_BLOCKS'; payload: { fromIndex: number; toIndex: number } }
     | { type: 'ADD_BLOCK'; payload: { block: BlockInstance; atIndex?: number } }
     | { type: 'REMOVE_BLOCK'; payload: string }
+    | { type: 'SET_THEME'; payload: any }
     | { type: 'SET_SAVING'; payload: boolean };

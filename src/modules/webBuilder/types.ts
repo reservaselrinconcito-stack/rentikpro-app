@@ -6,15 +6,20 @@ export interface StyleObject {
     backgroundColor?: string;
     color?: string;
     textAlign?: 'left' | 'center' | 'right';
-    display?: 'block' | 'flex' | 'grid' | 'none';
     flexDirection?: 'row' | 'column';
     alignItems?: 'flex-start' | 'center' | 'flex-end' | 'stretch';
     justifyContent?: 'flex-start' | 'center' | 'flex-end' | 'space-between' | 'space-around';
     gap?: string;
     borderRadius?: string;
-    boxShadow?: string;
-    opacity?: number;
-    // Add more as needed
+    maxWidth?: string;
+    borderWidth?: string;
+    borderColor?: string;
+    borderStyle?: string;
+    // Overlay (useful for Hero/Image blocks)
+    overlayColor?: string;
+    overlayOpacity?: number;
+    // Visibility
+    display?: 'block' | 'flex' | 'grid' | 'none';
 }
 
 export type ResponsiveStyles = {

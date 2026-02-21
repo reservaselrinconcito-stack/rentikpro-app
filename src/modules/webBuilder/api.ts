@@ -1,25 +1,17 @@
 import { SiteConfigV1 } from './types';
 import { projectManager } from '@/services/projectManager';
-import { WebSite } from '@/types';
 
 // Allow for strict typing if WebSite interface is available, otherwise any
 export const saveSiteConfig = async (website: any, config: SiteConfigV1): Promise<void> => {
     if (!website || !website.id) throw new Error("Sitio web inválido");
 
-    // 1. Update the local object state
     const updatedSite = {
         ...website,
-        // We persist the config into the existing JSON field
-        // This is the bridge between the old "sections_json" and the new "SiteConfig"
         sections_json: JSON.stringify(config),
         updated_at: Date.now()
     };
 
-    // 2. Persist to storage (IndexedDB / SQLite via projectManager)
     await projectManager.getStore().saveWebsite(updatedSite);
-
-    // 3. (Optional) If we had a real backend API, we would POST here too.
-    // await fetch('/api/publish', { method: 'POST', body: JSON.stringify(config) });
 };
 
 export const checkSlugCollision = async (slug: string): Promise<boolean> => {
@@ -36,19 +28,19 @@ export const checkSlugCollision = async (slug: string): Promise<boolean> => {
             }
         });
 
-        if (response.status === 200) return true; // Exists
-        if (response.status === 404) return false; // Free
-        return false; // Treat other errors as free or handle specifically
+        if (response.status === 200) return true;
+        if (response.status === 404) return false;
+        return false;
     } catch (e) {
         console.error("Collision check failed", e);
         return false;
     }
 };
 
-export const publishSiteConfig = async (slug: string, config: SiteConfigV1): Promise<any> => {
+export const publishSiteConfig = async (slug: string, config: SiteConfigV1, overrideToken?: string): Promise<any> => {
     const apiBase = import.meta.env.VITE_PUBLIC_API_BASE || "https://rentikpro-public-api.reservas-elrinconcito.workers.dev";
     const url = `${apiBase}/admin/site-config?slug=${encodeURIComponent(slug)}`;
-    const token = import.meta.env.VITE_ADMIN_TOKEN || "";
+    const token = overrideToken || import.meta.env.VITE_ADMIN_TOKEN || "";
 
     const response = await fetch(url, {
         method: 'PUT',
@@ -73,5 +65,12 @@ export const publishSiteConfig = async (slug: string, config: SiteConfigV1): Pro
         throw new Error(errorMsg);
     }
 
-    return await response.json(); // {ok, slug, bytes, savedAt}
+    return await response.json();
+};
+
+// Canonical export for the new builder
+export const siteConfigApi = {
+    saveConfig: saveSiteConfig,
+    publishConfig: publishSiteConfig,
+    checkCollision: checkSlugCollision
 };

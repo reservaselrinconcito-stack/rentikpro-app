@@ -22,25 +22,46 @@ import { CleaningPage } from './pages/Cleaning';
 import { MaintenancePage } from './pages/Maintenance';
 import { Building2, FilePlus, FileUp, ShieldCheck, ChevronRight } from 'lucide-react';
 
+// Helper to handle lazy loading failures (Module not found/Failed to fetch)
+const lazyWithRetry = (componentImport: () => Promise<any>) =>
+  React.lazy(async () => {
+    const pageHasBeenForceRefreshed = JSON.parse(
+      window.localStorage.getItem('page-has-been-force-refreshed') || 'false'
+    );
+
+    try {
+      const component = await componentImport();
+      window.localStorage.setItem('page-has-been-force-refreshed', 'false');
+      return component;
+    } catch (error) {
+      if (!pageHasBeenForceRefreshed) {
+        // A la primera señal de error de red en un chunk, forzamos recarga
+        window.localStorage.setItem('page-has-been-force-refreshed', 'true');
+        return window.location.reload();
+      }
+      throw error;
+    }
+  });
+
 // Lazy load páginas pesadas para reducir el bundle inicial
-const Dashboard = React.lazy(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
-const Properties = React.lazy(() => import('./pages/Properties').then(m => ({ default: m.Properties })));
-const Travelers = React.lazy(() => import('./pages/Travelers').then(m => ({ default: m.Travelers })));
-const TravelerDetail = React.lazy(() => import('./pages/TravelerDetail').then(m => ({ default: m.TravelerDetail })));
-const CheckInScan = React.lazy(() => import('./pages/CheckInScan').then(m => ({ default: m.CheckInScan })));
-const Bookings = React.lazy(() => import('./pages/Bookings').then(m => ({ default: m.Bookings })));
-const Accounting = React.lazy(() => import('./pages/Accounting').then(m => ({ default: m.Accounting })));
-const Importers = React.lazy(() => import('./pages/Importers').then(m => ({ default: m.Importers })));
-const Calendar = React.lazy(() => import('./pages/Calendar').then(m => ({ default: m.Calendar })));
-const Marketing = React.lazy(() => import('./pages/Marketing').then(m => ({ default: m.Marketing })));
-const Registry = React.lazy(() => import('./pages/Registry').then(m => ({ default: m.Registry })));
-const WebsiteBuilder = React.lazy(() => import('./pages/WebsiteBuilder').then(m => ({ default: m.WebsiteBuilder })));
-const Communications = React.lazy(() => import('./pages/Communications').then(m => ({ default: m.Communications })));
-const ChannelManager = React.lazy(() => import('./pages/ChannelManager').then(m => ({ default: m.ChannelManager })));
-const QualityAssurance = React.lazy(() => import('./pages/QualityAssurance').then(m => ({ default: m.QualityAssurance })));
-const PromptBuilder = React.lazy(() => import('./pages/PromptBuilder').then(m => ({ default: m.PromptBuilder })));
-const Settings = React.lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
-const BackupVault = React.lazy(() => import('./pages/BackupVault').then(m => ({ default: m.BackupVault })));
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })));
+const Properties = lazyWithRetry(() => import('./pages/Properties').then(m => ({ default: m.Properties })));
+const Travelers = lazyWithRetry(() => import('./pages/Travelers').then(m => ({ default: m.Travelers })));
+const TravelerDetail = lazyWithRetry(() => import('./pages/TravelerDetail').then(m => ({ default: m.TravelerDetail })));
+const CheckInScan = lazyWithRetry(() => import('./pages/CheckInScan').then(m => ({ default: m.CheckInScan })));
+const Bookings = lazyWithRetry(() => import('./pages/Bookings').then(m => ({ default: m.Bookings })));
+const Accounting = lazyWithRetry(() => import('./pages/Accounting').then(m => ({ default: m.Accounting })));
+const Importers = lazyWithRetry(() => import('./pages/Importers').then(m => ({ default: m.Importers })));
+const Calendar = lazyWithRetry(() => import('./pages/Calendar').then(m => ({ default: m.Calendar })));
+const Marketing = lazyWithRetry(() => import('./pages/Marketing').then(m => ({ default: m.Marketing })));
+const Registry = lazyWithRetry(() => import('./pages/Registry').then(m => ({ default: m.Registry })));
+const WebsiteBuilder = lazyWithRetry(() => import('./pages/WebsiteBuilder').then(m => ({ default: m.WebsiteBuilder })));
+const Communications = lazyWithRetry(() => import('./pages/Communications').then(m => ({ default: m.Communications })));
+const ChannelManager = lazyWithRetry(() => import('./pages/ChannelManager').then(m => ({ default: m.ChannelManager })));
+const QualityAssurance = lazyWithRetry(() => import('./pages/QualityAssurance').then(m => ({ default: m.QualityAssurance })));
+const PromptBuilder = lazyWithRetry(() => import('./pages/PromptBuilder').then(m => ({ default: m.PromptBuilder })));
+const Settings = lazyWithRetry(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
+const BackupVault = lazyWithRetry(() => import('./pages/BackupVault').then(m => ({ default: m.BackupVault })));
 
 import { Toaster } from 'sonner';
 import { VersionChecker } from './components/VersionChecker';

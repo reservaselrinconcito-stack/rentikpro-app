@@ -16,13 +16,17 @@ interface BlockTemplate {
 
 const AVAILABLE_BLOCKS: BlockTemplate[] = [
     { type: 'Hero', label: 'Hero', icon: Layout, category: 'basic', description: 'Portada impactante con imagen y CTA' },
+    { type: 'Navigation', label: 'Navegación', icon: Columns, category: 'basic', description: 'Menú superior y enlaces' },
     { type: 'Features', label: 'Características', icon: Columns, category: 'basic', description: 'Lista de beneficios con iconos' },
+    { type: 'Pricing', label: 'Tarifas', icon: Layout, category: 'basic', description: 'Planes de precios y reserva' },
     { type: 'Text', label: 'Texto', icon: Type, category: 'content', description: 'Bloque de texto enriquecido' },
-    { type: 'Gallery', label: 'Galería', icon: ImageIcon, category: 'media', description: 'Cuadrícula de imágenes del proyecto' },
+    { type: 'FAQ', label: 'FAQ', icon: MessageSquare, category: 'content', description: 'Preguntas frecuentes (Acordeón)' },
     { type: 'ApartmentsGrid', label: 'Apartamentos', icon: Square, category: 'content', description: 'Listado automático de unidades' },
-    { type: 'Testimonials', label: 'Testimonios', icon: MessageSquare, category: 'social', description: 'Reseñas de clientes satisfechos' },
+    { type: 'Gallery', label: 'Galería', icon: ImageIcon, category: 'media', description: 'Cuadrícula de imágenes del proyecto' },
+    { type: 'CTA', label: 'Llamada a Acción', icon: Layout, category: 'basic', description: 'Botón destacado para conversión' },
+    { type: 'ContactForm', label: 'Formulario', icon: MessageSquare, category: 'content', description: 'Captura de leads y consultas' },
     { type: 'Location', label: 'Ubicación', icon: MapPin, category: 'basic', description: 'Mapa de Google y dirección' },
-    { type: 'TrustBadges', label: 'Sellos de Confianza', icon: Info, category: 'social', description: 'Logos de partners o premios' },
+    { type: 'Testimonials', label: 'Testimonios', icon: MessageSquare, category: 'social', description: 'Reseñas de clientes satisfechos' },
 ];
 
 interface SidebarLeftProps {

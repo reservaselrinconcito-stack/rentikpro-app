@@ -2,7 +2,7 @@ import { useReducer, useCallback, useEffect, useRef } from 'react';
 import { BuilderState, BuilderAction } from '../types';
 import { builderReducer } from '../store';
 import { useHistory } from '../../../modules/webBuilder/hooks/useHistory';
-import { SiteConfigV1 } from '../../../modules/webBuilder/types';
+import { SiteConfigV1, BlockInstance } from '../../../modules/webBuilder/types';
 import { DEFAULT_SITE_CONFIG_V1 } from '../../../modules/webBuilder/defaults';
 import { createDefaultBlock } from '../blocks/defaults';
 
@@ -52,6 +52,14 @@ export function useBuilder(initialConfig: SiteConfigV1 = DEFAULT_SITE_CONFIG_V1)
         builderDispatch({ type: 'REORDER_BLOCKS', payload: { fromIndex: index, toIndex } });
     };
 
+    const removeBlock = (id: string) => {
+        builderDispatch({ type: 'REMOVE_BLOCK', payload: id });
+    };
+
+    const updateBlock = (id: string, updates: Partial<BlockInstance>) => {
+        builderDispatch({ type: 'UPDATE_BLOCK', payload: { id, updates } });
+    };
+
     return {
         state,
         dispatch: builderDispatch,
@@ -61,6 +69,8 @@ export function useBuilder(initialConfig: SiteConfigV1 = DEFAULT_SITE_CONFIG_V1)
         canRedo: history.canRedo,
         reset: history.reset,
         addBlock,
-        moveBlock
+        moveBlock,
+        removeBlock,
+        updateBlock
     };
 }
