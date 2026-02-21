@@ -59,7 +59,6 @@ const WebsiteBuilder = lazyWithRetry(() => import('./pages/WebsiteBuilder').then
 const Communications = lazyWithRetry(() => import('./pages/Communications').then(m => ({ default: m.Communications })));
 const ChannelManager = lazyWithRetry(() => import('./pages/ChannelManager').then(m => ({ default: m.ChannelManager })));
 const QualityAssurance = lazyWithRetry(() => import('./pages/QualityAssurance').then(m => ({ default: m.QualityAssurance })));
-const PromptBuilder = lazyWithRetry(() => import('./pages/PromptBuilder').then(m => ({ default: m.PromptBuilder })));
 const Settings = lazyWithRetry(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 const BackupVault = lazyWithRetry(() => import('./pages/BackupVault').then(m => ({ default: m.BackupVault })));
 
@@ -217,7 +216,6 @@ const App: React.FC = () => {
                 <Route path="/accounting" element={<Accounting />} />
                 <Route path="/registry" element={<Registry />} />
                 <Route path="/website-builder" element={<WebsiteBuilder />} />
-                <Route path="/prompt-builder" element={<PromptBuilder />} />
                 <Route path="/settings" element={<Settings onSave={handleSave} />} />
                 <Route path="/comms" element={<Communications />} />
                 <Route path="/channel-manager" element={<ChannelManager />} />

@@ -14,7 +14,7 @@ import {
    WebSite, Property, Apartment, PropertySnapshot, SiteDraft, SiteOverrides,
    DeviceMode, InspectorTab, BlockType, BlockStyle, BlockNode, PageState, HistoryState
 } from "../types";
-import { createSiteDraftFromSnapshot, resolveSiteConfig } from "../services/siteResolver";
+import { createSiteDraftFromSnapshot, resolveSiteConfig, updateSiteDraftWithLevel } from "../services/siteResolver";
 
 const STORAGE_KEY = "rentikpro.websiteBuilder.draft.v1";
 
@@ -244,6 +244,22 @@ const defaultPropsByType: Record<BlockType, Record<string, any>> = {
       note: "© " + new Date().getFullYear() + " — Todos los derechos reservados.",
       links: ["Privacidad", "Términos", "Cookies"],
    },
+   AvailabilityWidget: {
+      title: "Reserva tu estancia",
+      subtitle: "Selecciona fechas y reserva al mejor precio garantizado.",
+      cta: "Consultar",
+   },
+   LeadsForm: {
+      title: "Solicita información",
+      subtitle: "Déjanos tus datos y te contactaremos en menos de 24h.",
+      fields: ["Nombre completo", "Email de contacto", "Interés"],
+      submit: "Quiero saber más",
+   },
+   SocialProof: {
+      title: "Confianza garantizada",
+      logos: ["Airbnb Superhost", "Booking Preferred", "HomeAway"],
+      stats: ["+500 Reservas", "4.9/5 Estrellas", "Respuesta rápida"],
+   },
 };
 
 const createBlock = (type: BlockType, template: PageState["meta"]["template"]): BlockNode => ({
@@ -412,6 +428,81 @@ const BlockRegistry: Record<
       }>;
    }
 > = {
+   AvailabilityWidget: {
+      title: "Availability Widget",
+      description: "Widget de calendario y búsqueda de fechas.",
+      render: (n) => (
+         <div className={`w-full ${n.style.background ?? ""} ${n.style.text ?? ""}`}>
+            <div className={`mx-auto ${maxWidthClass(n.style.maxWidth)} ${n.style.padding ?? ""}`}>
+               <div className="bg-white/10 backdrop-blur-md rounded-3xl p-8 border border-white/20 text-center">
+                  <h3 className="text-xl font-bold mb-2">{n.props.title}</h3>
+                  <p className="text-sm opacity-80 mb-6">{n.props.subtitle}</p>
+                  <div className="flex flex-wrap gap-3 justify-center">
+                     <div className="px-4 py-3 bg-white/5 rounded-xl border border-white/10 text-xs min-w-[120px]">Check-in</div>
+                     <div className="px-4 py-3 bg-white/5 rounded-xl border border-white/10 text-xs min-w-[120px]">Check-out</div>
+                     <button className="px-6 py-3 bg-white text-black font-black rounded-xl text-xs">{n.props.cta}</button>
+                  </div>
+               </div>
+            </div>
+         </div>
+      ),
+      contentFields: [
+         { key: "title", label: "Título", type: "text" },
+         { key: "subtitle", label: "Subtítulo", type: "text" },
+         { key: "cta", label: "Texto Botón", type: "text" },
+      ],
+   },
+   LeadsForm: {
+      title: "Leads Form",
+      description: "Formulario enfocado a captación de clientes.",
+      render: (n) => (
+         <div className={`w-full ${n.style.background ?? ""} ${n.style.text ?? ""}`}>
+            <div className={`mx-auto ${maxWidthClass(n.style.maxWidth)} ${n.style.padding ?? ""}`}>
+               <div className="max-w-xl mx-auto">
+                  <h2 className="text-2xl font-bold mb-2">{n.props.title}</h2>
+                  <p className="text-sm opacity-80 mb-8">{n.props.subtitle}</p>
+                  <div className="space-y-4">
+                     {(n.props.fields ?? []).map((f: string, i: number) => (
+                        <div key={i} className="px-4 py-3 rounded-2xl border border-black/10 bg-neutral-50 text-xs opacity-50">{f}</div>
+                     ))}
+                     <button className="w-full py-4 bg-black text-white rounded-2xl font-bold text-sm">{n.props.submit}</button>
+                  </div>
+               </div>
+            </div>
+         </div>
+      ),
+      contentFields: [
+         { key: "title", label: "Título", type: "text" },
+         { key: "subtitle", label: "Subtítulo", type: "text" },
+         { key: "submit", label: "Texto Botón", type: "text" },
+      ],
+   },
+   SocialProof: {
+      title: "Social Proof",
+      description: "Logos y estadísticas de confianza.",
+      render: (n) => (
+         <div className={`w-full ${n.style.background ?? ""} ${n.style.text ?? ""}`}>
+            <div className={`mx-auto ${maxWidthClass(n.style.maxWidth)} ${n.style.padding ?? ""}`}>
+               <h3 className="text-center text-xs font-black uppercase tracking-widest opacity-50 mb-10">{n.props.title}</h3>
+               <div className="flex flex-wrap justify-center gap-12 opacity-40 grayscale mb-12">
+                  {(n.props.logos ?? []).map((l: string, i: number) => (
+                     <div key={i} className="text-sm font-black italic">{l}</div>
+                  ))}
+               </div>
+               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {(n.props.stats ?? []).map((s: string, i: number) => (
+                     <div key={i} className="p-6 rounded-2xl bg-neutral-50 border border-black/5 text-center">
+                        <div className="text-lg font-bold">{s}</div>
+                     </div>
+                  ))}
+               </div>
+            </div>
+         </div>
+      ),
+      contentFields: [
+         { key: "title", label: "Título", type: "text" },
+      ],
+   },
    Header: {
       title: "Header",
       description: "Barra superior con marca, menú y CTA.",
@@ -909,6 +1000,24 @@ export const WebsiteBuilder = () => {
       }
    };
 
+   const handleUpdateLevel = async (newLevel: SiteDraft['templateLevel']) => {
+      if (!currentDraft) return;
+      try {
+         const snapshot = await projectManager.getStore().loadPropertySnapshot(currentDraft.propertyId);
+         const updatedDraft = updateSiteDraftWithLevel(currentDraft, newLevel, snapshot);
+         const state = resolveSiteConfig(updatedDraft, currentOverrides, snapshot);
+
+         setCurrentDraft(updatedDraft);
+         setPresent(state);
+         localStorage.setItem('rentikpro.websiteBuilder.siteDraft', JSON.stringify(updatedDraft));
+         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+         toast.success(`Nivel actualizado a ${newLevel}`);
+      } catch (err) {
+         console.error(err);
+         toast.error("Error al actualizar nivel");
+      }
+   };
+
    const handleSync = async (forceAll = false) => {
       if (!currentDraft) {
          toast.error("No hay un borrador vinculado a una propiedad.");
@@ -928,59 +1037,6 @@ export const WebsiteBuilder = () => {
          toast.error("Error al sincronizar");
       }
    };
-
-   // --- APLICAR SITIO DESDE PROMPT BUILDER ---
-   useEffect(() => {
-      const pendingJson = sessionStorage.getItem('pending_site_json');
-      if (pendingJson) {
-         try {
-            const data = JSON.parse(pendingJson);
-            console.log("[WebsiteBuilder] Applying pending site from Prompt Builder...", data);
-
-            // 1. Actualizar Draft Local
-            localStorage.setItem(STORAGE_KEY, pendingJson);
-
-            // 2. Persistir en DB (SQLite)
-            // Buscamos si hay un sitio activo para sobreescribir o creamos uno
-            projectManager.getStore().getWebsites().then(async (sites) => {
-               let siteToUpdate = sites.find(s => s.subdomain === 'draft' || s.is_published === false);
-
-               const websiteUpdate: any = {
-                  id: siteToUpdate?.id || `site_${Date.now()}`,
-                  name: data.meta?.name || siteToUpdate?.name || 'Mi Sitio AI',
-                  subdomain: siteToUpdate?.subdomain || 'draft',
-                  template_slug: data.meta?.template?.toLowerCase() || 'minimal',
-                  config_json: pendingJson, // WebSpec v1 format
-                  theme_config: JSON.stringify(data.theme || {}),
-                  sections_json: JSON.stringify(data.blocks || []),
-                  updated_at: Date.now()
-               };
-
-               await projectManager.getStore().saveWebsite(websiteUpdate);
-               console.log("[WebsiteBuilder] Site persisted to SQLite.");
-            });
-
-            // 3. Actualizar Estado Live
-            setPresent(data);
-            setSelectedId(data.blocks[0]?.id || null);
-
-            // 4. Limpieza
-            sessionStorage.removeItem('pending_site_json');
-
-            // 5. Feedback
-            toast.success("¡Sitio aplicado con éxito desde Prompt Builder!");
-
-            // 6. Quitar ?apply=1 de la URL sin recargar
-            const url = new URL(window.location.href);
-            url.searchParams.delete('apply');
-            window.history.replaceState({}, '', url.toString());
-
-         } catch (err) {
-            console.error("Error applying pending site:", err);
-            toast.error("Error al aplicar el sitio generado.");
-         }
-      }
-   }, [setPresent]);
 
    const setState = useCallback(
       (next: PageState) => {
@@ -1184,7 +1240,22 @@ export const WebsiteBuilder = () => {
          <div className="flex-1 flex overflow-hidden">
             {/* Left: Block library */}
             <aside className="col-span-3 border-r border-neutral-200 bg-white flex flex-col overflow-hidden">
-               <div className="p-4 border-b border-neutral-100">
+               <div className="p-3 border-b border-neutral-100">
+                  <div className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 ml-1">Nivel de Plantilla</div>
+                  <div className="grid grid-cols-2 gap-1">
+                     {(['BASIC', 'STANDARD', 'PRO', 'PRO_TOP'] as const).map(lvl => (
+                        <button
+                           key={lvl}
+                           onClick={() => handleUpdateLevel(lvl)}
+                           className={`px-2 py-2 rounded-xl text-[10px] font-black transition-all border ${currentDraft?.templateLevel === lvl ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' : 'bg-neutral-50 border-neutral-100 text-neutral-500 hover:bg-white hover:border-black'}`}
+                        >
+                           {lvl}
+                        </button>
+                     ))}
+                  </div>
+               </div>
+
+               <div className="p-3 border-b border-neutral-100">
                   <div className="text-sm font-bold flex items-center gap-2">
                      <LayoutPanelLeft size={16} className="text-black" />
                      Biblioteca Pro

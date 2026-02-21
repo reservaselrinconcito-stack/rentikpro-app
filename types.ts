@@ -1275,7 +1275,10 @@ export type BlockType =
   | "FAQ"
   | "Location"
   | "ContactForm"
-  | "Footer";
+  | "Footer"
+  | "AvailabilityWidget"
+  | "LeadsForm"
+  | "SocialProof";
 
 export type BlockStyle = {
   background?: string;

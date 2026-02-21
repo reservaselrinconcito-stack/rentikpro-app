@@ -179,7 +179,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
 
       <div className="pt-4 pb-2 px-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Create2Web</div>
       <NavItem to="/website-builder" icon={Globe} label="Mis Sitios" onClick={mobile ? handleNavClick : undefined} />
-      <NavItem to="/prompt-builder" icon={Sparkles} label="Prompt Builder" onClick={mobile ? handleNavClick : undefined} />
 
       <div className="pt-4 pb-2 px-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Herramientas</div>
       <NavItem to="/importers" icon={ShieldAlert} label="Importadores" onClick={mobile ? handleNavClick : undefined} />
