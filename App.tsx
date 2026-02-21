@@ -1,4 +1,16 @@
-
+<div style={{
+  position: "fixed",
+  top: 10,
+  left: 10,
+  zIndex: 999999,
+  background: "red",
+  color: "white",
+  padding: "8px 12px",
+  borderRadius: 10,
+  fontWeight: 900
+}}>
+  ✅ RUNNING: rentikpro funciona
+</div>
 import React, { useState, useEffect, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { projectManager } from './services/projectManager';
