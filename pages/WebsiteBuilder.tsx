@@ -10,57 +10,11 @@ import {
 import { toast } from 'sonner';
 import { projectManager } from "../services/projectManager";
 
-type DeviceMode = "desktop" | "tablet" | "mobile";
-type InspectorTab = "content" | "style" | "responsive";
-
-type BlockType =
-   | "Header"
-   | "Hero"
-   | "CTA"
-   | "Features"
-   | "Gallery"
-   | "Testimonials"
-   | "ApartmentsGrid"
-   | "Pricing"
-   | "FAQ"
-   | "Location"
-   | "ContactForm"
-   | "Footer";
-
-type BlockStyle = {
-   background?: string; // tailwind classes: bg-...
-   text?: string; // text-...
-   padding?: string; // py-... px-...
-   rounded?: string; // rounded-...
-   shadow?: string; // shadow-...
-   border?: string; // border / border-...
-   align?: "left" | "center" | "right";
-   maxWidth?: "full" | "screen" | "prose";
-};
-
-type BlockNode = {
-   id: string;
-   type: BlockType;
-   props: Record<string, any>;
-   style: BlockStyle;
-   styleOverrides?: Partial<Record<DeviceMode, Partial<BlockStyle>>>;
-};
-
-type PageState = {
-   meta: {
-      template: "Minimal" | "Luxury" | "Conversion" | "Rustic";
-      name: string;
-      updatedAt: number;
-      publishedAt?: number;
-   };
-   blocks: BlockNode[];
-};
-
-type HistoryState = {
-   past: PageState[];
-   present: PageState;
-   future: PageState[];
-};
+import {
+   WebSite, Property, Apartment, PropertySnapshot, SiteDraft, SiteOverrides,
+   DeviceMode, InspectorTab, BlockType, BlockStyle, BlockNode, PageState, HistoryState
+} from "../types";
+import { createSiteDraftFromSnapshot, resolveSiteConfig } from "../services/siteResolver";
 
 const STORAGE_KEY = "rentikpro.websiteBuilder.draft.v1";
 
@@ -859,6 +813,23 @@ export const WebsiteBuilder = () => {
    const { history: pageHistory, setPresent, undo, redo } = useHistory(initial);
 
    const [selectedId, setSelectedId] = useState<string | null>(pageHistory.present.blocks[0]?.id ?? null);
+   const [properties, setProperties] = useState<Property[]>([]);
+   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+   const [selectedPropertyId, setSelectedPropertyId] = useState<string>("");
+   const [activeTemplateLevel, setActiveTemplateLevel] = useState<SiteDraft['templateLevel']>('STANDARD');
+
+   const [currentDraft, setCurrentDraft] = useState<SiteDraft | null>(() => {
+      const saved = localStorage.getItem('rentikpro.websiteBuilder.siteDraft');
+      return saved ? JSON.parse(saved) : null;
+   });
+   const [currentOverrides, setCurrentOverrides] = useState<SiteOverrides>(() => {
+      const saved = localStorage.getItem('rentikpro.websiteBuilder.siteOverrides');
+      return saved ? JSON.parse(saved) : { touchedFields: [], overridesByPath: {}, hiddenEntities: [], ordering: {} };
+   });
+
+   useEffect(() => {
+      projectManager.getStore().getProperties().then(setProperties);
+   }, []);
    const [tab, setTab] = useState<InspectorTab>("content");
    const [device, setDevice] = useState<DeviceMode>("desktop");
    const [zoom, setZoom] = useState(1.0);
@@ -909,6 +880,54 @@ export const WebsiteBuilder = () => {
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
    }, [undo, redo]);
+
+   const handleCreateSite = async () => {
+      if (!selectedPropertyId) {
+         toast.error("Selecciona una propiedad primero");
+         return;
+      }
+      try {
+         const snapshot = await projectManager.getStore().loadPropertySnapshot(selectedPropertyId);
+         const draft = createSiteDraftFromSnapshot(snapshot, activeTemplateLevel);
+         const overrides: SiteOverrides = { touchedFields: [], overridesByPath: {}, hiddenEntities: [], ordering: {} };
+         const state = resolveSiteConfig(draft, overrides, snapshot);
+
+         setCurrentDraft(draft);
+         setCurrentOverrides(overrides);
+         setPresent(state);
+         setSelectedId(state.blocks[0]?.id || null);
+
+         localStorage.setItem('rentikpro.websiteBuilder.siteDraft', JSON.stringify(draft));
+         localStorage.setItem('rentikpro.websiteBuilder.siteOverrides', JSON.stringify(overrides));
+         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+         setIsCreateModalOpen(false);
+         toast.success("¡Sitio creado con éxito desde datos reales!");
+      } catch (err) {
+         console.error(err);
+         toast.error("Error al crear el sitio");
+      }
+   };
+
+   const handleSync = async (forceAll = false) => {
+      if (!currentDraft) {
+         toast.error("No hay un borrador vinculado a una propiedad.");
+         return;
+      }
+      try {
+         const snapshot = await projectManager.getStore().loadPropertySnapshot(currentDraft.propertyId);
+         const overrides = forceAll ? { touchedFields: [], overridesByPath: {}, hiddenEntities: [], ordering: {} } : currentOverrides;
+         const state = resolveSiteConfig(currentDraft, overrides, snapshot);
+
+         if (forceAll) setCurrentOverrides(overrides);
+         setPresent(state);
+         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+         toast.success(forceAll ? "¡Sitio reiniciado desde RentikPro!" : "¡Sincronizado con RentikPro!");
+      } catch (err) {
+         console.error(err);
+         toast.error("Error al sincronizar");
+      }
+   };
 
    // --- APLICAR SITIO DESDE PROMPT BUILDER ---
    useEffect(() => {
@@ -1141,6 +1160,18 @@ export const WebsiteBuilder = () => {
                      <HistoryIcon size={18} />
                   </button>
                </div>
+
+               {currentDraft && (
+                  <button
+                     onClick={() => handleSync()}
+                     className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 transition-colors rounded-xl border border-indigo-100"
+                     title="Sincronizar datos de RentikPro sin perder cambios manuales"
+                  >
+                     <RotateCw size={14} className="animate-spin-hover" />
+                     Sincronizar
+                  </button>
+               )}
+
                <button onClick={openLivePreview} className="px-4 py-2 text-xs font-bold text-neutral-600 hover:text-black transition-colors rounded-xl border border-neutral-200 hover:border-black">
                   Ver web
                </button>
@@ -1168,6 +1199,13 @@ export const WebsiteBuilder = () => {
                         onChange={(e) => setSearchQuery(e.target.value)}
                      />
                   </div>
+                  <button
+                     onClick={() => setIsCreateModalOpen(true)}
+                     className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95"
+                  >
+                     <Sparkles size={16} />
+                     Crear desde RentikPro
+                  </button>
                </div>
 
                <div className="flex-1 overflow-y-auto p-3 space-y-6">
@@ -1580,6 +1618,72 @@ export const WebsiteBuilder = () => {
                            {BlockRegistry[b.type].render(b)}
                         </div>
                      ))}
+                  </div>
+               </div>
+            </div>
+         )}
+
+         {/* --- CREATE SITE MODAL --- */}
+         {isCreateModalOpen && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+               <div className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                  <div className="p-8 pb-4">
+                     <div className="flex items-center justify-between mb-6">
+                        <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600">
+                           <Sparkles size={24} />
+                        </div>
+                        <button onClick={() => setIsCreateModalOpen(false)} className="p-2 hover:bg-neutral-100 rounded-xl transition-colors">
+                           <X size={20} />
+                        </button>
+                     </div>
+                     <h2 className="text-2xl font-black tracking-tight mb-2">Crear desde RentikPro</h2>
+                     <p className="text-neutral-500 text-sm leading-relaxed mb-8">
+                        Genera un sitio web automáticamente usando tus alojamientos, fotos y configuraciones actuales. <b>Sin IA, datos 100% reales.</b>
+                     </p>
+
+                     <div className="space-y-6">
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-1">Selecciona Propiedad</label>
+                           <select
+                              value={selectedPropertyId}
+                              onChange={(e) => setSelectedPropertyId(e.target.value)}
+                              className="w-full px-4 py-3 bg-neutral-50 border border-neutral-100 rounded-2xl text-sm font-bold focus:ring-4 ring-indigo-50 outline-none transition-all cursor-pointer"
+                           >
+                              <option value="">Elegir una propiedad...</option>
+                              {properties.map(p => (
+                                 <option key={p.id} value={p.id}>{p.name}</option>
+                              ))}
+                           </select>
+                        </div>
+
+                        <div className="space-y-2">
+                           <label className="text-[10px] font-black uppercase tracking-widest text-neutral-400 ml-1">Nivel de Plantilla</label>
+                           <div className="grid grid-cols-2 gap-2">
+                              {(['BASIC', 'STANDARD', 'PRO', 'PRO_TOP'] as const).map(lvl => (
+                                 <button
+                                    key={lvl}
+                                    onClick={() => setActiveTemplateLevel(lvl)}
+                                    className={`px-4 py-3 rounded-2xl text-xs font-black transition-all border ${activeTemplateLevel === lvl ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-neutral-50 border-neutral-100 text-neutral-600 hover:bg-white hover:border-black'}`}
+                                 >
+                                    {lvl}
+                                 </button>
+                              ))}
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="p-8 pt-4">
+                     <button
+                        onClick={handleCreateSite}
+                        disabled={!selectedPropertyId}
+                        className="w-full py-4 bg-black text-white rounded-2xl font-black text-sm shadow-xl hover:bg-neutral-800 disabled:opacity-30 disabled:pointer-events-none transition-all active:scale-95"
+                     >
+                        Generar Sitio Ahora
+                     </button>
+                     <p className="text-center text-[10px] text-neutral-400 mt-4 font-bold uppercase tracking-widest">
+                        Esto reemplazará el borrador actual
+                     </p>
                   </div>
                </div>
             </div>

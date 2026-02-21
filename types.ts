@@ -1066,6 +1066,7 @@ export interface IDataStore {
   getProvisionalBookings(): Promise<ProvisionalBooking[]>;
   saveProvisionalBooking(pb: ProvisionalBooking): Promise<void>;
   deleteProvisionalBooking(id: string): Promise<void>;
+  loadPropertySnapshot(propertyId: string): Promise<PropertySnapshot>;
 }
 
 // Channel Provider Interface
@@ -1255,4 +1256,84 @@ export interface MaintenancePhoto {
   issue_id: string;
   media_id: string;
   created_at: number;
+}
+
+// --- WEBSITE BUILDER CORE TYPES ---
+
+export type DeviceMode = "desktop" | "tablet" | "mobile";
+export type InspectorTab = "content" | "style" | "responsive";
+
+export type BlockType =
+  | "Header"
+  | "Hero"
+  | "CTA"
+  | "Features"
+  | "Gallery"
+  | "Testimonials"
+  | "ApartmentsGrid"
+  | "Pricing"
+  | "FAQ"
+  | "Location"
+  | "ContactForm"
+  | "Footer";
+
+export type BlockStyle = {
+  background?: string;
+  text?: string;
+  padding?: string;
+  rounded?: string;
+  shadow?: string;
+  border?: string;
+  align?: "left" | "center" | "right";
+  maxWidth?: "full" | "screen" | "prose";
+};
+
+export interface BlockNode {
+  id: string;
+  type: BlockType;
+  props: Record<string, any>;
+  style: BlockStyle;
+  styleOverrides?: Partial<Record<DeviceMode, Partial<BlockStyle>>>;
+}
+
+export interface PageState {
+  meta: {
+    template: "Minimal" | "Luxury" | "Conversion" | "Rustic";
+    name: string;
+    updatedAt: number;
+    publishedAt?: number;
+  };
+  blocks: BlockNode[];
+}
+
+export interface HistoryState {
+  past: PageState[];
+  present: PageState;
+  future: PageState[];
+}
+
+// --- SITE GENERATION FROM REAL DATA ---
+
+export interface PropertySnapshot {
+  property: Property;
+  apartments: Apartment[];
+  media: any[];
+  settings: Record<string, any>;
+  policies: BookingPolicy[];
+  aiFacts: AiKnowledgeFact[];
+}
+
+export interface SiteDraft {
+  propertyId: string;
+  templateLevel: 'BASIC' | 'STANDARD' | 'PRO' | 'PRO_TOP';
+  bindings: Record<string, string>; // Prop path -> Snapshot path
+  blocks: BlockNode[];
+  meta: PageState['meta'];
+}
+
+export interface SiteOverrides {
+  touchedFields: string[];
+  overridesByPath: Record<string, any>;
+  hiddenEntities: string[];
+  ordering: Record<string, string[]>;
 }

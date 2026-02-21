@@ -11,7 +11,8 @@ import {
   PricingRuleSet, PricingRule, BookingPriceSnapshot,
   CancellationPolicy, RatePlan, PricingModifier, Fee, UserSettings,
   ProvisionalBooking, BookingPolicy, PolicyScope, EmailIngest, EmailIngestStatus,
-  PaymentMode, DepositType, DepositDue, RemainingDue, SecurityDepositMethod, CancellationPolicyType
+  PaymentMode, DepositType, DepositDue, RemainingDue, SecurityDepositMethod, CancellationPolicyType,
+  PropertySnapshot, SiteDraft, SiteOverrides
 } from '../types';
 import { PaymentScheduleItem, CheckoutResult, checkoutService } from './checkoutService';
 import { logger } from './logger';
@@ -2827,6 +2828,43 @@ export class SQLiteStore implements IDataStore {
   async deleteApartment(id: string) {
     await this.executeWithParams("DELETE FROM apartments WHERE id=?", [id]);
   }
+  async loadPropertySnapshot(propertyId: string): Promise<PropertySnapshot> {
+    const [propRes] = await this.query("SELECT * FROM properties WHERE id = ?", [propertyId]);
+    if (!propRes) throw new Error("Property not found");
+
+    // Convert property booleans
+    const property: Property = {
+      ...propRes,
+      is_active: propRes.is_active !== 0,
+      web_calendar_enabled: propRes.web_calendar_enabled === 1,
+      show_prices: propRes.show_prices === 1,
+    };
+
+    const apartments = await this.getApartments(propertyId);
+
+    // Settings (global)
+    const settingsRows = await this.query("SELECT * FROM user_settings WHERE id = 'default'");
+    const settings = settingsRows[0] || {};
+
+    // Policies
+    const policies = await this.query("SELECT * FROM booking_policies WHERE (scope_type = 'PROPERTY' AND scope_id = ?) OR (scope_type = 'GLOBAL')", [propertyId]);
+
+    // AI Facts
+    const aiFacts = await this.query("SELECT * FROM ai_facts WHERE property_id = ?", [propertyId]);
+
+    // Media
+    const media = await this.query("SELECT * FROM media_assets");
+
+    return {
+      property,
+      apartments,
+      media,
+      settings,
+      policies,
+      aiFacts
+    };
+  }
+
   // --- EMAIL INGEST ---
   async saveEmailIngest(email: EmailIngest): Promise<void> {
     await this.ensureEmailIngestTables();
