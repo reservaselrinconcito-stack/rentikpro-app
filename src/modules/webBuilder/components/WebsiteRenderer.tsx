@@ -43,14 +43,25 @@ export const WebsiteRenderer: React.FC<WebsiteRendererProps> = ({ config, curren
 
                 if (block.hidden) return null;
 
+                // Resolve styles (simple desktop fallback)
+                const s = block.styles?.desktop || {};
+                const containerStyle: React.CSSProperties = {
+                    padding: s.padding,
+                    margin: s.margin,
+                    backgroundColor: s.backgroundColor,
+                    color: s.color,
+                    textAlign: s.textAlign as any,
+                };
+
                 return (
-                    <Component
-                        key={block.id}
-                        data={block.data}
-                        styles={block.styles || {}}
-                        variant={block.variant}
-                        theme={config.theme}
-                    />
+                    <div key={block.id} style={containerStyle} className="transition-all duration-300">
+                        <Component
+                            data={block.data}
+                            styles={block.styles || {}}
+                            variant={block.variant}
+                            theme={config.theme}
+                        />
+                    </div>
                 );
             })}
         </div>

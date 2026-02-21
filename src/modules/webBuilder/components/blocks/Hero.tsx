@@ -22,7 +22,7 @@ export const Hero: React.FC<{ data: any; styles?: any; variant?: string; theme?:
     if (variant === 'B') {
         // Split Layout (Text Left, Image Right)
         return (
-            <section className="w-full flex flex-col lg:flex-row min-h-[600px] h-auto lg:h-[80vh] bg-slate-50 relative overflow-hidden">
+            <section className="w-full flex flex-col lg:flex-row min-h-[600px] h-auto lg:h-[80vh] relative overflow-hidden">
                 <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-20 order-2 lg:order-1 z-10">
                     <div className="max-w-xl slide-up">
                         <span className="uppercase tracking-[0.2em] text-xs font-bold mb-4 text-indigo-600 block">
@@ -57,7 +57,7 @@ export const Hero: React.FC<{ data: any; styles?: any; variant?: string; theme?:
     if (variant === 'C') {
         // Minimal Centered
         return (
-            <section className="w-full min-h-[500px] py-24 lg:py-32 flex flex-col items-center justify-center bg-white text-slate-900 px-6">
+            <section className="w-full min-h-[500px] py-24 lg:py-32 flex flex-col items-center justify-center text-slate-900 px-6">
                 <div className="max-w-4xl text-center mb-16 slide-up">
                     <span className="bg-slate-100 text-slate-500 uppercase tracking-widest text-[10px] font-black px-4 py-2 rounded-full mb-8 inline-block">
                         {kicker}
