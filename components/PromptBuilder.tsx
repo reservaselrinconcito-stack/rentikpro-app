@@ -2,14 +2,16 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { projectManager } from '../services/projectManager'; // Import projectManager
 import { WebSite } from '../types';
-import { PROMPT_TEMPLATES, TemplateId, PromptInputs, PromptTemplate, CONTEXT_WHITELIST } from '../services/promptTemplates';
+import { PROMPT_TEMPLATES, TemplateId, PromptInputs, PromptTemplate, CONTEXT_WHITELIST } from '../src/templates/promptTemplates';
 import { promptHistory, PromptRecord } from '../services/promptHistoryStore';
 import {
   Sparkles, X, Edit2, History, Star, LayoutTemplate, RefreshCw, CreditCard,
   Image as ImageIcon, Search, Megaphone, MapPin, Wrench, CheckCircle2,
   ToggleLeft, ToggleRight, Copy, Bot, List, Zap, ExternalLink, Trash2, Save,
-  Upload, Download, FileCode, FileDown, RotateCcw, ArrowRight
+  Upload, Download, FileCode, FileDown, RotateCcw, ArrowRight, Check
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 
 const IconMap = ({ name, size = 16, className = "" }: { name: string, size?: number, className?: string }) => {
   switch (name) {
@@ -21,6 +23,7 @@ const IconMap = ({ name, size = 16, className = "" }: { name: string, size?: num
     case 'Megaphone': return <Megaphone size={size} className={className} />;
     case 'MapPin': return <MapPin size={size} className={className} />;
     case 'Wrench': return <Wrench size={size} className={className} />;
+    case 'Zap': return <Zap size={size} className={className} />;
     default: return <Sparkles size={size} className={className} />;
   }
 };
@@ -30,12 +33,13 @@ interface PromptBuilderProps {
   currentSite?: WebSite | null;
   mode?: 'MODAL' | 'PAGE';
   initialTemplateId?: TemplateId;
-  onApply?: () => void; // Add onApply prop
+  onApply?: () => void;
 }
 
 export const PromptBuilder: React.FC<PromptBuilderProps> = ({ onClose, currentSite, mode = 'MODAL', initialTemplateId, onApply }) => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'EDITOR' | 'HISTORY' | 'FAVORITES'>('EDITOR');
-  const [selectedTemplateId, setSelectedTemplateId] = useState<TemplateId>(initialTemplateId || 'WEB_CREATE_FULL');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<TemplateId>(initialTemplateId || 'BASIC');
   const [isStrict, setIsStrict] = useState(() => localStorage.getItem('pb_strict') === 'true');
 
   const [inputs, setInputs] = useState<PromptInputs>({
@@ -253,56 +257,88 @@ export const PromptBuilder: React.FC<PromptBuilderProps> = ({ onClose, currentSi
     URL.revokeObjectURL(url);
   };
 
-  // --- APPLY LOGIC ---
-  const handleApplyToSite = async () => {
-    if (!generatedPrompt) return; // Should be the JSON output actually? 
-    // Wait, generatedPrompt is the PROMPT, not the OUTPUT. 
-    // The user has to COPY the prompt to ChatGPT, get JSON, and PASTE it back?
-    // No, the "Web Refiner" template output IS the JSON if we are mocking the AI, 
-    // BUT normally the user executes the prompt elsewhere.
-    // HOWEVER, looking at `QuickWebWizard` (not visible here but implied), or the user request:
-    // "Prompt Builder genera texto pero no se aplica."
-    // If the user pastes the Result JSON into an input, THEN we can apply it.
-    // OR if we are simulating the AI generation (which we aren't, we are building the prompt).
+  const extractJsonFromText = (text: string) => {
+    if (!text) return null;
 
-    // AH! The user flow is: 
-    // 1. Build Prompt.
-    // 2. Copy to ChatGPT.
-    // 3. Get JSON.
-    // 4. Paste JSON into "Importar" or... 
-    // 5. User wants to "Apply". 
+    // 1. Intentar parse directo (Modo estricto)
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      // 2. Si falla, buscar bloques JSON {...}
+      const regex = /\{[\s\S]*\}/g;
+      const matches = text.match(regex);
+      if (matches) {
+        for (const match of matches) {
+          try {
+            // Intentamos parsear cada bloque hasta encontrar uno válido
+            // Para ser más robustos con llaves anidadas, podríamos usar una función de balanceo
+            // pero regex suele bastar si el JSON es el grueso del mensaje.
+            return JSON.parse(match);
+          } catch (e2) {
+            continue;
+          }
+        }
+      }
 
-    // Wait, if this is just a Prompt Builder, we don't have the result yet!
-    // Unless... the user pastes the result back *somewhere*?
-    // OR does the user expect us to CALL the AI? 
-    // The request says: "validates response is WebSpec". 
-    // Implies we have the response.
+      // 3. Fallback más agresivo: buscar el primer '{' y el último '}'
+      const firstBrace = text.indexOf('{');
+      const lastBrace = text.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1) {
+        try {
+          return JSON.parse(text.substring(firstBrace, lastBrace + 1));
+        } catch (e3) {
+          return null;
+        }
+      }
 
-    // Let's assume the user pastes the AI Output into `current_json` or a new "Output / Result" field?
-    // Currently `inputs.current_json` is the INPUT to the prompt.
-
-    // Checking the code... `generatedPrompt` IS the prompt text.
-    // There is no field for "AI Output".
-    // But wait, if we are in "Refine" mode, we might want to Paste the result into `current_json`?
-    // No, `current_json` is used to build the prompt.
-
-    // Let's add an "AI Output / JSON Result" textarea to the UI where the user can paste the result.
-    // AND/OR if we have an AI integration (Google Gemini/OpenAI), we could call it.
-    // But strictly reading the request: "PromptBuilder genera texto". It generates the PROMPT.
-    // So the user MUST paste the result back.
-
-    // Let's check the UI for `PromptBuilder`. It has inputs. It shows the generated prompt.
-    // It does NOT seem to have a "Paste Result Here" section yet.
-    // I should add a "Paste Result & Apply" section? 
-    // OR maybe the user implies I should automagically apply it? 
-    // "Genera texto pero no se aplica" -> The prompt text? No, that doesn't make sense.
-
-    // Let's look at `PromptBuilder.tsx` lines 343+ (render).
-    // It shows `generatedPrompt` in a textarea.
-    // Maybe I should add a "Resultado JSON" textarea below the prompt?
-
-    // For now, I'll add a section "Pegar Resultado JSON" and the "Aplicar" button checks THAT.
+      return null;
+    }
   };
+
+  const handleApplyToSite = () => {
+    if (!jsonResult) {
+      toast.error("Pega primero el resultado JSON de la IA");
+      return;
+    }
+
+    const data = extractJsonFromText(jsonResult);
+    if (!data) {
+      toast.error("No se encontró un JSON válido en el texto");
+      return;
+    }
+
+    // Validación mínima de estructura RentikPro Website
+    if (!data.meta || !data.blocks) {
+      toast.error("El JSON no parece ser una estructura válida de sitio (faltan blocks/meta)");
+      return;
+    }
+
+    console.debug("[PromptBuilder] Applying pending site...", data);
+    sessionStorage.setItem('pending_site_json', JSON.stringify(data));
+
+    if (onApply) onApply();
+    if (onClose) onClose();
+
+    navigate('/website-builder?apply=1');
+  };
+
+
+  // Checking the code... `generatedPrompt` IS the prompt text.
+  // There is no field for "AI Output".
+  // But wait, if we are in "Refine" mode, we might want to Paste the result into `current_json`?
+  // No, `current_json` is used to build the prompt.
+
+  // Let's check the UI for `PromptBuilder`. It has inputs. It shows the generated prompt.
+  // It does NOT seem to have a "Paste Result Here" section yet.
+  // I should add a "Paste Result & Apply" section? 
+  // OR maybe the user implies I should automagically apply it? 
+  // "Genera texto pero no se aplica" -> The prompt text? No, that doesn't make sense.
+
+  // Let's look at `PromptBuilder.tsx` lines 343+ (render).
+  // It shows `generatedPrompt` in a textarea.
+  // Maybe I should add a "Resultado JSON" textarea below the prompt?
+
+  // For now, I'll add a section "Pegar Resultado JSON" and the "Aplicar" button checks THAT.
 
   // Actually, I'll implement a "Paste JSON from AI" modal or section. 
   // Let's add a state `jsonResult` and a text area for it.
@@ -494,19 +530,23 @@ export const PromptBuilder: React.FC<PromptBuilderProps> = ({ onClose, currentSi
                 <div className="space-y-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Seleccionar Plantilla</label>
                   <div className="grid grid-cols-1 gap-2">
-                    {(Object.values(PROMPT_TEMPLATES) as PromptTemplate[]).map(tmpl => (
-                      <button
-                        key={tmpl.id} onClick={() => setSelectedTemplateId(tmpl.id)}
-                        className={`text-left p-3 rounded-xl border transition-all flex items-center gap-3 ${selectedTemplateId === tmpl.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'}`}
-                      >
-                        <div className={`p-2 rounded-lg ${selectedTemplateId === tmpl.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}><IconMap name={tmpl.icon} size={16} /></div>
-                        <div className="flex-1 overflow-hidden">
-                          <p className="font-bold text-xs truncate">{tmpl.name}</p>
-                          {selectedTemplateId === tmpl.id && <p className="text-[9px] opacity-80 truncate">{tmpl.description}</p>}
-                        </div>
-                        {selectedTemplateId === tmpl.id && <CheckCircle2 size={16} className="text-white" />}
-                      </button>
-                    ))}
+                    {['BASIC', 'STANDARD', 'PRO', 'PRO_TOP'].map(id => {
+                      const tmpl = PROMPT_TEMPLATES[id as TemplateId];
+                      if (!tmpl) return null;
+                      return (
+                        <button
+                          key={tmpl.id} onClick={() => setSelectedTemplateId(tmpl.id)}
+                          className={`text-left p-3 rounded-xl border transition-all flex items-center gap-3 ${selectedTemplateId === tmpl.id ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'}`}
+                        >
+                          <div className={`p-2 rounded-lg ${selectedTemplateId === tmpl.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'}`}><IconMap name={tmpl.icon} size={16} /></div>
+                          <div className="flex-1 overflow-hidden">
+                            <p className="font-bold text-xs truncate">{tmpl.name}</p>
+                            {selectedTemplateId === tmpl.id && <p className="text-[9px] opacity-80 truncate">{tmpl.description}</p>}
+                          </div>
+                          {selectedTemplateId === tmpl.id && <CheckCircle2 size={16} className="text-white" />}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="h-px bg-slate-200 w-full"></div>
@@ -584,6 +624,18 @@ export const PromptBuilder: React.FC<PromptBuilderProps> = ({ onClose, currentSi
             className="flex-1 bg-black/30 rounded-2xl border border-white/10 p-6 font-mono text-xs text-indigo-100 overflow-y-auto custom-scrollbar mb-6 resize-none outline-none focus:border-indigo-500/50 transition-colors"
           />
 
+          <div className="mb-4">
+            <label className="text-[10px] font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2 mb-2">
+              <Check size={14} /> Resultado JSON de la IA
+            </label>
+            <textarea
+              className="w-full h-32 bg-indigo-500/5 border border-white/10 rounded-xl p-4 font-mono text-[10px] text-emerald-400 outline-none focus:border-emerald-500/30 transition-all custom-scrollbar"
+              placeholder="Pega aquí el JSON generado para aplicarlo..."
+              value={jsonResult}
+              onChange={e => setJsonResult(e.target.value)}
+            />
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <div className="bg-white/5 border border-white/10 p-4 rounded-2xl">
               <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2"><List size={12} /> Campos Activos</h4>
@@ -608,7 +660,8 @@ export const PromptBuilder: React.FC<PromptBuilderProps> = ({ onClose, currentSi
           <div className="flex gap-4">
             <button onClick={handleManualSave} className="px-6 py-4 bg-white/10 text-white rounded-2xl font-bold hover:bg-white/20 transition-all flex items-center justify-center gap-2" title="Guardar en historial"><Save size={18} /></button>
             <button onClick={handleCopy} className="flex-1 py-4 bg-white text-slate-900 rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-indigo-50 transition-all shadow-xl active:scale-95"><Copy size={18} /> COPIAR</button>
-            <button onClick={handleOpenAIStudio} className="flex-1 py-4 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-xl active:scale-95"><ExternalLink size={18} /> ABRIR AI STUDIO</button>
+            <button onClick={handleApplyToSite} className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 hover:bg-emerald-500 transition-all shadow-xl active:scale-95"><Zap size={18} /> APLICAR AL SITIO</button>
+            <button onClick={handleOpenAIStudio} className="flex-1 py-4 bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 hover:opacity-90 transition-all shadow-xl active:scale-95"><ExternalLink size={18} /> AISTUDIO</button>
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 
-import { PromptInputs, TemplateId } from './promptTemplates';
+import { PromptInputs, TemplateId } from '../src/templates/promptTemplates';
 
 export interface PromptRecord {
   id: string;

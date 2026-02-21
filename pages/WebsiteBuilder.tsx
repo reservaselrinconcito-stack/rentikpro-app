@@ -5,9 +5,10 @@ import {
    ZoomIn, ZoomOut, Maximize, Monitor, Tablet, Smartphone,
    RotateCcw, RotateCw, Save, X, ChevronRight, ChevronDown,
    HelpCircle, CheckCircle2, AlertCircle, Palette, Sparkles,
-   GripVertical, Eye, EyeOff, LayoutPanelLeft
+   GripVertical, Eye, EyeOff, LayoutPanelLeft, Globe, Minus, History as HistoryIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { projectManager } from "../services/projectManager";
 
 type DeviceMode = "desktop" | "tablet" | "mobile";
 type InspectorTab = "content" | "style" | "responsive";
@@ -42,6 +43,7 @@ type BlockNode = {
    type: BlockType;
    props: Record<string, any>;
    style: BlockStyle;
+   styleOverrides?: Partial<Record<DeviceMode, Partial<BlockStyle>>>;
 };
 
 type PageState = {
@@ -49,6 +51,7 @@ type PageState = {
       template: "Minimal" | "Luxury" | "Conversion" | "Rustic";
       name: string;
       updatedAt: number;
+      publishedAt?: number;
    };
    blocks: BlockNode[];
 };
@@ -383,6 +386,11 @@ const maxWidthClass = (mw?: BlockStyle["maxWidth"]) => {
    if (mw === "prose") return "max-w-3xl";
    if (mw === "full") return "max-w-none";
    return "max-w-6xl";
+};
+
+const getEffectiveStyle = (node: BlockNode, device: DeviceMode): BlockStyle => {
+   const overrides = node.styleOverrides?.[device] ?? {};
+   return { ...node.style, ...overrides };
 };
 
 const safeJsonParse = <T,>(raw: string | null): T | null => {
@@ -848,36 +856,37 @@ export const WebsiteBuilder = () => {
       return createTemplate("Minimal");
    }, []);
 
-   const { history, setPresent, undo, redo } = useHistory(initial);
+   const { history: pageHistory, setPresent, undo, redo } = useHistory(initial);
 
-   const [selectedId, setSelectedId] = useState<string | null>(history.present.blocks[0]?.id ?? null);
+   const [selectedId, setSelectedId] = useState<string | null>(pageHistory.present.blocks[0]?.id ?? null);
    const [tab, setTab] = useState<InspectorTab>("content");
    const [device, setDevice] = useState<DeviceMode>("desktop");
-   const [zoom, setZoom] = useState(1);
+   const [zoom, setZoom] = useState(1.0);
    const [searchQuery, setSearchQuery] = useState("");
+   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
    const [isSaved, setIsSaved] = useState(true);
    const saveTimer = useRef<number | null>(null);
 
    const selected = useMemo(
-      () => history.present.blocks.find((b) => b.id === selectedId) ?? null,
-      [history.present.blocks, selectedId]
+      () => pageHistory.present.blocks.find((b) => b.id === selectedId) ?? null,
+      [pageHistory.present.blocks, selectedId]
    );
 
    const markDirty = useCallback(() => {
       setIsSaved(false);
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
-         const draft = deepClone(history.present);
+         const draft = deepClone(pageHistory.present);
          draft.meta.updatedAt = now();
          localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
          setIsSaved(true);
       }, 650);
-   }, [history.present]);
+   }, [pageHistory.present]);
 
    // Guardado inicial (asegura que haya draft)
    useEffect(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(history.present));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(pageHistory.present));
    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
    // Atajos teclado
@@ -901,6 +910,59 @@ export const WebsiteBuilder = () => {
       return () => window.removeEventListener("keydown", onKey);
    }, [undo, redo]);
 
+   // --- APLICAR SITIO DESDE PROMPT BUILDER ---
+   useEffect(() => {
+      const pendingJson = sessionStorage.getItem('pending_site_json');
+      if (pendingJson) {
+         try {
+            const data = JSON.parse(pendingJson);
+            console.log("[WebsiteBuilder] Applying pending site from Prompt Builder...", data);
+
+            // 1. Actualizar Draft Local
+            localStorage.setItem(STORAGE_KEY, pendingJson);
+
+            // 2. Persistir en DB (SQLite)
+            // Buscamos si hay un sitio activo para sobreescribir o creamos uno
+            projectManager.getStore().getWebsites().then(async (sites) => {
+               let siteToUpdate = sites.find(s => s.subdomain === 'draft' || s.is_published === false);
+
+               const websiteUpdate: any = {
+                  id: siteToUpdate?.id || `site_${Date.now()}`,
+                  name: data.meta?.name || siteToUpdate?.name || 'Mi Sitio AI',
+                  subdomain: siteToUpdate?.subdomain || 'draft',
+                  template_slug: data.meta?.template?.toLowerCase() || 'minimal',
+                  config_json: pendingJson, // WebSpec v1 format
+                  theme_config: JSON.stringify(data.theme || {}),
+                  sections_json: JSON.stringify(data.blocks || []),
+                  updated_at: Date.now()
+               };
+
+               await projectManager.getStore().saveWebsite(websiteUpdate);
+               console.log("[WebsiteBuilder] Site persisted to SQLite.");
+            });
+
+            // 3. Actualizar Estado Live
+            setPresent(data);
+            setSelectedId(data.blocks[0]?.id || null);
+
+            // 4. Limpieza
+            sessionStorage.removeItem('pending_site_json');
+
+            // 5. Feedback
+            toast.success("¡Sitio aplicado con éxito desde Prompt Builder!");
+
+            // 6. Quitar ?apply=1 de la URL sin recargar
+            const url = new URL(window.location.href);
+            url.searchParams.delete('apply');
+            window.history.replaceState({}, '', url.toString());
+
+         } catch (err) {
+            console.error("Error applying pending site:", err);
+            toast.error("Error al aplicar el sitio generado.");
+         }
+      }
+   }, [setPresent]);
+
    const setState = useCallback(
       (next: PageState) => {
          setPresent(next);
@@ -923,49 +985,64 @@ export const WebsiteBuilder = () => {
 
    const addBlock = useCallback(
       (type: BlockType, afterId?: string | null) => {
-         const b = createBlock(type, history.present.meta.template);
-         const blocks = history.present.blocks.slice();
+         const b = createBlock(type, pageHistory.present.meta.template);
+         const blocks = pageHistory.present.blocks.slice();
          if (!afterId) {
             blocks.push(b);
          } else {
             const idx = blocks.findIndex((x) => x.id === afterId);
             blocks.splice(idx >= 0 ? idx + 1 : blocks.length, 0, b);
          }
-         const next: PageState = { ...history.present, blocks, meta: { ...history.present.meta, updatedAt: now() } };
+         const next: PageState = { ...pageHistory.present, blocks, meta: { ...pageHistory.present.meta, updatedAt: now() } };
          setState(next);
          setSelectedId(b.id);
       },
-      [history.present, setState]
+      [pageHistory.present, setState]
    );
 
    const duplicateBlock = useCallback(() => {
       if (!selected) return;
       const copy: BlockNode = { ...deepClone(selected), id: uid() };
-      const blocks = history.present.blocks.slice();
+      const blocks = pageHistory.present.blocks.slice();
       const idx = blocks.findIndex((b) => b.id === selected.id);
       blocks.splice(idx + 1, 0, copy);
-      setState({ ...history.present, blocks, meta: { ...history.present.meta, updatedAt: now() } });
+      setState({ ...pageHistory.present, blocks, meta: { ...pageHistory.present.meta, updatedAt: now() } });
       setSelectedId(copy.id);
-   }, [selected, history.present, setState]);
+   }, [selected, pageHistory.present, setState]);
 
    const deleteBlock = useCallback(() => {
       if (!selected) return;
-      const blocks = history.present.blocks.filter((b) => b.id !== selected.id);
+      const blocks = pageHistory.present.blocks.filter((b) => b.id !== selected.id);
       const nextSelected = blocks[Math.max(0, blocks.length - 1)]?.id ?? null;
-      setState({ ...history.present, blocks, meta: { ...history.present.meta, updatedAt: now() } });
+      setState({ ...pageHistory.present, blocks, meta: { ...pageHistory.present.meta, updatedAt: now() } });
       setSelectedId(nextSelected);
-   }, [selected, history.present, setState]);
+   }, [selected, pageHistory.present, setState]);
+
+   const publishWeb = () => {
+      const nowTs = now();
+      const updated = {
+         ...pageHistory.present,
+         meta: { ...pageHistory.present.meta, publishedAt: nowTs },
+      };
+      setPresent(updated);
+      localStorage.setItem("rentikpro.websiteBuilder.live.v1", JSON.stringify(updated));
+      toast.success("¡Web publicada con éxito!");
+   };
+
+   const openLivePreview = () => {
+      setIsPreviewOpen(true);
+   };
 
    const moveSelected = useCallback(
       (dir: -1 | 1) => {
          if (!selected) return;
-         const idx = history.present.blocks.findIndex((b) => b.id === selected.id);
-         const to = clamp(idx + dir, 0, history.present.blocks.length - 1);
+         const idx = pageHistory.present.blocks.findIndex((b) => b.id === selected.id);
+         const to = clamp(idx + dir, 0, pageHistory.present.blocks.length - 1);
          if (to === idx) return;
-         const blocks = moveItem(history.present.blocks, idx, to);
-         setState({ ...history.present, blocks, meta: { ...history.present.meta, updatedAt: now() } });
+         const blocks = moveItem(pageHistory.present.blocks, idx, to);
+         setState({ ...pageHistory.present, blocks, meta: { ...pageHistory.present.meta, updatedAt: now() } });
       },
-      [selected, history.present, setState]
+      [selected, pageHistory.present, setState]
    );
 
    const onDropToCanvas = useCallback(
@@ -983,112 +1060,99 @@ export const WebsiteBuilder = () => {
    const updateSelectedProps = useCallback(
       (patch: Record<string, any>) => {
          if (!selected) return;
-         const blocks = history.present.blocks.map((b) => (b.id === selected.id ? applyPropsToBlock(b, patch) : b));
-         setState({ ...history.present, blocks, meta: { ...history.present.meta, updatedAt: now() } });
+         const blocks = pageHistory.present.blocks.map((b) => (b.id === selected.id ? applyPropsToBlock(b, patch) : b));
+         setState({ ...pageHistory.present, blocks, meta: { ...pageHistory.present.meta, updatedAt: now() } });
       },
-      [selected, history.present, setState]
+      [selected, pageHistory.present, setState]
    );
 
    const updateSelectedStyle = useCallback(
       (patch: Partial<BlockStyle>) => {
          if (!selected) return;
-         const blocks = history.present.blocks.map((b) => (b.id === selected.id ? applyStyleToBlock(b, patch) : b));
-         setState({ ...history.present, blocks, meta: { ...history.present.meta, updatedAt: now() } });
+         const blocks = pageHistory.present.blocks.map((b) => (b.id === selected.id ? applyStyleToBlock(b, patch) : b));
+         setState({ ...pageHistory.present, blocks, meta: { ...pageHistory.present.meta, updatedAt: now() } });
       },
-      [selected, history.present, setState]
+      [selected, pageHistory.present, setState]
    );
 
    const resetDraft = useCallback(() => {
-      const next = createTemplate(history.present.meta.template);
+      const next = createTemplate(pageHistory.present.meta.template);
       setPresent(next);
       setSelectedId(next.blocks[0]?.id ?? null);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       setIsSaved(true);
-   }, [history.present.meta.template, setPresent]);
-
+   }, [pageHistory.present.meta.template, setPresent]);
    const exportJson = useCallback(() => {
-      const payload = JSON.stringify(history.present, null, 2);
+      const payload = JSON.stringify(pageHistory.present, null, 2);
       navigator.clipboard?.writeText(payload);
       alert("✅ JSON copiado al portapapeles");
-   }, [history.present]);
+   }, [pageHistory.present]);
 
    return (
-      <div className="h-[calc(100vh-0px)] w-full bg-neutral-50 text-neutral-900">
+      <div className="h-screen w-full bg-neutral-50 text-neutral-900">
          {/* Topbar */}
-         <div className="sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-neutral-200">
-            <div className="px-4 py-3 flex items-center justify-between gap-3">
-               <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-2xl bg-black text-white flex items-center justify-center font-semibold">RP</div>
-                  <div className="leading-tight">
-                     <div className="text-sm font-semibold">Website Builder</div>
-                     <div className="text-xs opacity-70">
-                        {history.present.meta.template} · {isSaved ? "Guardado" : "Cambios sin guardar"}
-                     </div>
-                  </div>
-               </div>
-
+         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 z-50 shrink-0 shadow-sm">
+            <div className="flex items-center gap-4">
                <div className="flex items-center gap-2">
-                  <select
-                     className="text-sm px-3 py-2 rounded-xl border border-neutral-200 bg-white"
-                     value={history.present.meta.template}
-                     onChange={(e) => setTemplate(e.target.value as any)}
-                     title="Plantilla"
-                  >
-                     <option value="Minimal">Minimal</option>
-                     <option value="Luxury">Luxury</option>
-                     <option value="Conversion">Conversion</option>
-                     <option value="Rustic">Rustic</option>
-                  </select>
-
-                  <div className="hidden lg:flex items-center gap-2 border-r border-neutral-200 pr-3 mr-1">
-                     <button
-                        className="p-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 disabled:opacity-30"
-                        onClick={() => setZoom(z => clamp(z - 0.1, 0.5, 1.5))}
-                        disabled={zoom <= 0.5}
-                        title="Zoom Out"
-                     >
-                        <ZoomOut size={16} />
-                     </button>
-                     <div
-                        className="text-xs font-bold w-12 text-center cursor-pointer hover:text-black transition-colors"
-                        onClick={() => setZoom(1)}
-                        title="Reset Zoom (100%)"
-                     >
-                        {Math.round(zoom * 100)}%
+                  <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white shadow-lg">
+                     <Globe size={18} />
+                  </div>
+                  <div>
+                     <div className="text-sm font-black tracking-tight leading-none">Website Builder</div>
+                     <div className="text-[10px] text-neutral-400 font-bold mt-1 uppercase tracking-widest flex items-center gap-2">
+                        {pageHistory.present.meta.template} Pro
+                        <span className="w-1 h-1 bg-neutral-200 rounded-full" />
+                        {pageHistory.present.meta.publishedAt ? `Publicado ${new Date(pageHistory.present.meta.publishedAt).toLocaleTimeString()}` : "No publicado"}
                      </div>
-                     <button
-                        className="p-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 disabled:opacity-30"
-                        onClick={() => setZoom(z => clamp(z + 0.1, 0.5, 1.5))}
-                        disabled={zoom >= 1.5}
-                        title="Zoom In"
-                     >
-                        <ZoomIn size={16} />
-                     </button>
                   </div>
-
-                  <div className="hidden md:flex items-center gap-2 border-r border-neutral-200 pr-3 mr-1">
-                     <button className="p-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-500 hover:text-black transition-colors disabled:opacity-20" onClick={undo} disabled={history.past.length === 0} title="Undo (Cmd/Ctrl+Z)">
-                        <RotateCcw size={16} />
-                     </button>
-                     <button className="p-2 rounded-xl border border-neutral-200 bg-white hover:bg-neutral-50 text-neutral-500 hover:text-black transition-colors disabled:opacity-20" onClick={redo} disabled={history.future.length === 0} title="Redo (Cmd/Ctrl+Shift+Z)">
-                        <RotateCw size={16} />
-                     </button>
-                  </div>
-
-                  <button className="px-3 py-2 rounded-xl border border-neutral-200 text-sm" onClick={exportJson}>
-                     Export JSON
-                  </button>
-                  <button className="px-3 py-2 rounded-xl border border-neutral-200 text-sm" onClick={resetDraft}>
-                     Reset
-                  </button>
                </div>
             </div>
-         </div>
 
-         {/* Layout 3 columnas */}
-         <div className="grid grid-cols-12 h-[calc(100vh-64px)]">
+            <div className="flex items-center gap-1 bg-neutral-100 p-1 rounded-xl border border-black/5">
+               {(["desktop", "tablet", "mobile"] as const).map((m) => (
+                  <button
+                     key={m}
+                     className={`p-2 rounded-lg transition-all ${device === m ? "bg-white shadow-sm text-black scale-105" : "text-neutral-400 hover:text-black"}`}
+                     onClick={() => setDevice(m)}
+                  >
+                     {m === "desktop" && <Monitor size={18} />}
+                     {m === "tablet" && <Tablet size={18} />}
+                     {m === "mobile" && <Smartphone size={18} />}
+                  </button>
+               ))}
+               <div className="w-px h-4 bg-neutral-200 mx-1" />
+               <button className="p-2 text-neutral-400 hover:text-black" onClick={() => setZoom(z => clamp(z - 0.1, 0.5, 1.5))}>
+                  <Minus size={16} />
+               </button>
+               <button className="px-2 text-[11px] font-black text-neutral-600 hover:text-black min-w-[40px]" onClick={() => setZoom(1.0)}>
+                  {Math.round(zoom * 100)}%
+               </button>
+               <button className="p-2 text-neutral-400 hover:text-black" onClick={() => setZoom(z => clamp(z + 0.1, 0.5, 1.5))}>
+                  <Plus size={16} />
+               </button>
+            </div>
+
+            <div className="flex items-center gap-3">
+               <div className="flex items-center gap-1 mr-2 bg-neutral-100 p-1 rounded-xl">
+                  <button className="p-2 text-neutral-400 hover:text-black disabled:opacity-20" onClick={undo} disabled={pageHistory.past.length === 0}>
+                     <HistoryIcon size={18} className="rotate-180" />
+                  </button>
+                  <button className="p-2 text-neutral-400 hover:text-black disabled:opacity-20" onClick={redo} disabled={pageHistory.future.length === 0}>
+                     <HistoryIcon size={18} />
+                  </button>
+               </div>
+               <button onClick={openLivePreview} className="px-4 py-2 text-xs font-bold text-neutral-600 hover:text-black transition-colors rounded-xl border border-neutral-200 hover:border-black">
+                  Ver web
+               </button>
+               <button onClick={publishWeb} className="px-5 py-2 text-xs font-bold bg-black text-white hover:bg-neutral-800 transition-all rounded-xl shadow-lg active:scale-95">
+                  Publicar
+               </button>
+            </div>
+         </header>
+
+         <div className="flex-1 flex overflow-hidden">
             {/* Left: Block library */}
-            <aside className="col-span-12 md:col-span-3 lg:col-span-3 xl:col-span-2 border-r border-neutral-200 bg-white flex flex-col overflow-hidden">
+            <aside className="col-span-3 border-r border-neutral-200 bg-white flex flex-col overflow-hidden">
                <div className="p-4 border-b border-neutral-100">
                   <div className="text-sm font-bold flex items-center gap-2">
                      <LayoutPanelLeft size={16} className="text-black" />
@@ -1159,7 +1223,7 @@ export const WebsiteBuilder = () => {
             </aside>
 
             {/* Center: Canvas (Artboard) */}
-            <main className="col-span-12 md:col-span-6 lg:col-span-6 xl:col-span-7 bg-neutral-100 flex flex-col overflow-hidden relative">
+            <main className="flex-1 bg-neutral-100 flex flex-col overflow-hidden relative">
                {/* Grid Background Pattern */}
                <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(circle, #000 1.5px, transparent 1.5px)', backgroundSize: '24px 24px' }} />
 
@@ -1218,7 +1282,7 @@ export const WebsiteBuilder = () => {
 
                         {/* Actual Builder Content */}
                         <div className="min-h-[800px] flex flex-col">
-                           {history.present.blocks.map((b) => {
+                           {pageHistory.present.blocks.map((b) => {
                               const isSel = b.id === selectedId;
                               return (
                                  <div
@@ -1255,15 +1319,18 @@ export const WebsiteBuilder = () => {
                                        </div>
                                     )}
 
-                                    <div className={`${b.style.border ?? ""} ${b.style.rounded ?? ""} ${b.style.shadow ?? ""}`}>
-                                       {BlockRegistry[b.type].render(b)}
+                                    <div className={`${getEffectiveStyle(b, device).border ?? ""} ${getEffectiveStyle(b, device).rounded ?? ""} ${getEffectiveStyle(b, device).shadow ?? ""}`}>
+                                       {BlockRegistry[b.type].render({
+                                          ...b,
+                                          style: getEffectiveStyle(b, device)
+                                       })}
                                     </div>
                                  </div>
                               );
                            })}
 
                            {/* Empty state hint */}
-                           {history.present.blocks.length === 0 && (
+                           {pageHistory.present.blocks.length === 0 && (
                               <div className="flex-1 flex flex-col items-center justify-center p-20 text-center opacity-30">
                                  <LayoutPanelLeft size={48} className="mb-4" />
                                  <div className="text-xl font-bold">Canvas Vacío</div>
@@ -1277,7 +1344,7 @@ export const WebsiteBuilder = () => {
             </main>
 
             {/* Right: Inspector */}
-            <aside className="col-span-12 md:col-span-3 lg:col-span-3 border-l border-neutral-200 bg-white overflow-auto">
+            <aside className="col-span-3 border-l border-neutral-200 bg-white overflow-auto">
                <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                      <div>
@@ -1493,6 +1560,30 @@ export const WebsiteBuilder = () => {
                </div>
             </aside>
          </div>
+
+         {/* Preview Modal */}
+         {isPreviewOpen && (
+            <div className="fixed inset-0 z-[100] bg-white flex flex-col">
+               <div className="h-16 border-b border-neutral-200 flex items-center justify-between px-6 bg-white shrink-0">
+                  <div className="flex items-center gap-3">
+                     <span className="text-sm font-bold">Vista Previa Real</span>
+                     <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-widest">Live</span>
+                  </div>
+                  <button onClick={() => setIsPreviewOpen(false)} className="p-2 hover:bg-neutral-100 rounded-xl transition-colors">
+                     <X size={20} />
+                  </button>
+               </div>
+               <div className="flex-1 overflow-auto bg-neutral-50 p-8 flex justify-center">
+                  <div className="w-full max-w-6xl bg-white shadow-2xl rounded-2xl overflow-hidden min-h-full">
+                     {pageHistory.present.blocks.map(b => (
+                        <div key={b.id}>
+                           {BlockRegistry[b.type].render(b)}
+                        </div>
+                     ))}
+                  </div>
+               </div>
+            </div>
+         )}
       </div>
    );
 };
