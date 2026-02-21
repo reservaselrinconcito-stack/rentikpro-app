@@ -1,4 +1,16 @@
-import React, { useState, useEffect, useCallback } from 'react';
+<div style={{
+   position: 'fixed',
+   top: 12,
+   right: 12,
+   zIndex: 999999,
+   background: '#111827',
+   color: 'white',
+   padding: '10px 14px',
+   borderRadius: 12,
+   fontWeight: 900
+}}>
+   🚀 DEPLOY CHECK 2026-02-21  (cámbiame el texto cada vez)
+</div>
 import {
    ArrowLeft, RefreshCw, Globe, CheckCircle2, AlertCircle, Save, X,
    Layout, Layers, Send, GripVertical, Eye, EyeOff
