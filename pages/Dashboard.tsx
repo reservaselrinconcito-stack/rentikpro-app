@@ -73,11 +73,28 @@ export const Dashboard: React.FC = () => {
 
     const apartments = await store.getAllApartments();
 
-    // Cleaning Stats
+    // Cleaning Stats (Today + Tomorrow)
     const today = new Date().toISOString().split('T')[0];
-    const tasks = await store.getCleaningTasks(today, today);
-    const pendingTasks = tasks.filter(t => t.status !== 'DONE');
-    setPendingCleanings(pendingTasks.length);
+    const tomorrowDate = new Date();
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    const tomorrow = tomorrowDate.toISOString().split('T')[0];
+
+    // Derived cleaning count (checkouts today/tomorrow without DONE task)
+    const [tasksRange, checkouts] = await Promise.all([
+      store.getCleaningTasks(today, tomorrow),
+      store.query("SELECT apartment_id, due_date FROM (SELECT apartment_id, check_out as due_date FROM bookings WHERE status = 'confirmed' AND (check_out = ? OR check_out = ?))", [today, tomorrow])
+    ]);
+
+    const activeApartmentsWithCheckouts = new Set(checkouts.map((c: any) => `${c.apartment_id}_${c.due_date}`));
+    const completedTaskKeys = new Set(tasksRange.filter(t => t.status === 'DONE').map(t => `${t.apartment_id}_${t.due_date}`));
+
+    // Count is: all checkouts today/tomorrow that don't have a DONE task
+    let totalPendingCleanings = 0;
+    activeApartmentsWithCheckouts.forEach(key => {
+      if (!completedTaskKeys.has(key)) totalPendingCleanings++;
+    });
+
+    setPendingCleanings(totalPendingCleanings);
 
     // 1. General Stats
     const revenue = txs
@@ -117,10 +134,10 @@ export const Dashboard: React.FC = () => {
       const messages = await store.getRecentMessages(3);
 
       // OPERATIONAL CALCULATIONS (D1)
-      const todayISO = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
+      const todayISO = new Date().toISOString().split('T')[0];
 
-      const arrToday = confirmedBookings.filter(b => isSameDay(b.check_in, todayISO)).length;
-      const depToday = confirmedBookings.filter(b => isSameDay(b.check_out, todayISO)).length;
+      const arrToday = confirmedBookings.filter(b => b.check_in === todayISO).length;
+      const depToday = confirmedBookings.filter(b => b.check_out === todayISO).length;
       const activeNow = confirmedBookings.filter(b => isOccupiedToday(b.check_in, b.check_out, todayISO)).length;
 
       setOpStats({
@@ -274,7 +291,7 @@ export const Dashboard: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard label="Propiedades" value={stats.properties} icon={Building2} color="bg-indigo-500" onClick={() => navigate('/properties')} />
         <StatCard label="Reservas Totales" value={stats.bookings} icon={CalendarRange} color="bg-emerald-500" onClick={() => navigate('/bookings')} />
-        <StatCard label="Limpiezas" value={pendingCleanings} icon={Sparkles} color="bg-pink-500" onClick={() => navigate('/cleaning')} />
+        <StatCard label="Limpiezas" value={pendingCleanings} icon={Sparkles} color="bg-pink-500" onClick={() => navigate('/limpiezas')} />
         <div className="hidden md:block">
           <StatCard label="Viajeros" value={stats.travelers} icon={Users} color="bg-orange-500" onClick={() => navigate('/travelers')} />
         </div>
@@ -296,12 +313,12 @@ export const Dashboard: React.FC = () => {
                 <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><Calendar size={20} /></div>
                 Próximas Llegadas
               </h4>
-              <button onClick={() => navigate('/bookings')} className="text-xs font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest bg-indigo-50 px-4 py-2 rounded-full transition-colors">Ver todas</button>
+              <button onClick={() => navigate('/calendario?filter=arrivals')} className="text-xs font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest bg-indigo-50 px-4 py-2 rounded-full transition-colors">Ver todas</button>
             </div>
 
             <div className="space-y-3">
               {[...upcomingArrivals, ...provisionalArrivals].length > 0 ? [...upcomingArrivals, ...provisionalArrivals].map(b => (
-                <div key={b.id} className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer group/item" onClick={() => navigate('/bookings')}>
+                <div key={b.id} className="flex items-center justify-between p-3 bg-slate-50 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer group/item" onClick={() => navigate('/calendario?filter=arrivals')}>
                   <div className="flex items-center gap-4">
                     <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xs relative overflow-hidden">
                       {new Date(b.check_in).getDate()}
@@ -330,7 +347,7 @@ export const Dashboard: React.FC = () => {
               )) : (
                 <div className="text-center py-8 text-slate-400 text-sm">
                   <div className="mb-2">No hay llegadas previstas esta semana.</div>
-                  <button onClick={() => navigate('/bookings')} className="text-indigo-600 font-bold text-xs">Ir a Reservas</button>
+                  <button onClick={() => navigate('/calendario?filter=arrivals')} className="text-indigo-600 font-bold text-xs">Ir a Calendario</button>
                 </div>
               )}
             </div>
@@ -346,12 +363,12 @@ export const Dashboard: React.FC = () => {
                 <div className="p-2 bg-violet-50 text-violet-600 rounded-xl"><MessageSquare size={20} /></div>
                 Buzón de Mensajes
               </h4>
-              <button onClick={() => navigate('/communications')} className="text-xs font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest bg-indigo-50 px-4 py-2 rounded-full transition-colors">Buzón</button>
+              <button onClick={() => navigate('/buzon')} className="text-xs font-black text-indigo-600 hover:text-indigo-800 uppercase tracking-widest bg-indigo-50 px-4 py-2 rounded-full transition-colors">Buzón</button>
             </div>
 
             <div className="space-y-3">
               {recentMessages.length > 0 ? recentMessages.map(c => (
-                <div key={c.id} onClick={() => navigate(`/communications?search=${c.id}`)} className="p-4 border border-slate-100 rounded-2xl hover:bg-slate-50 transition-colors cursor-pointer group">
+                <div key={c.id} onClick={() => navigate(`/buzon?search=${c.id}`)} className="p-4 border border-slate-100 rounded-2xl hover:bg-slate-50 transition-colors cursor-pointer group">
                   <div className="flex justify-between items-start mb-1">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-sm text-slate-700">{c.subject || 'Sin asunto'}</span>
@@ -367,7 +384,7 @@ export const Dashboard: React.FC = () => {
                 <div className="text-center py-8 text-slate-400 text-sm">
                   <div className="w-12 h-12 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-2 text-slate-300"><MessageSquare size={20} /></div>
                   <div className="mb-2">Buzón al día. No hay mensajes recientes.</div>
-                  <button onClick={() => navigate('/communications')} className="text-indigo-600 font-bold text-xs">Ir a Comunicaciones</button>
+                  <button onClick={() => navigate('/buzon')} className="text-indigo-600 font-bold text-xs">Ir a Buzón</button>
                 </div>
               )}
             </div>
@@ -390,12 +407,12 @@ export const Dashboard: React.FC = () => {
               <h4 className="font-bold text-slate-700">Check-ins Pendientes</h4>
               <p className="text-xs text-slate-400 mb-4">Para hoy y mañana</p>
               {pendingCheckins.length > 0 ? (
-                <button onClick={() => navigate('/checkin-scan')} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors">
+                <button onClick={() => navigate('/checkins')} className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors">
                   Ver Check-ins
                 </button>
               ) : (
-                <button onClick={() => navigate('/bookings')} className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-xl text-xs font-bold transition-colors">
-                  Ir a Reservas
+                <button onClick={() => navigate('/calendario')} className="w-full py-2 bg-slate-50 hover:bg-slate-100 text-slate-500 rounded-xl text-xs font-bold transition-colors">
+                  Ir a Calendario
                 </button>
               )}
             </div>

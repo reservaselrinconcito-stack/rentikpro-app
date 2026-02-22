@@ -120,6 +120,11 @@ export const Marketing: React.FC = () => {
       };
    }, [travelersData, campaigns]);
 
+   const smtpCheck = useMemo(() => {
+      if (!settings) return { valid: false, missing: [] };
+      return smtpService.verifyConfig(settings);
+   }, [settings]);
+
    const upcomingBirthdays = useMemo(() => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -239,6 +244,13 @@ export const Marketing: React.FC = () => {
    // --- SENDING LOGIC ---
    const handleSendTest = async () => {
       if (!activeCampaignForSend || !testEmail || !settings) return;
+
+      const check = smtpCheck;
+      if (!check.valid) {
+         toast.error(`Configuración SMTP incompleta: ${check.missing.join(', ')}`);
+         return;
+      }
+
       setIsSending(true);
       try {
          const template = templates.find(t => t.id === activeCampaignForSend.email_template_id);
@@ -830,12 +842,22 @@ export const Marketing: React.FC = () => {
                      <button onClick={() => setSendTestModalOpen(false)} className="flex-1 p-4 rounded-xl font-bold text-slate-500 hover:bg-slate-50">Cancelar</button>
                      <button
                         onClick={handleSendTest}
-                        disabled={isSending || !testEmail.includes('@')}
+                        disabled={isSending || !testEmail.includes('@') || !smtpCheck.valid}
                         className="flex-1 p-4 bg-indigo-600 text-white rounded-xl font-black hover:bg-indigo-700 disabled:opacity-50"
                      >
                         {isSending ? 'Enviando...' : 'Enviar'}
                      </button>
                   </div>
+                  {!smtpCheck.valid && (
+                     <div className="mt-4 p-4 bg-amber-50 rounded-xl border border-amber-100 flex items-start gap-3 text-left">
+                        <AlertCircle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+                        <p className="text-xs text-amber-800 font-medium leading-relaxed">
+                           <span className="font-black block mb-1 uppercase tracking-widest text-[9px]">Configuración SMTP requerida</span>
+                           Faltan los siguientes campos: {smtpCheck.missing.join(', ')}.
+                           Configura tu servidor en <span className="font-bold cursor-pointer underline hover:text-indigo-600" onClick={() => navigate('/settings')}>Ajustes</span>.
+                        </p>
+                     </div>
+                  )}
                </div>
             </div>
          )}

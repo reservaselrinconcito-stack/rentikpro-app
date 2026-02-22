@@ -204,25 +204,28 @@ const App: React.FC = () => {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/calendar" element={<Calendar />} />
+                <Route path="/calendario" element={<Navigate to="/calendar" replace />} />
                 <Route path="/properties" element={<Properties />} />
                 <Route path="/travelers" element={<Travelers />} />
                 <Route path="/travelers/:id" element={<TravelerDetail />} />
                 <Route path="/checkin-scan" element={<CheckInScan />} />
+                <Route path="/checkins" element={<Navigate to="/checkin-scan" replace />} />
                 <Route path="/bookings" element={<Bookings />} />
                 <Route path="/bookings/:id" element={<Bookings />} />
                 <Route path="/marketing" element={<Marketing />} />
                 <Route path="/cleaning" element={<CleaningPage store={projectManager.getStore()} />} />
+                <Route path="/limpiezas" element={<Navigate to="/cleaning" replace />} />
                 <Route path="/maintenance" element={<MaintenancePage store={projectManager.getStore()} />} />
                 <Route path="/accounting" element={<Accounting />} />
                 <Route path="/registry" element={<Registry />} />
                 <Route path="/website-builder" element={<WebsiteBuilder />} />
                 <Route path="/settings" element={<Settings onSave={handleSave} />} />
                 <Route path="/comms" element={<Communications />} />
+                <Route path="/buzon" element={<Navigate to="/comms" replace />} />
                 <Route path="/channel-manager" element={<ChannelManager />} />
                 <Route path="/importers" element={<Importers />} />
                 <Route path="/qa" element={<QualityAssurance />} />
                 <Route path="/backup" element={<BackupVault />} />
-                <Route path="/calendar" element={<Calendar />} />
                 <Route path="/calendar/event/:id" element={<Calendar />} />
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>

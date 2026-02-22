@@ -109,6 +109,14 @@ const CalendarContent: React.FC = () => {
 
   // Handle routing for deep links (F1)
   useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const filter = searchParams.get('filter');
+
+    if (filter === 'arrivals') {
+      setCurrentDate(new Date());
+      // Could also set a state to highlight arrivals
+    }
+
     if (routeId && bookings.length > 0) {
       const b = bookings.find(x => x.id === routeId || x.linked_event_id === routeId);
       if (b) {
