@@ -10,7 +10,8 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
-    "deploy": "npm version patch --no-git-tag-version && npm run build && wrangler pages deploy dist --project-name rentikpro2"
+    "deploy": "npm version patch --no-git-tag-version && npm run build && wrangler pages deploy dist --project-name rentikpro2",
+    "smoke": "npm run build && npx playwright test tests/smoke.spec.ts"
   },
   "dependencies": {
     "@types/jszip": "^3.4.0",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
+    "@playwright/test": "^1.42.0",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20.15.0",
     "@types/react": "^19.0.0",

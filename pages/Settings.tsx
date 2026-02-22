@@ -1,5 +1,5 @@
-
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ProjectManager, projectManager } from '../services/projectManager';
 import { UserSettings, Property } from '../types';
 import {
@@ -16,6 +16,7 @@ import { publishAvailability, generatePublicToken } from '../services/publicWebS
 import { useStore } from '../hooks/useStore';
 
 export const Settings = ({ onSave }: { onSave: () => void }) => {
+    const navigate = useNavigate();
     const store = useStore(); // Added useStore hook
     const [settings, setSettings] = useState<UserSettings | null>(null); // Changed initial state to null
     const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'backup' | 'email_ingest' | 'policies' | 'smtp' | 'web_publica'>('profile'); // Added activeTab state
@@ -734,6 +735,19 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                     />
                                     <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-slate-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-slate-900"></div>
                                 </label>
+                            </div>
+
+                            <div className="flex items-center justify-between p-4 bg-indigo-50/50 border border-indigo-100 rounded-2xl mt-4">
+                                <div>
+                                    <h4 className="font-bold text-indigo-900">Panel de Diagnóstico</h4>
+                                    <p className="text-xs text-indigo-600">Verifica la salud del sistema, tablas y contadores en tiempo real.</p>
+                                </div>
+                                <button
+                                    onClick={() => navigate('/diagnostics')}
+                                    className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-indigo-700 transition-colors"
+                                >
+                                    Abrir
+                                </button>
                             </div>
                         </div>
 

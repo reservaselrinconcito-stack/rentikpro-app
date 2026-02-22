@@ -24,7 +24,7 @@ export class ProjectManager {
   // File-mode autosave state
   private fileSaveState: 'idle' | 'saving' | 'saved' | 'error' = 'idle';
   private fileAutoSaveTimer: any = null;
-  private isSavingToFile: boolean = false; // reentrance guard to avoid saveToFile -> saveProject -> saveToFile loop
+  public isSavingToFile: boolean = false; // reentrance guard to avoid saveToFile -> saveProject -> saveToFile loop
 
   constructor() {
     this.store = new SQLiteStore();
@@ -674,12 +674,16 @@ export class ProjectManager {
   scheduleAutoSaveFile(): void {
     if (this.storageMode !== 'file' || !this.fileProvider.hasOpenFile()) return;
 
+    // PRO: si ya estamos guardando, no reprogramar (evita "Guardando..." infinito por re-entrancia)
+    if (this.isSavingToFile) return;
+
     // Cancel any pending write
     if (this.fileAutoSaveTimer) {
       clearTimeout(this.fileAutoSaveTimer);
     }
 
-    this.fileSaveState = 'idle';
+    // No machacar estado si ya está guardando (por seguridad)
+    if (this.fileSaveState !== 'saving') this.fileSaveState = 'idle';
 
     this.fileAutoSaveTimer = setTimeout(async () => {
       this.fileAutoSaveTimer = null;
@@ -997,6 +1001,33 @@ export class ProjectManager {
       logger.error("Import Structure Failed", e);
       return { success: false, error: e.message };
     }
+  }
+
+  getStore(): SQLiteStore {
+    return this.store;
+  }
+
+  getCurrentProjectId(): string | null {
+    return this.currentProjectId;
+  }
+
+  getFileSaveState(): 'idle' | 'saving' | 'saved' | 'error' {
+    return this.fileSaveState;
+  }
+
+  getStorageMode(): 'idb' | 'file' {
+    return this.storageMode;
+  }
+
+  forceResetSavingState(): void {
+    logger.warn("[ProjectManager] Manually resetting saving state.");
+    this.isSavingToFile = false;
+    this.fileSaveState = 'idle';
+    if (this.fileAutoSaveTimer) {
+      clearTimeout(this.fileAutoSaveTimer);
+      this.fileAutoSaveTimer = null;
+    }
+    notifyDataChanged('all');
   }
 }
 

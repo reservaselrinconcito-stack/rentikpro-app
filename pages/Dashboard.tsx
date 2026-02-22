@@ -60,7 +60,7 @@ export const Dashboard: React.FC = () => {
 
   const fetchData = async () => {
     const store = projectManager.getStore();
-    const [props, accountingBookings, bookings, txs, connections, travelers, websites, conversations] = await Promise.all([
+    const [props, accountingBookingsRaw, bookingsRaw, txs, connections, travelers, websites, conversations] = await Promise.all([
       store.getProperties(),
       store.getBookingsFromAccounting(),
       store.getBookings(),
@@ -72,6 +72,10 @@ export const Dashboard: React.FC = () => {
     ]);
 
     const apartments = await store.getAllApartments();
+
+    // Fallback PRO: si accounting no trae reservas, usamos bookings (para no tener Dashboard = 0 con calendario lleno)
+    const accountingBookings = (accountingBookingsRaw && accountingBookingsRaw.length > 0) ? accountingBookingsRaw : [];
+    const bookings = (accountingBookings.length > 0) ? accountingBookings : (bookingsRaw || []);
 
     // Derived cleaning count (checkouts today/tomorrow without DONE task)
     const todayISO = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
@@ -101,7 +105,7 @@ export const Dashboard: React.FC = () => {
       .reduce((acc, curr) => acc + curr.amount_net, 0);
 
     // "confirmed" for dashboard = real booking (not blocks). Keep KPIs/lists/checkins consistent.
-    const confirmedBookings = accountingBookings.filter(isConfirmedBooking);
+    const confirmedBookings = bookings.filter(isConfirmedBooking);
 
     setStats({
       properties: props.length,
@@ -130,17 +134,34 @@ export const Dashboard: React.FC = () => {
 
       const apartmentNameById = new Map(apartments.map(a => [a.id, a.name]));
 
-      const arrivals = confirmedBookings
-        .filter(b => b.check_in && b.check_in >= todayISO && b.check_in <= endISO7)
-        .map(b => ({ ...b, apartment_name: apartmentNameById.get(b.apartment_id) || '' }));
+      // Si accounting está vacío, los selectors pueden devolver 0 aunque haya bookings.
+      // Mantenemos los selectors (si funcionan) pero hacemos fallback a los arrays ya calculados.
+      let arrivals: any[] = [];
+      let provArrivals: any[] = [];
+      let pending: any[] = [];
+      try {
+        arrivals = await store.getUpcomingArrivals(7, activePropId, timezone);
+        provArrivals = await (store as any).getProvisionalArrivals ? await (store as any).getProvisionalArrivals(7, activePropId, timezone) : [];
+        pending = await store.getPendingCheckins(7, activePropId, timezone);
+      } catch { }
 
-      const provArrivals = accountingBookings
-        .filter(b => isProvisionalBlock(b) && b.check_in && b.check_in >= todayISO && b.check_in <= endISO7)
-        .map(b => ({ ...b, apartment_name: apartmentNameById.get(b.apartment_id) || '' }));
+      // Fallback listas si los selectors devuelven 0 pero hay reservas confirmadas
+      if ((!arrivals || arrivals.length === 0) && confirmedBookings.length > 0) {
+        arrivals = confirmedBookings
+          .filter(b => b.check_in && b.check_in >= todayISO && b.check_in <= endISO7)
+          .map(b => ({ ...b, apartment_name: apartmentNameById.get(b.apartment_id) || '' }));
+      }
 
-      // Check-ins pendientes: hoy + mañana
-      const pending = confirmedBookings
-        .filter(b => b.check_in && b.check_in >= todayISO && b.check_in <= endISO1);
+      if ((!provArrivals || provArrivals.length === 0) && accountingBookings.length > 0) {
+        provArrivals = accountingBookings
+          .filter(b => isProvisionalBlock(b) && b.check_in && b.check_in >= todayISO && b.check_in <= endISO7)
+          .map(b => ({ ...b, apartment_name: apartmentNameById.get(b.apartment_id) || '' }));
+      }
+
+      if ((!pending || pending.length === 0) && confirmedBookings.length > 0) {
+        pending = confirmedBookings
+          .filter(b => b.check_in && b.check_in >= todayISO && b.check_in <= endISO1);
+      }
 
       const birthdays = await store.getBirthdaysToday(activePropId, timezone);
       const messages = await store.getRecentMessages(3);

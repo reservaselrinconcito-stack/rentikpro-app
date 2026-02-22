@@ -56,6 +56,7 @@ const Calendar = lazyWithRetry(() => import('./pages/Calendar').then(m => ({ def
 const Marketing = lazyWithRetry(() => import('./pages/Marketing').then(m => ({ default: m.Marketing })));
 const Registry = lazyWithRetry(() => import('./pages/Registry').then(m => ({ default: m.Registry })));
 const WebsiteBuilder = lazyWithRetry(() => import('./pages/WebsiteBuilder').then(m => ({ default: m.WebsiteBuilder })));
+const Diagnostics = lazyWithRetry(() => import('./pages/Diagnostics').then(m => ({ default: m.Diagnostics })));
 const Communications = lazyWithRetry(() => import('./pages/Communications').then(m => ({ default: m.Communications })));
 const ChannelManager = lazyWithRetry(() => import('./pages/ChannelManager').then(m => ({ default: m.ChannelManager })));
 const QualityAssurance = lazyWithRetry(() => import('./pages/QualityAssurance').then(m => ({ default: m.QualityAssurance })));
@@ -225,6 +226,7 @@ const App: React.FC = () => {
                 <Route path="/channel-manager" element={<ChannelManager />} />
                 <Route path="/importers" element={<Importers />} />
                 <Route path="/qa" element={<QualityAssurance />} />
+                <Route path="/diagnostics" element={<Diagnostics />} />
                 <Route path="/backup" element={<BackupVault />} />
                 <Route path="/calendar/event/:id" element={<Calendar />} />
                 <Route path="*" element={<Navigate to="/" />} />
