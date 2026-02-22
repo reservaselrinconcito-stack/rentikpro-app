@@ -6,7 +6,7 @@ import { Property, Booking, ChannelConnection, Traveler, WebSite, Conversation, 
 import { TrendingUp, Home, Calendar, Users, AlertTriangle, RefreshCw, CheckCircle2, ArrowRight, Sparkles, Globe, MessageSquare, ExternalLink, Download, Building2, CalendarRange } from 'lucide-react';
 import { useDataRefresh } from '../services/dataRefresher';
 import { APP_VERSION } from '../src/version';
-import { isConfirmedBooking, isSameDay, isOccupiedToday } from '../utils/bookingClassification';
+import { isConfirmedBooking, isProvisionalBlock, isSameDay, isOccupiedToday } from '../utils/bookingClassification';
 import { getBookingDisplayName } from '../utils/bookingDisplay';
 
 const StatCard = ({ label, value, icon: Icon, color, onClick }: { label: string, value: string | number, icon: any, color: string, onClick?: () => void }) => (
@@ -73,16 +73,15 @@ export const Dashboard: React.FC = () => {
 
     const apartments = await store.getAllApartments();
 
-    // Cleaning Stats (Today + Tomorrow)
-    const today = new Date().toISOString().split('T')[0];
+    // Derived cleaning count (checkouts today/tomorrow without DONE task)
+    const todayISO = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
     const tomorrowDate = new Date();
     tomorrowDate.setDate(tomorrowDate.getDate() + 1);
-    const tomorrow = tomorrowDate.toISOString().split('T')[0];
+    const tomorrowISO = tomorrowDate.toLocaleDateString('en-CA');
 
-    // Derived cleaning count (checkouts today/tomorrow without DONE task)
     const [tasksRange, checkouts] = await Promise.all([
-      store.getCleaningTasks(today, tomorrow),
-      store.query("SELECT apartment_id, due_date FROM (SELECT apartment_id, check_out as due_date FROM bookings WHERE status = 'confirmed' AND (check_out = ? OR check_out = ?))", [today, tomorrow])
+      store.getCleaningTasks(todayISO, tomorrowISO),
+      store.query("SELECT apartment_id, due_date FROM (SELECT apartment_id, check_out as due_date FROM bookings WHERE status = 'confirmed' AND (check_out = ? OR check_out = ?))", [todayISO, tomorrowISO])
     ]);
 
     const activeApartmentsWithCheckouts = new Set(checkouts.map((c: any) => `${c.apartment_id}_${c.due_date}`));
@@ -101,11 +100,8 @@ export const Dashboard: React.FC = () => {
       .filter(t => t.type === 'income')
       .reduce((acc, curr) => acc + curr.amount_net, 0);
 
-    // Some projects store operational stays in `bookings` without accounting_movements rows.
-    // Prefer accounting-derived bookings when available, but fall back to bookings table.
-    const confirmedFromAccounting = accountingBookings.filter(b => b.status === 'confirmed');
-    const confirmedFromBookings = bookings.filter(b => b.status === 'confirmed');
-    const confirmedBookings = confirmedFromAccounting.length > 0 ? confirmedFromAccounting : confirmedFromBookings;
+    // "confirmed" for dashboard = real booking (not blocks). Keep KPIs/lists/checkins consistent.
+    const confirmedBookings = accountingBookings.filter(isConfirmedBooking);
 
     setStats({
       properties: props.length,
@@ -123,19 +119,33 @@ export const Dashboard: React.FC = () => {
       const counts = await store.getCounts();
       const settings = await store.getSettings();
       const timezone = settings.default_timezone || 'Europe/Madrid';
-
       const activePropId = projectManager.getActivePropertyId();
 
-      // Use new specialized selectors with Context
-      const arrivals = await store.getUpcomingArrivals(7, activePropId, timezone);
-      const provArrivals = await (store as any).getProvisionalArrivals ? await (store as any).getProvisionalArrivals(7, activePropId, timezone) : [];
-      const pending = await store.getPendingCheckins(7, activePropId, timezone);
+      // Build lists from same source to avoid "2 arriba, 0 abajo"
+      const future7 = new Date(); future7.setDate(future7.getDate() + 7);
+      const endISO7 = future7.toLocaleDateString('en-CA');
+
+      const future1 = new Date(); future1.setDate(future1.getDate() + 1);
+      const endISO1 = future1.toLocaleDateString('en-CA');
+
+      const apartmentNameById = new Map(apartments.map(a => [a.id, a.name]));
+
+      const arrivals = confirmedBookings
+        .filter(b => b.check_in && b.check_in >= todayISO && b.check_in <= endISO7)
+        .map(b => ({ ...b, apartment_name: apartmentNameById.get(b.apartment_id) || '' }));
+
+      const provArrivals = accountingBookings
+        .filter(b => isProvisionalBlock(b) && b.check_in && b.check_in >= todayISO && b.check_in <= endISO7)
+        .map(b => ({ ...b, apartment_name: apartmentNameById.get(b.apartment_id) || '' }));
+
+      // Check-ins pendientes: hoy + mañana
+      const pending = confirmedBookings
+        .filter(b => b.check_in && b.check_in >= todayISO && b.check_in <= endISO1);
+
       const birthdays = await store.getBirthdaysToday(activePropId, timezone);
       const messages = await store.getRecentMessages(3);
 
       // OPERATIONAL CALCULATIONS (D1)
-      const todayISO = new Date().toISOString().split('T')[0];
-
       const arrToday = confirmedBookings.filter(b => b.check_in === todayISO).length;
       const depToday = confirmedBookings.filter(b => b.check_out === todayISO).length;
       const activeNow = confirmedBookings.filter(b => isOccupiedToday(b.check_in, b.check_out, todayISO)).length;
@@ -158,7 +168,7 @@ export const Dashboard: React.FC = () => {
 
       setUpcomingArrivals(arrivals);
       setProvisionalArrivals(provArrivals);
-      setPendingCheckins(pending.filter(isConfirmedBooking));
+      setPendingCheckins(pending);
       setTodayBirthdays(birthdays);
       setRecentMessages(messages);
       setMyWebsite(website);
