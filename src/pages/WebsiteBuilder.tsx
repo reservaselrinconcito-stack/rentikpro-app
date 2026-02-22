@@ -30,6 +30,12 @@ export const WebsiteBuilder: React.FC = () => {
    const [selectedSite, setSelectedSite] = useState<WebSite | null>(null);
    const [showThemeSelector, setShowThemeSelector] = useState(false);
 
+   /**
+    * Base URL donde vive la web pública (rp-web).
+    * Ajusta esto a tu dominio real (p. ej. https://tusitio.com) cuando lo tengas definido.
+    */
+   const PUBLIC_WEB_BASE = 'https://rp-web.pages.dev';
+
    // Core Builder Hook
    const {
       state, dispatch, undo, redo, canUndo, canRedo,
@@ -37,6 +43,10 @@ export const WebsiteBuilder: React.FC = () => {
    } = useBuilder(DEFAULT_SITE_CONFIG_V1);
 
    const { config, selectedBlockId, device, inspectorTab, isSaving } = state;
+   // UI-only save status (no cambia formato de datos)
+   const [isDirty, setIsDirty] = useState(false);
+   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+   const lastConfigSnapshot = useRef<string>('');
    const selectedBlock = selectedBlockId
       ? config.pages['/']?.blocks.find(b => b.id === selectedBlockId) || null
       : null;
@@ -64,6 +74,10 @@ export const WebsiteBuilder: React.FC = () => {
    useEffect(() => {
       if (selectedSite) {
          try {
+            // Reset UI save status on site change
+            setIsDirty(false);
+            setLastSavedAt(null);
+            lastConfigSnapshot.current = '';
             const migrated = migrateToV1(selectedSite.sections_json, {
                name: selectedSite.name,
                email: 'info@rentik.pro'
@@ -88,6 +102,8 @@ export const WebsiteBuilder: React.FC = () => {
             toast.success("Cambios guardados");
             await loadData();
          }
+         setIsDirty(false);
+         setLastSavedAt(new Date());
          dispatch({ type: 'SET_SAVING', payload: false });
       } catch (e) {
          console.error("Save failed", e);
@@ -98,11 +114,31 @@ export const WebsiteBuilder: React.FC = () => {
    // --- AUTOSAVE ---
    const autoSaveTimer = useRef<any>(null);
    useEffect(() => {
-      if (selectedSite && isSaving === false) { // Simple logic to detect "unsaved"
-         // In a real app we'd compare config with last saved config
+      if (!selectedSite) return;
+      if (isSaving) return;
+
+      // Detect "dirty" with a lightweight snapshot (UI-only)
+      const snapshot = JSON.stringify(config);
+      if (!lastConfigSnapshot.current) {
+         lastConfigSnapshot.current = snapshot;
+         return;
       }
-      // For now, let's just use manual save or a simpler autosave
-   }, [config]);
+      if (snapshot !== lastConfigSnapshot.current) {
+         setIsDirty(true);
+      }
+
+      // Debounced autosave (silencioso)
+      clearTimeout(autoSaveTimer.current);
+      autoSaveTimer.current = setTimeout(() => {
+         // Evita autosave si no hay cambios
+         const nowSnap = JSON.stringify(config);
+         if (nowSnap === lastConfigSnapshot.current) return;
+         lastConfigSnapshot.current = nowSnap;
+         handleSave(true);
+      }, 900);
+
+      return () => clearTimeout(autoSaveTimer.current);
+   }, [config, selectedSite, isSaving, handleSave]);
 
    // --- PUBLISH ---
    const handlePublish = async () => {
@@ -116,6 +152,8 @@ export const WebsiteBuilder: React.FC = () => {
          toast.error("Error al publicar");
       }
    };
+
+   const publicUrl = selectedSite?.slug ? `${PUBLIC_WEB_BASE}/${selectedSite.slug}` : '';
 
    // --- THEME ---
    const handleApplyTheme = (themeConfig: any) => {
@@ -177,7 +215,8 @@ export const WebsiteBuilder: React.FC = () => {
 
    return (
       <div className="h-screen flex flex-col bg-slate-50 overflow-hidden font-sans selection:bg-indigo-100 selection:text-indigo-900 border-t-4 border-red-600">
-         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 z-50 shrink-0 shadow-sm">
+         {/* TOP BAR PRO */}
+         <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-6 z-50 shrink-0 shadow-sm">
             <div className="flex items-center gap-6">
                <button
                   onClick={() => setSelectedSite(null)}
@@ -196,24 +235,51 @@ export const WebsiteBuilder: React.FC = () => {
                </div>
             </div>
 
-            {/* Center: Device & History */}
-            <div className="flex items-center gap-4 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
-               <div className="flex items-center gap-1 border-r border-slate-200 pr-3 mr-1">
+            {/* CENTER: Save status + Responsive switch + History */}
+            <div className="flex items-center gap-4">
+               {/* Save Status */}
+               <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100">
+                  {isSaving ? (
+                     <>
+                        <Loader2 size={14} className="animate-spin text-amber-600" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-amber-700">Guardando…</span>
+                     </>
+                  ) : isDirty ? (
+                     <>
+                        <Save size={14} className="text-slate-500" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-600">Cambios sin guardar</span>
+                     </>
+                  ) : (
+                     <>
+                        <CloudIcon size={14} className="text-emerald-600" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                           Guardado{lastSavedAt ? ` · ${lastSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                        </span>
+                     </>
+                  )}
+               </div>
+
+               {/* Responsive switch */}
+               <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
                   {[
-                     { id: 'desktop', icon: Monitor },
-                     { id: 'tablet', icon: TabletIcon },
-                     { id: 'mobile', icon: Smartphone }
+                     { id: 'desktop', icon: Monitor, label: 'Desktop' },
+                     { id: 'tablet', icon: TabletIcon, label: 'Tablet' },
+                     { id: 'mobile', icon: Smartphone, label: 'Mobile' }
                   ].map(d => (
                      <button
                         key={d.id}
                         onClick={() => dispatch({ type: 'SET_DEVICE', payload: d.id as any })}
                         className={`p-2 rounded-xl transition-all ${device === d.id ? 'bg-white shadow-md text-indigo-600' : 'text-slate-400 hover:text-indigo-400'}`}
+                        title={d.label}
+                        aria-label={d.label}
                      >
                         <d.icon size={18} />
                      </button>
                   ))}
                </div>
-               <div className="flex items-center gap-1">
+
+               {/* Undo / Redo */}
+               <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-2xl border border-slate-100">
                   <button onClick={undo} disabled={!canUndo} className="p-2 hover:bg-white hover:shadow-sm rounded-xl text-slate-400 hover:text-slate-800 transition-all active:scale-90 disabled:opacity-20">
                      <Undo2 size={18} />
                   </button>
@@ -230,6 +296,19 @@ export const WebsiteBuilder: React.FC = () => {
                   className="flex items-center gap-2 px-4 py-2.5 bg-slate-50 text-slate-600 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-50 hover:text-indigo-600 transition-all border border-slate-100"
                >
                   <Palette size={16} /> Temas
+               </button>
+               <button
+                  onClick={() => {
+                     if (!publicUrl) {
+                        toast.error("Falta slug para ver la web");
+                        return;
+                     }
+                     window.open(publicUrl, "_blank", "noopener,noreferrer");
+                  }}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-white text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all border border-slate-200"
+                  title={publicUrl || "Configura el slug para ver la web"}
+               >
+                  <Globe size={16} /> Ver web
                </button>
                <button
                   onClick={() => handleSave()}
@@ -249,26 +328,33 @@ export const WebsiteBuilder: React.FC = () => {
             </div>
          </header>
 
-         <div className="flex-1 flex overflow-hidden">
-            <SidebarLeft onAddBlock={addBlock} />
+         {/* MAIN LAYOUT: 3 columns */}
+         <div className="grid grid-cols-[260px_1fr_320px] h-[calc(100vh-56px)] overflow-hidden">
+            <div className="min-w-0 overflow-hidden border-r border-slate-200 bg-white">
+               <SidebarLeft onAddBlock={addBlock} />
+            </div>
 
-            <Canvas
-               config={config}
-               device={device}
-               selectedBlockId={selectedBlockId}
-               onSelectBlock={(id) => dispatch({ type: 'SELECT_BLOCK', payload: id })}
-            />
+            <div className="min-w-0 overflow-hidden">
+               <Canvas
+                  config={config}
+                  device={device}
+                  selectedBlockId={selectedBlockId}
+                  onSelectBlock={(id) => dispatch({ type: 'SELECT_BLOCK', payload: id })}
+               />
+            </div>
 
-            <SidebarRight
-               selectedBlock={selectedBlock}
-               tab={inspectorTab}
-               setTab={(t) => dispatch({ type: 'SET_INSPECTOR_TAB', payload: t })}
-               device={device}
-               onUpdateBlock={updateBlock}
-               onRemoveBlock={removeBlock}
-               onMoveBlock={moveBlock}
-               blockIndex={blockIndex}
-            />
+            <div className="min-w-0 overflow-hidden border-l border-slate-200 bg-white">
+               <SidebarRight
+                  selectedBlock={selectedBlock}
+                  tab={inspectorTab}
+                  setTab={(t) => dispatch({ type: 'SET_INSPECTOR_TAB', payload: t })}
+                  device={device}
+                  onUpdateBlock={updateBlock}
+                  onRemoveBlock={removeBlock}
+                  onMoveBlock={moveBlock}
+                  blockIndex={blockIndex}
+               />
+            </div>
          </div>
 
          {/* Theme Selector Modal */}

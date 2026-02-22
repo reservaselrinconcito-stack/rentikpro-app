@@ -262,6 +262,16 @@ const defaultPropsByType: Record<BlockType, Record<string, any>> = {
    },
 };
 
+const applyPropsToBlock = (block: BlockNode, props: Record<string, any>): BlockNode => ({
+   ...block,
+   props: { ...block.props, ...props },
+});
+
+const applyStyleToBlock = (block: BlockNode, style: Partial<BlockStyle>): BlockNode => ({
+   ...block,
+   style: { ...block.style, ...style },
+});
+
 const createBlock = (type: BlockType, template: PageState["meta"]["template"]): BlockNode => ({
    id: uid(),
    type,
@@ -869,13 +879,6 @@ const BlockRegistry: Record<
    },
 };
 
-function applyStyleToBlock(block: BlockNode, patch: Partial<BlockStyle>): BlockNode {
-   return { ...block, style: { ...block.style, ...patch } };
-}
-
-function applyPropsToBlock(block: BlockNode, patch: Record<string, any>): BlockNode {
-   return { ...block, props: { ...block.props, ...patch } };
-}
 
 function moveItem<T>(arr: T[], from: number, to: number) {
    const copy = arr.slice();
@@ -991,6 +994,7 @@ export const WebsiteBuilder = () => {
          localStorage.setItem('rentikpro.websiteBuilder.siteDraft', JSON.stringify(draft));
          localStorage.setItem('rentikpro.websiteBuilder.siteOverrides', JSON.stringify(overrides));
          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+         console.debug("CREATE_SITE", { draft, overrides, stateBlocks: state.blocks.length });
 
          setIsCreateModalOpen(false);
          toast.success("¡Sitio creado con éxito desde datos reales!");
@@ -1001,6 +1005,7 @@ export const WebsiteBuilder = () => {
    };
 
    const handleUpdateLevel = async (newLevel: SiteDraft['templateLevel']) => {
+      console.debug("TEMPLATE_REQ", newLevel, "currentDraft:", !!currentDraft);
       if (!currentDraft) return;
       try {
          const snapshot = await projectManager.getStore().loadPropertySnapshot(currentDraft.propertyId);
@@ -1011,6 +1016,7 @@ export const WebsiteBuilder = () => {
          setPresent(state);
          localStorage.setItem('rentikpro.websiteBuilder.siteDraft', JSON.stringify(updatedDraft));
          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+         console.debug("TEMPLATE_APPLIED", newLevel, "blocks:", state.blocks.length);
          toast.success(`Nivel actualizado a ${newLevel}`);
       } catch (err) {
          console.error(err);
@@ -1132,6 +1138,14 @@ export const WebsiteBuilder = () => {
 
    const canvasWidth = getDeviceWidth(device);
 
+   const updateBlockProp = useCallback((blockId: string, key: string, value: any) => {
+      console.debug("EDIT", blockId, key, value);
+      const blocks = pageHistory.present.blocks.map((b) =>
+         b.id === blockId ? { ...b, props: { ...b.props, [key]: value } } : b
+      );
+      setState({ ...pageHistory.present, blocks, meta: { ...pageHistory.present.meta, updatedAt: now() } });
+   }, [pageHistory.present, setState]);
+
    const updateSelectedProps = useCallback(
       (patch: Record<string, any>) => {
          if (!selected) return;
@@ -1157,97 +1171,76 @@ export const WebsiteBuilder = () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       setIsSaved(true);
    }, [pageHistory.present.meta.template, setPresent]);
+
    const exportJson = useCallback(() => {
       const payload = JSON.stringify(pageHistory.present, null, 2);
       navigator.clipboard?.writeText(payload);
       alert("✅ JSON copiado al portapapeles");
    }, [pageHistory.present]);
 
+   const isSaving = !isSaved;
+
    return (
-      <div className="h-screen w-full bg-neutral-50 text-neutral-900">
-         {/* Topbar */}
-         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 z-50 shrink-0 shadow-sm">
-            <div className="flex items-center gap-4">
+      <div className="h-screen w-full bg-white text-neutral-900 flex flex-col overflow-hidden">
+         {/* TopBar PRO */}
+         <header className="h-14 bg-white border-b border-neutral-200 flex items-center justify-between px-4 z-50 shrink-0">
+            <div className="flex items-center gap-4 w-[260px]">
                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center text-white shadow-lg">
-                     <Globe size={18} />
+                  <div className="w-7 h-7 bg-black rounded flex items-center justify-center text-white">
+                     <Globe size={16} />
                   </div>
                   <div>
-                     <div className="text-sm font-black tracking-tight leading-none">Website Builder</div>
-                     <div className="text-[10px] text-neutral-400 font-bold mt-1 uppercase tracking-widest flex items-center gap-2">
-                        {pageHistory.present.meta.template} Pro
-                        <span className="w-1 h-1 bg-neutral-200 rounded-full" />
-                        {pageHistory.present.meta.publishedAt ? `Publicado ${new Date(pageHistory.present.meta.publishedAt).toLocaleTimeString()}` : "No publicado"}
+                     <div className="text-xs font-black tracking-tight leading-none uppercase">RentikPro</div>
+                     <div className="text-[10px] text-neutral-400 font-bold mt-0.5 flex items-center gap-1.5">
+                        {isSaving ? (
+                           <span className="flex items-center gap-1 text-amber-500 font-bold">
+                              <RotateCw size={10} className="animate-spin" /> Guardando...
+                           </span>
+                        ) : (
+                           <span className="flex items-center gap-1 text-emerald-500 font-bold">
+                              <CheckCircle2 size={10} /> Guardado
+                           </span>
+                        )}
                      </div>
                   </div>
                </div>
             </div>
 
-            <div className="flex items-center gap-1 bg-neutral-100 p-1 rounded-xl border border-black/5">
+            <div className="flex items-center gap-1 bg-neutral-100 p-0.5 rounded-lg border border-neutral-200">
                {(["desktop", "tablet", "mobile"] as const).map((m) => (
                   <button
                      key={m}
-                     className={`p-2 rounded-lg transition-all ${device === m ? "bg-white shadow-sm text-black scale-105" : "text-neutral-400 hover:text-black"}`}
+                     className={`p-1.5 rounded transition-all ${device === m ? "bg-white shadow-sm text-black" : "text-neutral-400 hover:text-black"}`}
                      onClick={() => setDevice(m)}
                   >
-                     {m === "desktop" && <Monitor size={18} />}
-                     {m === "tablet" && <Tablet size={18} />}
-                     {m === "mobile" && <Smartphone size={18} />}
+                     {m === "desktop" && <Monitor size={16} />}
+                     {m === "tablet" && <Tablet size={16} />}
+                     {m === "mobile" && <Smartphone size={16} />}
                   </button>
                ))}
-               <div className="w-px h-4 bg-neutral-200 mx-1" />
-               <button className="p-2 text-neutral-400 hover:text-black" onClick={() => setZoom(z => clamp(z - 0.1, 0.5, 1.5))}>
-                  <Minus size={16} />
-               </button>
-               <button className="px-2 text-[11px] font-black text-neutral-600 hover:text-black min-w-[40px]" onClick={() => setZoom(1.0)}>
-                  {Math.round(zoom * 100)}%
-               </button>
-               <button className="p-2 text-neutral-400 hover:text-black" onClick={() => setZoom(z => clamp(z + 0.1, 0.5, 1.5))}>
-                  <Plus size={16} />
-               </button>
             </div>
 
-            <div className="flex items-center gap-3">
-               <div className="flex items-center gap-1 mr-2 bg-neutral-100 p-1 rounded-xl">
-                  <button className="p-2 text-neutral-400 hover:text-black disabled:opacity-20" onClick={undo} disabled={pageHistory.past.length === 0}>
-                     <HistoryIcon size={18} className="rotate-180" />
-                  </button>
-                  <button className="p-2 text-neutral-400 hover:text-black disabled:opacity-20" onClick={redo} disabled={pageHistory.future.length === 0}>
-                     <HistoryIcon size={18} />
-                  </button>
-               </div>
-
-               {currentDraft && (
-                  <button
-                     onClick={() => handleSync()}
-                     className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 transition-colors rounded-xl border border-indigo-100"
-                     title="Sincronizar datos de RentikPro sin perder cambios manuales"
-                  >
-                     <RotateCw size={14} className="animate-spin-hover" />
-                     Sincronizar
-                  </button>
-               )}
-
-               <button onClick={openLivePreview} className="px-4 py-2 text-xs font-bold text-neutral-600 hover:text-black transition-colors rounded-xl border border-neutral-200 hover:border-black">
+            <div className="flex items-center gap-2 justify-end w-[320px]">
+               <button onClick={openLivePreview} className="px-3 py-1.5 text-xs font-bold text-neutral-600 hover:text-black transition-colors rounded-lg border border-neutral-200">
                   Ver web
                </button>
-               <button onClick={publishWeb} className="px-5 py-2 text-xs font-bold bg-black text-white hover:bg-neutral-800 transition-all rounded-xl shadow-lg active:scale-95">
+               <button onClick={publishWeb} className="px-4 py-1.5 text-xs font-bold bg-black text-white hover:bg-neutral-800 transition-all rounded-lg shadow-sm">
                   Publicar
                </button>
             </div>
          </header>
 
-         <div className="flex-1 flex overflow-hidden">
+         <div className="flex-1 flex overflow-hidden bg-neutral-50 h-[calc(100vh-56px)]">
             {/* Left: Block library */}
-            <aside className="col-span-3 border-r border-neutral-200 bg-white flex flex-col overflow-hidden">
+            <aside className="w-[260px] border-r border-neutral-200 bg-white flex flex-col overflow-hidden shrink-0">
                <div className="p-3 border-b border-neutral-100">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-2 ml-1">Nivel de Plantilla</div>
+                  <div className="text-[10px] font-black uppercase tracking-widest text-neutral-400 mb-0.5 ml-1">Plantilla</div>
                   <div className="grid grid-cols-2 gap-1">
                      {(['BASIC', 'STANDARD', 'PRO', 'PRO_TOP'] as const).map(lvl => (
                         <button
                            key={lvl}
                            onClick={() => handleUpdateLevel(lvl)}
-                           className={`px-2 py-2 rounded-xl text-[10px] font-black transition-all border ${currentDraft?.templateLevel === lvl ? 'bg-indigo-600 border-indigo-600 text-white shadow-sm' : 'bg-neutral-50 border-neutral-100 text-neutral-500 hover:bg-white hover:border-black'}`}
+                           className={`px-2 py-1.5 rounded-lg text-[10px] font-black transition-all border ${currentDraft?.templateLevel === lvl ? 'bg-black border-black text-white shadow-sm' : 'bg-neutral-50 border-neutral-100 text-neutral-500 hover:bg-white hover:border-black'}`}
                         >
                            {lvl}
                         </button>
@@ -1256,30 +1249,31 @@ export const WebsiteBuilder = () => {
                </div>
 
                <div className="p-3 border-b border-neutral-100">
-                  <div className="text-sm font-bold flex items-center gap-2">
+                  <div className="flex items-center gap-2 mb-3">
                      <LayoutPanelLeft size={16} className="text-black" />
-                     Biblioteca Pro
+                     <div className="text-xs font-bold">Biblioteca</div>
                   </div>
-                  <div className="mt-3 relative">
-                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400" size={14} />
+                  <button
+                     onClick={() => setIsCreateModalOpen(true)}
+                     className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-black rounded-xl shadow-sm transition-all active:scale-95"
+                  >
+                     <Sparkles size={14} />
+                     Sincronizar
+                  </button>
+               </div>
+
+               <div className="flex-1 overflow-y-auto p-3 space-y-4">
+                  <div className="relative mb-4">
+                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400" size={12} />
                      <input
                         type="text"
                         placeholder="Buscar bloques..."
-                        className="w-full pl-9 pr-3 py-2 text-xs bg-neutral-50 border border-neutral-200 rounded-xl focus:ring-2 ring-black/5 outline-none transition-all"
+                        className="w-full pl-8 pr-2 py-1.5 text-[11px] bg-neutral-50 border border-neutral-200 rounded-lg focus:ring-2 ring-black/5 outline-none transition-all"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                      />
                   </div>
-                  <button
-                     onClick={() => setIsCreateModalOpen(true)}
-                     className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black rounded-2xl shadow-lg shadow-indigo-200 transition-all active:scale-95"
-                  >
-                     <Sparkles size={16} />
-                     Crear desde RentikPro
-                  </button>
-               </div>
 
-               <div className="flex-1 overflow-y-auto p-3 space-y-6">
                   {CATEGORIES.map(cat => {
                      const filteredTypes = cat.types.filter(type =>
                         type.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1289,26 +1283,23 @@ export const WebsiteBuilder = () => {
                      if (filteredTypes.length === 0) return null;
 
                      return (
-                        <div key={cat.id} className="space-y-3">
+                        <div key={cat.id} className="space-y-2">
                            <div className="flex items-center gap-2 px-1">
-                              <cat.icon size={12} className="text-neutral-400" />
-                              <span className="text-[10px] font-black uppercase tracking-widest text-neutral-400">{cat.label}</span>
+                              <cat.icon size={10} className="text-neutral-400" />
+                              <span className="text-[9px] font-black uppercase tracking-widest text-neutral-400">{cat.label}</span>
                            </div>
-                           <div className="grid gap-2">
+                           <div className="grid gap-1">
                               {filteredTypes.map(t => (
                                  <div
                                     key={t}
                                     draggable
                                     onDragStart={(e) => e.dataTransfer.setData("application/x-rentikpro-block", t)}
                                     onClick={() => addBlock(t as BlockType, selectedId)}
-                                    className="group relative p-3 bg-neutral-50 border border-neutral-100 rounded-2xl hover:bg-white hover:border-black hover:shadow-xl hover:-translate-y-0.5 transition-all cursor-grab active:cursor-grabbing"
+                                    className="group p-2 bg-neutral-50 border border-neutral-100 rounded-xl hover:bg-white hover:border-black hover:shadow-sm transition-all cursor-grab active:cursor-grabbing"
                                  >
                                     <div className="flex items-center justify-between gap-2">
-                                       <div className="text-[11px] font-bold text-neutral-800">{BlockRegistry[t as BlockType].title}</div>
-                                       <Plus size={12} className="text-neutral-300 group-hover:text-black" />
-                                    </div>
-                                    <div className="text-[9px] text-neutral-400 mt-1 line-clamp-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                       {BlockRegistry[t as BlockType].description}
+                                       <div className="text-[10px] font-bold text-neutral-800">{BlockRegistry[t as BlockType].title}</div>
+                                       <Plus size={10} className="text-neutral-300 group-hover:text-black" />
                                     </div>
                                  </div>
                               ))}
@@ -1317,143 +1308,88 @@ export const WebsiteBuilder = () => {
                      );
                   })}
                </div>
-
-               <div className="p-4 bg-neutral-50 border-t border-neutral-200">
-                  <div className="flex items-center gap-2 p-3 bg-white rounded-2xl border border-neutral-200 shadow-sm">
-                     <div className="w-8 h-8 rounded-xl bg-black/5 flex items-center justify-center">
-                        <Palette size={14} className="text-black" />
-                     </div>
-                     <div className="flex-1 min-w-0">
-                        <div className="text-[10px] font-bold text-neutral-800">Ferrari Pro v2</div>
-                        <div className="text-[9px] text-neutral-400 truncate">Premium Editor Active</div>
-                     </div>
-                  </div>
-               </div>
             </aside>
 
             {/* Center: Canvas (Artboard) */}
-            <main className="flex-1 bg-neutral-100 flex flex-col overflow-hidden relative">
-               {/* Grid Background Pattern */}
-               <div className="absolute inset-0 z-0 pointer-events-none opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(circle, #000 1.5px, transparent 1.5px)', backgroundSize: '24px 24px' }} />
+            <main className="flex-1 bg-neutral-100 flex flex-col overflow-hidden relative overflow-y-auto" onDragOver={(e) => e.preventDefault()} onDrop={onDropToCanvas}>
+               {/* Pattern Background */}
+               <div className="absolute inset-0 pointer-events-none opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(circle, #000 1.5px, transparent 1.5px)', backgroundSize: '16px 16px' }} />
 
-               {/* Canvas toolbar */}
-               <div className="z-20 px-4 py-2 bg-white/50 backdrop-blur-md border-b border-neutral-200/50 flex items-center justify-between gap-3 shrink-0">
-                  <div className="flex items-center gap-4">
-                     <div className="flex items-center gap-1.5 p-1 bg-neutral-200/50 rounded-xl">
-                        {(["desktop", "tablet", "mobile"] as const).map((m) => (
-                           <button
-                              key={m}
-                              className={`p-1.5 rounded-lg transition-all ${device === m ? "bg-white text-black shadow-sm" : "hover:bg-white/50 text-neutral-500"}`}
-                              onClick={() => setDevice(m)}
-                              title={m.charAt(0).toUpperCase() + m.slice(1)}
-                           >
-                              {m === "desktop" && <Monitor size={14} />}
-                              {m === "tablet" && <Tablet size={14} />}
-                              {m === "mobile" && <Smartphone size={14} />}
-                           </button>
-                        ))}
-                     </div>
-                     <div className="h-4 w-px bg-neutral-300 mx-1" />
-                     <div className="text-[10px] font-mono text-neutral-400 uppercase tracking-tighter">
-                        {canvasWidth} px
-                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                     <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-black text-white text-[10px] font-bold hover:scale-105 transition-transform" onClick={() => (setPresent(createTemplate("Minimal")), toast.success("Canvas Reset"))}>
-                        <RotateCcw size={12} />
-                        Limpiar Canvas
-                     </button>
-                  </div>
-               </div>
-
-               {/* Scrollable area for the artboard */}
-               <div className="flex-1 overflow-auto p-12 flex items-start justify-center relative z-10 scrollbar-hide no-scrollbar" onDragOver={(e) => e.preventDefault()} onDrop={onDropToCanvas}>
+               <div className="flex-1 min-h-full p-8 flex items-start justify-center relative z-10">
                   <div
-                     className="transition-all duration-300 ease-out origin-top"
+                     className="transition-all duration-300 ease-out origin-top shadow-2xl bg-white"
                      style={{
                         width: canvasWidth,
                         transform: `scale(${zoom})`,
-                        marginBottom: '400px' // Space at bottom
+                        minHeight: '800px'
                      }}
                   >
-                     {/* Device Shell */}
-                     <div className={`
-                        relative bg-white shadow-2xl transition-all duration-500
-                        ${device === 'mobile' ? 'rounded-[3rem] ring-8 ring-neutral-900 overflow-hidden' : 'rounded-2xl border border-neutral-200 shadow-neutral-300/50'}
-                     `}>
-                        {/* Mobile Notch UI */}
-                        {device === 'mobile' && (
-                           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-32 h-6 bg-neutral-900 rounded-b-2xl z-40 flex items-end justify-center pb-1">
-                              <div className="w-10 h-1 bg-neutral-800 rounded-full" />
-                           </div>
-                        )}
-
-                        {/* Actual Builder Content */}
-                        <div className="min-h-[800px] flex flex-col">
-                           {pageHistory.present.blocks.map((b) => {
-                              const isSel = b.id === selectedId;
-                              return (
-                                 <div
-                                    key={b.id}
-                                    onClick={(e) => (e.stopPropagation(), setSelectedId(b.id))}
-                                    className={`relative group/block transition-all ${isSel ? "z-30 ring-2 ring-black ring-offset-0" : "hover:ring-1 hover:ring-neutral-200"}`}
-                                 >
-                                    {/* Advanced Selection Helper (Labels & Icons) */}
-                                    {isSel && (
-                                       <div className="absolute -top-3 left-6 z-40 bg-black text-white text-[9px] font-black px-2 py-1 rounded-md shadow-xl flex items-center gap-1.5">
-                                          <Sparkles size={8} />
-                                          {b.type.toUpperCase()}
-                                       </div>
-                                    )}
-
-                                    {/* Action bar (Floating) */}
-                                    {isSel && (
-                                       <div className="absolute -right-12 top-0 h-full flex flex-col gap-1 items-center py-2 z-40">
-                                          <div className="p-1 bg-white border border-neutral-200 rounded-xl shadow-xl space-y-1">
-                                             <button className="p-2 rounded-lg hover:bg-neutral-50 text-neutral-500 hover:text-black transition-colors" onClick={(e) => (e.stopPropagation(), moveSelected(-1))} title="Mover Arriba">
-                                                <ChevronDown className="rotate-180" size={14} />
-                                             </button>
-                                             <button className="p-2 rounded-lg hover:bg-neutral-50 text-neutral-500 hover:text-black transition-colors" onClick={(e) => (e.stopPropagation(), moveSelected(1))} title="Mover Abajo">
-                                                <ChevronDown size={14} />
-                                             </button>
-                                             <div className="h-px w-4 bg-neutral-200 mx-auto" />
-                                             <button className="p-2 rounded-lg hover:bg-neutral-50 text-neutral-500 hover:text-black transition-colors" onClick={(e) => (e.stopPropagation(), duplicateBlock())} title="Duplicar">
-                                                <Copy size={14} />
-                                             </button>
-                                             <button className="p-2 rounded-lg hover:bg-red-50 text-neutral-300 hover:text-red-500 transition-colors" onClick={(e) => (e.stopPropagation(), deleteBlock())} title="Borrar">
-                                                <Trash2 size={14} />
-                                             </button>
-                                          </div>
-                                       </div>
-                                    )}
-
-                                    <div className={`${getEffectiveStyle(b, device).border ?? ""} ${getEffectiveStyle(b, device).rounded ?? ""} ${getEffectiveStyle(b, device).shadow ?? ""}`}>
-                                       {BlockRegistry[b.type].render({
-                                          ...b,
-                                          style: getEffectiveStyle(b, device)
-                                       })}
+                     <div className="flex flex-col">
+                        {pageHistory.present.blocks.map((b) => {
+                           const isSel = b.id === selectedId;
+                           return (
+                              <div
+                                 key={b.id}
+                                 onClick={(e) => (e.stopPropagation(), setSelectedId(b.id))}
+                                 className={`relative group/block transition-all ${isSel ? "z-30 ring-2 ring-black ring-offset-0" : "hover:ring-1 hover:ring-neutral-200"}`}
+                              >
+                                 {/* Labels */}
+                                 {isSel && (
+                                    <div className="absolute -top-3 left-3 z-40 bg-black text-white text-[9px] font-black px-2 py-1 rounded shadow-xl flex items-center gap-1.5 uppercase">
+                                       {b.type}
                                     </div>
-                                 </div>
-                              );
-                           })}
+                                 )}
 
-                           {/* Empty state hint */}
-                           {pageHistory.present.blocks.length === 0 && (
-                              <div className="flex-1 flex flex-col items-center justify-center p-20 text-center opacity-30">
-                                 <LayoutPanelLeft size={48} className="mb-4" />
-                                 <div className="text-xl font-bold">Canvas Vacío</div>
-                                 <div className="text-sm">Arrastra bloques aquí para empezar</div>
+                                 {/* Actions */}
+                                 {isSel && (
+                                    <div className="absolute -right-10 top-0 h-full flex flex-col gap-1 items-center py-2 z-40">
+                                       <div className="p-1 bg-white border border-neutral-200 rounded-lg shadow-xl space-y-0.5">
+                                          <button className="p-1.5 rounded hover:bg-neutral-50 text-neutral-500 hover:text-black" onClick={(e) => (e.stopPropagation(), moveSelected(-1))}>
+                                             <ChevronDown className="rotate-180" size={12} />
+                                          </button>
+                                          <button className="p-1.5 rounded hover:bg-neutral-50 text-neutral-500 hover:text-black" onClick={(e) => (e.stopPropagation(), moveSelected(1))}>
+                                             <ChevronDown size={12} />
+                                          </button>
+                                          <div className="h-px w-3 bg-neutral-200 mx-auto" />
+                                          <button className="p-1.5 rounded hover:bg-neutral-50 text-neutral-500 hover:text-black" onClick={(e) => (e.stopPropagation(), duplicateBlock())}>
+                                             <Copy size={12} />
+                                          </button>
+                                          <button className="p-1.5 rounded hover:bg-red-50 text-neutral-300 hover:text-red-500" onClick={(e) => (e.stopPropagation(), deleteBlock())}>
+                                             <Trash2 size={12} />
+                                          </button>
+                                       </div>
+                                    </div>
+                                 )}
+
+                                 <div className={`${getEffectiveStyle(b, device).border ?? ""} ${getEffectiveStyle(b, device).rounded ?? ""} ${getEffectiveStyle(b, device).shadow ?? ""}`}>
+                                    {BlockRegistry[b.type].render({
+                                       ...b,
+                                       style: getEffectiveStyle(b, device)
+                                    })}
+                                 </div>
                               </div>
-                           )}
-                        </div>
+                           );
+                        })}
                      </div>
                   </div>
+               </div>
+
+               {/* Zoom controls floating at bottom */}
+               <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1 bg-white/90 backdrop-blur border border-neutral-200 p-1 rounded-xl shadow-xl">
+                  <button className="p-1.5 text-neutral-400 hover:text-black" onClick={() => setZoom(z => clamp(z - 0.1, 0.5, 1.5))}>
+                     <Minus size={14} />
+                  </button>
+                  <button className="px-2 text-[10px] font-black text-neutral-600 min-w-[40px]" onClick={() => setZoom(1.0)}>
+                     {Math.round(zoom * 100)}%
+                  </button>
+                  <button className="p-1.5 text-neutral-400 hover:text-black" onClick={() => setZoom(z => clamp(z + 0.1, 0.5, 1.5))}>
+                     <Plus size={14} />
+                  </button>
                </div>
             </main>
 
             {/* Right: Inspector */}
-            <aside className="col-span-3 border-l border-neutral-200 bg-white overflow-auto">
+            <aside className="w-[320px] border-l border-neutral-200 bg-white overflow-auto shrink-0 flex flex-col">
                <div className="p-4">
                   <div className="flex items-start justify-between gap-3">
                      <div>
@@ -1503,9 +1439,9 @@ export const WebsiteBuilder = () => {
                                        <label key={f.key} className="block">
                                           <div className="text-xs opacity-70">{f.label}</div>
                                           <textarea
-                                             className="mt-1 w-full px-3 py-2 rounded-2xl border border-neutral-200 min-h-[90px]"
-                                             value={val}
-                                             onChange={(e) => updateSelectedProps({ [f.key]: e.target.value })}
+                                             className="mt-1 w-full px-3 py-2 rounded-2xl border border-neutral-200 min-h-[90px] text-sm"
+                                             value={val || ""}
+                                             onChange={(e) => updateBlockProp(selected.id, f.key, e.target.value)}
                                           />
                                        </label>
                                     );
@@ -1514,9 +1450,9 @@ export const WebsiteBuilder = () => {
                                     <label key={f.key} className="block">
                                        <div className="text-xs opacity-70">{f.label}</div>
                                        <input
-                                          className="mt-1 w-full px-3 py-2 rounded-2xl border border-neutral-200"
-                                          value={val}
-                                          onChange={(e) => updateSelectedProps({ [f.key]: e.target.value })}
+                                          className="mt-1 w-full px-3 py-2 rounded-2xl border border-neutral-200 text-sm"
+                                          value={val || ""}
+                                          onChange={(e) => updateBlockProp(selected.id, f.key, e.target.value)}
                                        />
                                     </label>
                                  );
