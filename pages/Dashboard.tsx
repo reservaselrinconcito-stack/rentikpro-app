@@ -60,9 +60,10 @@ export const Dashboard: React.FC = () => {
 
   const fetchData = async () => {
     const store = projectManager.getStore();
-    const [props, accountingBookings, txs, connections, travelers, websites, conversations] = await Promise.all([
+    const [props, accountingBookings, bookings, txs, connections, travelers, websites, conversations] = await Promise.all([
       store.getProperties(),
       store.getBookingsFromAccounting(),
+      store.getBookings(),
       store.getMovements(),
       store.getChannelConnections(),
       store.getTravelers(),
@@ -83,7 +84,11 @@ export const Dashboard: React.FC = () => {
       .filter(t => t.type === 'income')
       .reduce((acc, curr) => acc + curr.amount_net, 0);
 
-    const confirmedBookings = accountingBookings.filter(b => b.status === 'confirmed');
+    // Some projects store operational stays in `bookings` without accounting_movements rows.
+    // Prefer accounting-derived bookings when available, but fall back to bookings table.
+    const confirmedFromAccounting = accountingBookings.filter(b => b.status === 'confirmed');
+    const confirmedFromBookings = bookings.filter(b => b.status === 'confirmed');
+    const confirmedBookings = confirmedFromAccounting.length > 0 ? confirmedFromAccounting : confirmedFromBookings;
 
     setStats({
       properties: props.length,

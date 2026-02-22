@@ -369,7 +369,8 @@ export class SQLiteStore implements IDataStore {
     await this.ensureColumn("stays", "project_id", "TEXT");
 
     await this.ensureWebSitesSchema();
-    logger.log("[WEBBUILDER:MIGRATE] web_sites schema verified");
+    await this.ensureMediaAssetsSchema();
+    logger.log("[WEBBUILDER:MIGRATE] web_sites & media_assets schemas verified");
 
     // 2. Indexes (A4 Hardened)
     try {
@@ -445,6 +446,27 @@ export class SQLiteStore implements IDataStore {
     } catch (e) {
       logger.error("[DB:SCHEMA:WEBSITE] Failed to ensure web_sites schema", e);
       throw e;
+    }
+  }
+
+  private async ensureMediaAssetsSchema() {
+    try {
+      await this.execute(`
+          CREATE TABLE IF NOT EXISTS media_assets (
+            id TEXT PRIMARY KEY,
+            site_id TEXT,
+            filename TEXT,
+            mime_type TEXT,
+            size INTEGER,
+            data_base64 TEXT,
+            width INTEGER,
+            height INTEGER,
+            created_at INTEGER
+          )
+        `);
+      logger.log("[DB:SCHEMA:MEDIA] media_assets schema verified");
+    } catch (e) {
+      logger.error("[DB:SCHEMA:MEDIA] Failed to ensure media_assets schema", e);
     }
   }
 
@@ -1928,7 +1950,10 @@ export class SQLiteStore implements IDataStore {
     future.setDate(future.getDate() + days);
     const endDate = this.getDateString(future);
 
-    // CANONICAL RULE: Source from accounting_movements
+    // CANONICAL RULE: Source from accounting_movements.
+    // IMPORTANT: Some projects still have manual/local bookings stored in `bookings` without
+    // corresponding accounting_movements rows. To keep Dashboard/Operations consistent,
+    // we fall back to `bookings` when no accounting rows are found for the range.
     const sql = `SELECT * FROM accounting_movements 
                  WHERE (project_id = ? OR project_id IS NULL)
                  AND source_event_type = 'STAY_RESERVATION'
@@ -1942,22 +1967,42 @@ export class SQLiteStore implements IDataStore {
     if (propertyId && propertyId !== 'all') params.push(propertyId);
 
     const rows = await this.query(sql, params);
-    return rows.map(r => ({
+    const fromAccounting = rows.map(r => ({
       id: r.reservation_id || r.id,
       property_id: r.property_id || 'prop_default',
       apartment_id: r.apartment_id || '',
       traveler_id: r.traveler_id || '',
       check_in: r.check_in || '',
       check_out: r.check_out || '',
-      status: 'confirmed',
+      status: 'confirmed' as any,
       total_price: r.amount_gross || 0,
       guests: r.guests || 1,
       source: r.platform || 'manual',
       guest_name: r.concept || '',
-      event_state: 'confirmed',
-      event_kind: 'BOOKING',
+      event_state: 'confirmed' as any,
+      event_kind: 'BOOKING' as any,
       created_at: r.created_at || Date.now()
     }));
+
+    if (fromAccounting.length > 0) return fromAccounting;
+
+    // Fallback: source from `bookings` (manual/local)
+    const projectId2 = localStorage.getItem('active_project_id');
+    const sql2 = `SELECT * FROM bookings
+                  WHERE (project_id = ? OR project_id IS NULL)
+                  AND status = 'confirmed'
+                  AND check_in >= ? AND check_in <= ?
+                  ${(propertyId && propertyId !== 'all') ? 'AND property_id = ?' : ''}
+                  ORDER BY check_in ASC`;
+    const params2: any[] = [projectId2, startDate, endDate];
+    if (propertyId && propertyId !== 'all') params2.push(propertyId);
+    const rows2 = await this.query(sql2, params2);
+    return rows2.map(r => ({
+      ...r,
+      conflict_detected: !!r.conflict_detected,
+      total_price: Number(r.total_price) || 0,
+      guests: Number(r.guests) || 1
+    })) as any;
   }
 
   async getProvisionalArrivals(days: number = 7, propertyId?: string, timezone: string = 'Europe/Madrid'): Promise<Booking[]> {
@@ -1968,7 +2013,8 @@ export class SQLiteStore implements IDataStore {
     future.setDate(future.getDate() + days);
     const endDate = this.getDateString(future);
 
-    // CANONICAL RULE: Source from accounting_movements
+    // CANONICAL RULE: Source from accounting_movements.
+    // Fallback to `bookings` for older/manual projects that don't create accounting rows.
     const sql = `SELECT * FROM accounting_movements 
                  WHERE (project_id = ? OR project_id IS NULL)
                  AND source_event_type = 'STAY_RESERVATION'
@@ -1982,22 +2028,42 @@ export class SQLiteStore implements IDataStore {
     if (propertyId && propertyId !== 'all') params.push(propertyId);
 
     const rows = await this.query(sql, params);
-    return rows.map(r => ({
+    const fromAccounting = rows.map(r => ({
       id: r.reservation_id || r.id,
       property_id: r.property_id || 'prop_default',
       apartment_id: r.apartment_id || '',
       traveler_id: r.traveler_id || '',
       check_in: r.check_in || '',
       check_out: r.check_out || '',
-      status: 'pending',
+      status: 'pending' as any,
       total_price: r.amount_gross || 0,
       guests: r.guests || 1,
       source: r.platform || 'manual',
       guest_name: r.concept || '',
-      event_state: 'provisional',
-      event_kind: 'BOOKING',
+      event_state: 'provisional' as any,
+      event_kind: 'BOOKING' as any,
       created_at: r.created_at || Date.now()
     }));
+
+    if (fromAccounting.length > 0) return fromAccounting;
+
+    // Fallback: if your `bookings` table uses status='pending' for provisional
+    const projectId2 = localStorage.getItem('active_project_id');
+    const sql2 = `SELECT * FROM bookings
+                  WHERE (project_id = ? OR project_id IS NULL)
+                  AND status = 'pending'
+                  AND check_in >= ? AND check_in <= ?
+                  ${(propertyId && propertyId !== 'all') ? 'AND property_id = ?' : ''}
+                  ORDER BY check_in ASC`;
+    const params2: any[] = [projectId2, startDate, endDate];
+    if (propertyId && propertyId !== 'all') params2.push(propertyId);
+    const rows2 = await this.query(sql2, params2);
+    return rows2.map(r => ({
+      ...r,
+      conflict_detected: !!r.conflict_detected,
+      total_price: Number(r.total_price) || 0,
+      guests: Number(r.guests) || 1
+    })) as any;
   }
 
   async getPendingCheckins(days: number = 7, propertyId?: string, timezone: string = 'Europe/Madrid'): Promise<Booking[]> {
@@ -2853,7 +2919,17 @@ export class SQLiteStore implements IDataStore {
     const aiFacts = await this.query("SELECT * FROM ai_facts WHERE property_id = ?", [propertyId]);
 
     // Media
-    const media = await this.query("SELECT * FROM media_assets");
+    let media = [];
+    try {
+      media = await this.query("SELECT * FROM media_assets");
+    } catch (e: any) {
+      const msg = e?.message?.toLowerCase() || '';
+      if (msg.includes("no such table: media_assets")) {
+        logger.warn("[DB] Fallback: media_assets table not found, returning empty array");
+      } else {
+        throw e;
+      }
+    }
 
     return {
       property,
