@@ -36,14 +36,27 @@ export interface Apartment {
   publicBasePrice?: number | null;
   currency?: string;
 }
+// --- PRICING STUDIO ---
+export type ShortStayMode = 'ALLOWED' | 'NOT_ALLOWED' | 'WITH_SURCHARGE';
+export type SurchargeType = 'PERCENT' | 'FIXED';
+
+export interface DayStayRule {
+  date: string;
+  price: number;
+  minNights: number;
+  shortStayMode: ShortStayMode;
+  surchargeType: SurchargeType;
+  surchargeValue: number;
+  isOverride: boolean;
+}
 
 export interface PricingDefaults {
   apartmentId: string;
   currency: string;
   basePrice: number;
   defaultMinNights: number;
-  shortStayMode: 'ALLOWED' | 'NOT_ALLOWED' | 'WITH_SURCHARGE';
-  surchargeType: 'PERCENT' | 'FIXED';
+  shortStayMode: ShortStayMode;
+  surchargeType: SurchargeType;
   surchargeValue: number;
 }
 
@@ -52,8 +65,8 @@ export interface NightlyRateOverride {
   date: string; // YYYY-MM-DD
   price?: number | null;
   minNights?: number | null;
-  shortStayMode?: 'ALLOWED' | 'NOT_ALLOWED' | 'WITH_SURCHARGE' | null;
-  surchargeType?: 'PERCENT' | 'FIXED' | null;
+  shortStayMode?: ShortStayMode | null;
+  surchargeType?: SurchargeType | null;
   surchargeValue?: number | null;
 }
 
@@ -1099,6 +1112,13 @@ export interface IDataStore {
   saveProvisionalBooking(pb: ProvisionalBooking): Promise<void>;
   deleteProvisionalBooking(id: string): Promise<void>;
   loadPropertySnapshot(propertyId: string): Promise<PropertySnapshot>;
+
+  // Pricing Studio
+  getPricingDefaults(apartmentId: string): Promise<PricingDefaults | null>;
+  savePricingDefaults(apartmentId: string, defaults: PricingDefaults): Promise<void>;
+  getNightlyRates(apartmentId: string, from: string, to: string): Promise<NightlyRateOverride[]>;
+  upsertNightlyRatesBulk(apartmentId: string, rates: Partial<NightlyRateOverride>[]): Promise<void>;
+  deleteNightlyRatesRange(apartmentId: string, from: string, to: string): Promise<void>;
 }
 
 // Channel Provider Interface

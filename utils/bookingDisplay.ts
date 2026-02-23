@@ -25,6 +25,6 @@ export const getBookingDisplayName = (booking: Booking, traveler?: Traveler): st
         return booking.summary.trim();
     }
 
-    // 4. Fallback: Fuente
-    return booking.source || 'Sin nombre';
+    // 4. Fallback
+    return 'Sin nombre';
 };

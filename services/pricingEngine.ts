@@ -5,6 +5,7 @@
  * this stub returns empty-but-valid structures so the build succeeds.
  */
 import { projectManager } from './projectManager';
+import { pricingStudioStore } from './pricingStudioStore';
 
 export interface DayPricing {
     price: number;
@@ -39,28 +40,25 @@ export const pricingEngine = {
         ratePlanId?: string
     ): Promise<PublicPricingData> {
         try {
-            const store = projectManager.getStore();
-            if (!store) return { pricing: {}, restrictions: {} };
+            const rules = await pricingStudioStore.computeStayRules(unitId, from, to);
+            if (rules.length === 0) return { pricing: {}, restrictions: {} };
 
-            // Iterate over every day in [from, to)
             const pricing: Record<string, DayPricing> = {};
             const restrictions: Record<string, DayRestriction> = {};
 
-            let curr = new Date(from);
-            const end = new Date(to);
+            const defaults = await pricingStudioStore.getPricingDefaults(unitId);
+            const currency = defaults?.currency || 'EUR';
 
-            while (curr < end) {
-                const dateStr = curr.toISOString().split('T')[0];
-
-                // Default values – a real implementation would look up pricing rules here
-                pricing[dateStr] = { price: 0, currency: 'EUR' };
-                restrictions[dateStr] = {};
-
-                curr.setDate(curr.getDate() + 1);
+            for (const r of rules) {
+                pricing[r.date] = { price: r.price, currency };
+                restrictions[r.date] = {
+                    minStay: r.minNights
+                };
             }
 
             return { pricing, restrictions, ruleSetVersion: Date.now() };
-        } catch {
+        } catch (e) {
+            console.error("[PRICING:ENGINE] Error fetching public data", e);
             return { pricing: {}, restrictions: {} };
         }
     },

@@ -17,6 +17,7 @@ import {
    MoreVertical, Power, HelpCircle, AlertCircle, Server, Copy, Eye, Share2, UploadCloud, Check, CreditCard, BarChart3, Zap, Ban
 } from 'lucide-react';
 import { iCalExportService } from '../services/iCalExportService';
+import { pricingStudioStore } from '../services/pricingStudioStore';
 import { toast } from 'sonner';
 import { isConfirmedBooking, isProvisionalBlock, isCovered } from '../utils/bookingClassification';
 
@@ -174,9 +175,8 @@ export const ChannelManager: React.FC = () => {
 
    const loadPricingData = async () => {
       if (!selectedAptId) return;
-      const store = projectManager.getStore();
       try {
-         const defaults = await store.getPricingDefaults(selectedAptId);
+         const defaults = await pricingStudioStore.getPricingDefaults(selectedAptId);
          setPricingDefaults(defaults);
 
          const y = currentMonth.getFullYear();
@@ -184,7 +184,7 @@ export const ChannelManager: React.FC = () => {
          const from = new Date(y, m, -7).toISOString().split('T')[0];
          const to = new Date(y, m + 1, 14).toISOString().split('T')[0];
 
-         const rates = await store.getNightlyRates(selectedAptId, from, to);
+         const rates = await pricingStudioStore.getNightlyRates(selectedAptId, from, to);
          setNightlyRates(rates);
       } catch (e) {
          console.error("Error loading pricing data:", e);
@@ -218,7 +218,7 @@ export const ChannelManager: React.FC = () => {
             });
          }
 
-         await projectManager.getStore().upsertNightlyRatesBulk(selectedAptId, rates);
+         await pricingStudioStore.upsertNightlyRatesBulk(selectedAptId, rates);
          toast.success("Precios aplicados");
          loadPricingData();
       } catch (e: any) {
@@ -231,7 +231,7 @@ export const ChannelManager: React.FC = () => {
    const handleClearOverrides = async () => {
       if (!selectedAptId || !selectionRange.start || !selectionRange.end) return;
       try {
-         await projectManager.getStore().deleteNightlyRatesRange(selectedAptId, selectionRange.start, selectionRange.end);
+         await pricingStudioStore.deleteNightlyRatesRange(selectedAptId, selectionRange.start, selectionRange.end);
          toast.success("Overrides eliminados");
          loadPricingData();
       } catch (e: any) {

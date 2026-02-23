@@ -1030,6 +1030,7 @@ export class SQLiteStore implements IDataStore {
       surcharge_value REAL,
       UNIQUE(apartment_id, date)
     );`);
+    await this.execute(`CREATE INDEX IF NOT EXISTS idx_nightly_rates_apt ON apartment_nightly_rates(apartment_id);`);
   }
 
   // --- CHECK-IN SCAN PRO METHODS ---
