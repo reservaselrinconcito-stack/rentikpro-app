@@ -1,6 +1,6 @@
 
 import { CommunicationAccount, CommunicationChannel, IChannelProvider } from '../types';
-import { emailService } from './emailSync';
+import { emailSyncService } from './emailSync';
 import { whatsAppService } from './whatsappSync';
 import { projectManager } from './projectManager';
 import { securityService } from './security';
@@ -17,7 +17,7 @@ class ChannelManager {
 
   constructor() {
     // Registrar adaptadores disponibles
-    this.registerProvider('EMAIL', emailService);
+    this.registerProvider('EMAIL', emailSyncService);
     this.registerProvider('WHATSAPP', whatsAppService);
     // Future: this.registerProvider('SMS', smsService);
     // Future: this.registerProvider('AIRBNB', airbnbService);
@@ -30,10 +30,10 @@ class ChannelManager {
   public startBackgroundSync() {
     if (this.isRunning) return;
     this.isRunning = true;
-    
+
     const loop = async () => {
       if (!navigator.onLine) return;
-      
+
       for (const provider of this.providers.values()) {
         try {
           await provider.processQueue();
@@ -62,16 +62,16 @@ class ChannelManager {
    */
   public async saveAccount(account: CommunicationAccount, rawConfig: any): Promise<void> {
     const store = projectManager.getStore();
-    
+
     // 1. Validar config con el proveedor correspondiente
     const provider = this.providers.get(account.type);
     if (provider) {
-       // Optional: await provider.validateConfig(rawConfig);
+      // Optional: await provider.validateConfig(rawConfig);
     }
 
     // 2. Cifrar
     const secureJson = securityService.encryptConfig(rawConfig);
-    
+
     // 3. Guardar
     const secureAccount = { ...account, config_json: secureJson };
     await store.saveAccount(secureAccount);
@@ -80,10 +80,10 @@ class ChannelManager {
   /**
    * Obtiene cuentas descifradas (solo para uso en memoria).
    */
-  public async getDecryptedAccounts(): Promise<{account: CommunicationAccount, config: any}[]> {
+  public async getDecryptedAccounts(): Promise<{ account: CommunicationAccount, config: any }[]> {
     const store = projectManager.getStore();
     const accounts = await store.getAccounts();
-    
+
     return accounts.map(acc => ({
       account: acc,
       config: securityService.decryptConfig(acc.config_json)
@@ -95,7 +95,7 @@ class ChannelManager {
    */
   public async forceProcess() {
     for (const provider of this.providers.values()) {
-        await provider.processQueue();
+      await provider.processQueue();
     }
   }
 }
