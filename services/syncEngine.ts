@@ -324,6 +324,9 @@ export class SyncEngine {
     const apartment = (await store.getAllApartments()).find(a => a.id === apartmentId);
     if (!apartment) return 0;
 
+    const settings = await store.getSettings();
+    const enableMinimal = settings.enable_minimal_bookings_from_ical;
+
     // DEBUG 2: Trace before sync
     const debugBookingId = localStorage.getItem('debug_revert_booking_id');
     if (debugBookingId) {
@@ -424,11 +427,20 @@ export class SyncEngine {
 
       const isManualBlock = !details.guestName; // SECURITY LAYER: No Guest = Manual Block
 
+      // MODAL RESERVAS MÍNIMAS (Booking iCal)
+      let isMinimalBooking = false;
+      if (isManualBlock && enableMinimal && conn.channel_name === 'BOOKING') {
+        isMinimalBooking = true;
+        details.guestName = 'Booking.com (iCal)';
+      }
+
       // Override Source & Priority for Manual Blocks
       let displaySource = conn.alias ? `${conn.channel_name} (${conn.alias})` : conn.channel_name;
-      if (isManualBlock) {
+      if (isManualBlock && !isMinimalBooking) {
         evtPriority = 101; // Force High Priority (Wins over standard OTAs)
         displaySource = 'CALENDARIO';
+      } else if (isMinimalBooking) {
+        displaySource = 'ota_ical';
       }
 
       // 1. Check if we already have a booking for this event (via external_ref)
@@ -504,6 +516,20 @@ export class SyncEngine {
         await store.saveBooking(booking);
         if (isConflict) conflictCount++;
 
+        // PERSIST LOCATOR FOR MINIMAL BOOKING
+        if (isMinimalBooking) {
+          const existingLocator = await store.getBookingLocator(booking.id);
+          if (!existingLocator) {
+            const { checkinService } = await import('./checkinService');
+            const loc = checkinService.generateLocator(booking.check_in);
+            booking.locator = loc;
+            booking.notes = 'Datos limitados: Booking iCal no trae huésped/localizador';
+            booking.ota = 'booking';
+            await store.saveBookingLocator(booking.id, loc);
+            await store.saveBooking(booking);
+          }
+        }
+
         // Add to occupied ranges to block lower priorities
         occupiedRanges.push({
           start: booking.check_in,
@@ -552,6 +578,21 @@ export class SyncEngine {
       }
 
       await store.saveBooking(booking);
+
+      // PERSIST LOCATOR FOR MINIMAL BOOKING
+      if (isMinimalBooking) {
+        const existingLocator = await store.getBookingLocator(booking.id);
+        if (!existingLocator) {
+          const { checkinService } = await import('./checkinService');
+          const loc = checkinService.generateLocator(booking.check_in);
+          booking.locator = loc;
+          booking.notes = 'Datos limitados: Booking iCal no trae huésped/localizador';
+          booking.ota = 'booking';
+          await store.saveBookingLocator(booking.id, loc);
+          await store.saveBooking(booking);
+        }
+      }
+
       occupiedRanges.push({
         start: booking.check_in,
         end: booking.check_out,

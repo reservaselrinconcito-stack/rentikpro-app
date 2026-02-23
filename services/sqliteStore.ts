@@ -12,7 +12,7 @@ import {
   CancellationPolicy, RatePlan, PricingModifier, Fee, UserSettings,
   ProvisionalBooking, BookingPolicy, PolicyScope, EmailIngest, EmailIngestStatus,
   PaymentMode, DepositType, DepositDue, RemainingDue, SecurityDepositMethod, CancellationPolicyType,
-  PropertySnapshot, SiteDraft, SiteOverrides
+  CheckInRequest, PropertySnapshot, SiteDraft, SiteOverrides
 } from '../types';
 import { PaymentScheduleItem, CheckoutResult, checkoutService } from './checkoutService';
 import { logger } from './logger';
@@ -61,7 +61,8 @@ export class SQLiteStore implements IDataStore {
     bookings_field_sources: false,
     bookings_updated_at: false,
     bookings_pax_fields: false,
-    accounting_pax_infants: false
+    accounting_pax_infants: false,
+    bookings_needs_details: false
   };
 
   // Optional callback registered by ProjectManager to trigger file-mode autosave
@@ -256,6 +257,7 @@ export class SQLiteStore implements IDataStore {
       this.schemaFlags.bookings_field_sources = bInfo.some((c: any) => c.name === 'field_sources');
       this.schemaFlags.bookings_updated_at = bInfo.some((c: any) => c.name === 'updated_at');
       this.schemaFlags.bookings_pax_fields = bInfo.some((c: any) => c.name === 'pax_total');
+      this.schemaFlags.bookings_needs_details = bInfo.some((c: any) => c.name === 'needs_details');
 
       const aInfo = await this.query("PRAGMA table_info(accounting_movements)");
       this.schemaFlags.accounting_payment_id = aInfo.some((c: any) => c.name === 'payment_id');
@@ -471,7 +473,7 @@ export class SQLiteStore implements IDataStore {
   }
 
   async runMigrations() {
-    await this.execute("CREATE TABLE IF NOT EXISTS properties (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at INTEGER);");
+    await this.execute("CREATE TABLE IF NOT EXISTS properties (id TEXT PRIMARY KEY, name TEXT, description TEXT, color TEXT, created_at INTEGER);");
     await this.execute("CREATE TABLE IF NOT EXISTS apartments (id TEXT PRIMARY KEY, property_id TEXT, name TEXT, color TEXT, created_at INTEGER);");
     await this.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);");
     await this.execute("CREATE TABLE IF NOT EXISTS travelers (id TEXT PRIMARY KEY, nombre TEXT, apellidos TEXT, tipo_documento TEXT, documento TEXT, fecha_nacimiento TEXT, telefono TEXT, email TEXT, nacionalidad TEXT, provincia TEXT, cp TEXT, localidad TEXT, direccion TEXT, created_at INTEGER, updated_at INTEGER);");
@@ -559,6 +561,7 @@ export class SQLiteStore implements IDataStore {
     await this.safeMigration("ALTER TABLE properties ADD COLUMN logo TEXT", "Add logo to properties");
     await this.safeMigration("ALTER TABLE properties ADD COLUMN phone TEXT", "Add phone to properties");
     await this.safeMigration("ALTER TABLE properties ADD COLUMN email TEXT", "Add email to properties");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN color TEXT", "Add color to properties");
 
     // Updates for Flexible Import
     await this.safeMigration("ALTER TABLE travelers ADD COLUMN needs_document INTEGER DEFAULT 0", "Add needs_document to travelers");
@@ -966,8 +969,86 @@ export class SQLiteStore implements IDataStore {
     );`);
     await this.execute(`CREATE INDEX IF NOT EXISTS idx_fees_property ON fees(property_id);`);
 
+    // --- CHECK-IN SCAN PRO TABLES ---
+    await this.execute(`CREATE TABLE IF NOT EXISTS booking_locators (
+      booking_id TEXT PRIMARY KEY,
+      locator TEXT UNIQUE,
+      created_at INTEGER
+    );`);
+
+    await this.execute(`CREATE TABLE IF NOT EXISTS checkin_tokens (
+      booking_id TEXT PRIMARY KEY,
+      token TEXT UNIQUE,
+      created_at INTEGER
+    );`);
+
+    await this.execute(`CREATE TABLE IF NOT EXISTS checkin_requests (
+      id TEXT PRIMARY KEY,
+      booking_id TEXT,
+      status TEXT,
+      locator TEXT,
+      token TEXT,
+      sent_at INTEGER,
+      completed_at INTEGER,
+      created_at INTEGER,
+      project_id TEXT
+    );`);
+    await this.execute(`CREATE INDEX IF NOT EXISTS idx_checkin_requests_booking ON checkin_requests(booking_id);`);
+
     // --- BLOCK MÓVIL 2: ZOOM UI ---
     await this.safeMigration("ALTER TABLE user_settings ADD COLUMN ui_scale REAL DEFAULT 1.0", "Add ui_scale to user_settings");
+
+    // MODAL RESERVAS MÍNIMAS (Booking iCal)
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN enable_minimal_bookings_from_ical INTEGER DEFAULT 0", "Add enable_minimal_bookings_from_ical to user_settings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN needs_details INTEGER DEFAULT 0", "Add needs_details to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN ota TEXT", "Add ota to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN locator TEXT", "Add locator to bookings");
+
+    // BLOCK APARTMENT PRICE: PRECIO PÚBLICO
+    await this.safeMigration("ALTER TABLE apartments ADD COLUMN public_base_price REAL", "Add public_base_price to apartments");
+    await this.safeMigration("ALTER TABLE apartments ADD COLUMN currency TEXT DEFAULT 'EUR'", "Add currency to apartments");
+  }
+
+  // --- CHECK-IN SCAN PRO METHODS ---
+  async getBookingLocator(bookingId: string): Promise<string | null> {
+    const res = await this.query("SELECT locator FROM booking_locators WHERE booking_id = ?", [bookingId]);
+    return res[0]?.locator || null;
+  }
+
+  async saveBookingLocator(bookingId: string, locator: string): Promise<void> {
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO booking_locators (booking_id, locator, created_at) VALUES (?, ?, ?)",
+      [bookingId, locator, Date.now()]
+    );
+  }
+
+  async getCheckInToken(bookingId: string): Promise<string | null> {
+    const res = await this.query("SELECT token FROM checkin_tokens WHERE booking_id = ?", [bookingId]);
+    return res[0]?.token || null;
+  }
+
+  async saveCheckInToken(bookingId: string, token: string): Promise<void> {
+    await this.executeWithParams(
+      "INSERT OR REPLACE INTO checkin_tokens (booking_id, token, created_at) VALUES (?, ?, ?)",
+      [bookingId, token, Date.now()]
+    );
+  }
+
+  async getCheckInRequests(): Promise<CheckInRequest[]> {
+    const projectId = localStorage.getItem('active_project_id');
+    return await this.query("SELECT * FROM checkin_requests WHERE (project_id = ? OR project_id IS NULL)", [projectId]);
+  }
+
+  async saveCheckInRequest(req: CheckInRequest): Promise<void> {
+    await this.executeWithParams(
+      `INSERT OR REPLACE INTO checkin_requests (
+        id, booking_id, status, locator, token, sent_at, completed_at, created_at, project_id
+      ) VALUES (?,?,?,?,?,?,?,?,?)`,
+      [
+        req.id, req.booking_id, req.status, req.locator || null, req.token || null,
+        req.sent_at || null, req.completed_at || null, req.created_at, req.project_id || localStorage.getItem('active_project_id')
+      ]
+    );
   }
 
 
@@ -1179,7 +1260,7 @@ export class SQLiteStore implements IDataStore {
     const columns = [
       'id', 'property_id', 'apartment_id', 'traveler_id', 'check_in', 'check_out', 'status', 'total_price', 'guests', 'source',
       'external_ref', 'created_at', 'conflict_detected', 'linked_event_id', 'rate_plan_id', 'summary', 'guest_name',
-      'booking_key', 'project_id'
+      'booking_key', 'project_id', 'ota', 'locator'
     ];
     // --- GUARDRAIL: Ensure check_out > check_in ---
     const { checkOut: validCheckOut } = ensureValidStay(b.check_in, b.check_out);
@@ -1191,7 +1272,8 @@ export class SQLiteStore implements IDataStore {
     const values: any[] = [
       b.id, b.property_id, b.apartment_id, b.traveler_id, b.check_in, b.check_out, b.status, b.total_price, b.guests, b.source,
       b.external_ref || null, b.created_at, b.conflict_detected ? 1 : 0, b.linked_event_id || null, b.rate_plan_id || null, b.summary || null, b.guest_name || null,
-      b.booking_key || null, b.project_id || localStorage.getItem('active_project_id')
+      b.booking_key || null, b.project_id || localStorage.getItem('active_project_id'),
+      b.ota || null, b.locator || null
     ];
 
     if (this.schemaFlags.bookings_provisional_id) {
@@ -1227,6 +1309,11 @@ export class SQLiteStore implements IDataStore {
     if (this.schemaFlags.bookings_pax_fields) {
       columns.push('pax_total', 'pax_adults', 'pax_children', 'pax_infants');
       values.push(b.pax_total || null, b.pax_adults || null, b.pax_children || null, b.pax_infants || null);
+    }
+
+    if (this.schemaFlags.bookings_needs_details) {
+      columns.push('needs_details');
+      values.push(b.needs_details ? 1 : 0);
     }
 
     const placeholders = columns.map(() => '?').join(',');
@@ -2217,6 +2304,8 @@ export class SQLiteStore implements IDataStore {
         updated.fiscal_city,
         updated.fiscal_postal_code,
         updated.fiscal_country,
+        updated.technical_reservations_email,
+        updated.allow_manual_completion !== false ? 1 : 0,
         updated.contact_email,
         updated.contact_phone,
         updated.contact_website,
@@ -2224,6 +2313,7 @@ export class SQLiteStore implements IDataStore {
         updated.default_timezone,
         updated.date_format,
         updated.ui_scale || 1.0,
+        updated.enable_minimal_bookings_from_ical ? 1 : 0,
         updated.created_at || Date.now(),
         updated.updated_at
       ]
@@ -2849,25 +2939,13 @@ export class SQLiteStore implements IDataStore {
   }
   async saveProperty(p: Property) {
     await this.executeWithParams(
-      `INSERT OR REPLACE INTO properties
-        (id, name, description, created_at, is_active, timezone, currency, updated_at,
-         web_calendar_enabled, public_token, allowed_origins_json, show_prices, max_range_days, last_published_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      "INSERT OR REPLACE INTO properties (id, name, description, color, created_at, updated_at, is_active, timezone, currency, web_calendar_enabled, public_token, allowed_origins_json, show_prices, max_range_days, last_published_at, location, logo, phone, email) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [
-        p.id,
-        p.name || 'Sin nombre',
-        p.description || null,
-        p.created_at || Date.now(),
-        p.is_active !== false ? 1 : 0,
-        p.timezone || 'Europe/Madrid',
-        p.currency || 'EUR',
-        p.updated_at || Date.now(),
-        p.web_calendar_enabled ? 1 : 0,
-        p.public_token || null,
-        p.allowed_origins_json || null,
-        p.show_prices ? 1 : 0,
-        p.max_range_days ?? 365,
-        p.last_published_at || null,
+        p.id, p.name, p.description || '', p.color || null, p.created_at, p.updated_at || Date.now(),
+        p.is_active !== false ? 1 : 0, p.timezone || 'Europe/Madrid', p.currency || 'EUR',
+        p.web_calendar_enabled ? 1 : 0, p.public_token || null, p.allowed_origins_json || '[]',
+        p.show_prices ? 1 : 0, p.max_range_days || 365, p.last_published_at || null,
+        p.location || '', p.logo || '', p.phone || '', p.email || ''
       ]
     );
   }
@@ -2875,19 +2953,34 @@ export class SQLiteStore implements IDataStore {
 
   async getAllApartments() {
     const res = await this.query("SELECT * FROM apartments");
-    return res.map(a => ({ ...a, is_active: a.is_active !== 0 }));
+    return res.map(a => ({
+      ...a,
+      is_active: a.is_active !== 0,
+      publicBasePrice: a.public_base_price ?? null,
+      currency: a.currency || 'EUR'
+    }));
   }
   async getApartments(pid: string) {
     const res = await this.query("SELECT * FROM apartments WHERE property_id=?", [pid]);
-    return res.map(a => ({ ...a, is_active: a.is_active !== 0 }));
+    return res.map(a => ({
+      ...a,
+      is_active: a.is_active !== 0,
+      publicBasePrice: a.public_base_price ?? null,
+      currency: a.currency || 'EUR'
+    }));
   }
   async saveApartment(a: Apartment) {
     await this.executeWithParams(
-      "INSERT OR REPLACE INTO apartments (id, property_id, name, color, created_at, is_active, ical_export_token, ical_last_publish, ical_event_count) VALUES (?,?,?,?,?,?,?,?,?)",
+      `INSERT OR REPLACE INTO apartments (
+        id, property_id, name, color, created_at, is_active, 
+        ical_export_token, ical_last_publish, ical_event_count,
+        public_base_price, currency
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       [
         a.id, a.property_id, a.name || 'Unidad', a.color || '#4F46E5',
         a.created_at || Date.now(), a.is_active !== false ? 1 : 0,
-        a.ical_export_token || null, a.ical_last_publish || null, a.ical_event_count || null
+        a.ical_export_token || null, a.ical_last_publish || null, a.ical_event_count || null,
+        a.publicBasePrice ?? null, a.currency || 'EUR'
       ]
     );
   }
@@ -2946,11 +3039,11 @@ export class SQLiteStore implements IDataStore {
     await this.ensureEmailIngestTables();
     await this.executeWithParams(
       `INSERT OR REPLACE INTO email_ingest (
-        id, provider, message_id, received_at, from_addr, subject, body_text, body_html,
+        id, provider, message_id, gmail_message_id, received_at, from_addr, subject, body_text, body_html,
         raw_links_json, parsed_json, status, error_message, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        email.id, email.provider, email.message_id, email.received_at, email.from_addr, email.subject,
+        email.id, email.provider, (email as any).message_id, email.gmail_message_id || null, email.received_at, email.from_addr, email.subject,
         email.body_text, email.body_html || null, JSON.stringify(email.raw_links_json),
         JSON.stringify(email.parsed_json), email.status, email.error_message || null, email.created_at
       ]
@@ -3083,6 +3176,7 @@ export class SQLiteStore implements IDataStore {
           id TEXT PRIMARY KEY,
           provider TEXT,
           message_id TEXT,
+          gmail_message_id TEXT,
           received_at TEXT,
           from_addr TEXT,
           subject TEXT,
@@ -3095,6 +3189,9 @@ export class SQLiteStore implements IDataStore {
           created_at INTEGER
         )
       `);
+      try { await this.execute("ALTER TABLE email_ingest ADD COLUMN gmail_message_id TEXT"); } catch (e) { }
+      await this.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_email_ingest_gmail ON email_ingest(gmail_message_id)");
+      await this.execute("CREATE INDEX IF NOT EXISTS idx_email_ingest_provider ON email_ingest(provider)");
 
       // Media Assets Table
       await this.execute(`

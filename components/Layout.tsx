@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard, Calendar, Users, Building2, CalendarRange, Wallet, Globe, RefreshCw, Landmark, ScanFace, MessageSquare, Database, Save, XCircle, Activity, Sparkles, ExternalLink, ShieldAlert, ShieldCheck, Megaphone, Settings, Menu, X, ClipboardList, AlertTriangle, ZoomIn, ZoomOut, RotateCcw, Bug, Loader2, HardDrive
+  LayoutDashboard, Calendar, Users, Building2, CalendarRange, Wallet, Globe, RefreshCw, Landmark, ScanFace, MessageSquare, Database, Save, XCircle, Activity, Sparkles, ExternalLink, ShieldAlert, ShieldCheck, Megaphone, Settings, Menu, X, ClipboardList, AlertTriangle, ZoomIn, ZoomOut, RotateCcw, Bug, Loader2, HardDrive, Mail
 } from 'lucide-react';
 import { projectManager } from '../services/projectManager';
 import { DebugOverlay } from './DebugOverlay';
@@ -182,6 +182,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
 
       <div className="pt-4 pb-2 px-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Herramientas</div>
       <NavItem to="/importers" icon={ShieldAlert} label="Importadores" onClick={mobile ? handleNavClick : undefined} />
+      <NavItem to="/email-bookings" icon={Mail} label="Reservas por Email" onClick={mobile ? handleNavClick : undefined} />
       <NavItem to="/qa" icon={Activity} label="Calidad / Tests" onClick={mobile ? handleNavClick : undefined} />
       <NavItem to="/backup" icon={ShieldCheck} label="Backup Vault" onClick={mobile ? handleNavClick : undefined} />
       <NavItem to="/settings" icon={Settings} label="Configuración" onClick={mobile ? handleNavClick : undefined} />

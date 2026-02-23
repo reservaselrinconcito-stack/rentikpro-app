@@ -29,6 +29,8 @@ interface AvailabilityDay {
 interface ApartmentAvailability {
     apartmentId: string;
     apartmentSlug: string;
+    publicBasePrice?: number | null;
+    currency?: string;
     days: AvailabilityDay[];
 }
 
@@ -335,13 +337,15 @@ async function handleGetAvailability(
         apartments: fullPayload.apartments.map(apt => ({
             apartmentId: apt.apartmentId,
             apartmentSlug: apt.apartmentSlug,
+            publicBasePrice: apt.publicBasePrice,
+            currency: apt.currency,
             days: apt.days.filter(d => d.date >= from && d.date < to),
         })),
     };
 
     return jsonResponse(filtered, 200, {
         ...cors,
-        'Cache-Control': 'public, max-age=300', // 5-min CDN cache
+        'Cache-Control': 'public, max-age=600', // 10-min CDN cache
     });
 }
 

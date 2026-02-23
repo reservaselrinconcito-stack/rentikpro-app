@@ -3,11 +3,24 @@ import { projectManager } from '../services/projectManager';
 import { Property, Apartment } from '../types';
 import { notifyDataChanged } from '../services/dataRefresher';
 import { publicCalendarExporter } from '../services/publicCalendarExporter';
-import { 
-  Plus, Search, Trash2, Edit2, X, AlertCircle, CheckCircle2, 
+import {
+  Plus, Search, Trash2, Edit2, X, AlertCircle, CheckCircle2,
   ChevronRight, Building2, LayoutGrid, Palette, ArrowLeft,
   Globe, Code, Copy, ExternalLink, MousePointer, Download, FileJson, RefreshCw
 } from 'lucide-react';
+
+export const stableColorById = (id: string = '') => {
+  if (!id) return '#4F46E5';
+  const colors = [
+    '#4F46E5', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
+    '#EC4899', '#06B6D4', '#F97316', '#14B8A6', '#6366F1'
+  ];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return colors[Math.abs(hash) % colors.length];
+};
 
 // --- WIDGET GENERATOR MODAL ---
 const BookingWidgetModal = ({ property, onClose }: { property: Property, onClose: () => void }) => {
@@ -18,7 +31,7 @@ const BookingWidgetModal = ({ property, onClose }: { property: Property, onClose
   const [isExporting, setIsExporting] = useState(false);
 
   // URL Base Simulada (En producción apuntaría a tu despliegue de Cloudflare Pages o Vercel)
-  const baseUrl = "https://bookings.rentik.pro"; 
+  const baseUrl = "https://bookings.rentik.pro";
   const publicUrl = `${baseUrl}/widget/${property.id}?color=${accentColor.replace('#', '')}&showTitle=${showTitle}`;
   const iframeCode = `<iframe src="${publicUrl}" width="100%" height="700" frameborder="0" style="border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);"></iframe>`;
 
@@ -31,35 +44,35 @@ const BookingWidgetModal = ({ property, onClose }: { property: Property, onClose
   const handleExportJson = async () => {
     setIsExporting(true);
     try {
-        const data = await publicCalendarExporter.export(property.id);
-        const jsonStr = JSON.stringify(data, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `public_calendar_${property.id}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
+      const data = await publicCalendarExporter.export(property.id);
+      const jsonStr = JSON.stringify(data, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `public_calendar_${property.id}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e: any) {
-        alert("Error exportando calendario: " + e.message);
+      alert("Error exportando calendario: " + e.message);
     } finally {
-        setIsExporting(false);
+      setIsExporting(false);
     }
   };
 
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center z-50 p-4 animate-in fade-in duration-200">
       <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-4xl overflow-hidden border border-white/20 flex flex-col md:flex-row max-h-[90vh]">
-        
+
         {/* Left: Configuration */}
         <div className="w-full md:w-1/2 p-8 border-r border-slate-100 overflow-y-auto custom-scrollbar">
           <div className="flex justify-between items-center mb-6">
-             <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-               <Globe className="text-indigo-600"/> Motor de Reservas
-             </h3>
-             <button onClick={onClose} className="md:hidden p-2 bg-slate-100 rounded-full"><X size={20}/></button>
+            <h3 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+              <Globe className="text-indigo-600" /> Motor de Reservas
+            </h3>
+            <button onClick={onClose} className="md:hidden p-2 bg-slate-100 rounded-full"><X size={20} /></button>
           </div>
-          
+
           <p className="text-slate-500 text-sm mb-8">
             Genera el código de integración para <strong>{property.name}</strong>. Copia y pega este código en tu sitio web (WordPress, Wix, Squarespace).
           </p>
@@ -67,127 +80,127 @@ const BookingWidgetModal = ({ property, onClose }: { property: Property, onClose
           <div className="space-y-6">
             {/* Color Picker */}
             <div>
-               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Personalización</label>
-               <div className="flex gap-3">
-                  {['#4F46E5', '#059669', '#DC2626', '#EA580C', '#000000'].map(c => (
-                    <button 
-                      key={c}
-                      onClick={() => setAccentColor(c)}
-                      className={`w-8 h-8 rounded-full border-2 transition-all ${accentColor === c ? 'border-slate-800 scale-110 shadow-md' : 'border-transparent opacity-50 hover:opacity-100'}`}
-                      style={{ backgroundColor: c }}
-                    />
-                  ))}
-                  <div className="flex items-center gap-2 ml-2">
-                     <input type="checkbox" checked={showTitle} onChange={e => setShowTitle(e.target.checked)} className="accent-indigo-600"/>
-                     <span className="text-xs font-bold text-slate-600">Mostrar Título</span>
-                  </div>
-               </div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Personalización</label>
+              <div className="flex gap-3">
+                {['#4F46E5', '#059669', '#DC2626', '#EA580C', '#000000'].map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setAccentColor(c)}
+                    className={`w-8 h-8 rounded-full border-2 transition-all ${accentColor === c ? 'border-slate-800 scale-110 shadow-md' : 'border-transparent opacity-50 hover:opacity-100'}`}
+                    style={{ backgroundColor: c }}
+                  />
+                ))}
+                <div className="flex items-center gap-2 ml-2">
+                  <input type="checkbox" checked={showTitle} onChange={e => setShowTitle(e.target.checked)} className="accent-indigo-600" />
+                  <span className="text-xs font-bold text-slate-600">Mostrar Título</span>
+                </div>
+              </div>
             </div>
 
             {/* Direct Link */}
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200">
-               <div className="flex justify-between items-center mb-2">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                     <ExternalLink size={12}/> URL Pública Directa
-                  </label>
-                  {copiedLink && <span className="text-[10px] font-bold text-emerald-600 animate-pulse">¡Copiado!</span>}
-               </div>
-               <div className="flex gap-2">
-                  <input readOnly value={publicUrl} className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-600 outline-none select-all"/>
-                  <button onClick={() => copyToClipboard(publicUrl, 'LINK')} className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors text-slate-500">
-                     <Copy size={16}/>
-                  </button>
-               </div>
+              <div className="flex justify-between items-center mb-2">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <ExternalLink size={12} /> URL Pública Directa
+                </label>
+                {copiedLink && <span className="text-[10px] font-bold text-emerald-600 animate-pulse">¡Copiado!</span>}
+              </div>
+              <div className="flex gap-2">
+                <input readOnly value={publicUrl} className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-600 outline-none select-all" />
+                <button onClick={() => copyToClipboard(publicUrl, 'LINK')} className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors text-slate-500">
+                  <Copy size={16} />
+                </button>
+              </div>
             </div>
 
             {/* Embed Code */}
             <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-xl">
-               <div className="flex justify-between items-center mb-3">
-                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                     <Code size={12}/> Código Iframe (Embed)
-                  </label>
-                  <button 
-                    onClick={() => copyToClipboard(iframeCode, 'CODE')}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${copiedCode ? 'bg-emerald-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                  >
-                     {copiedCode ? <CheckCircle2 size={12}/> : <Copy size={12}/>}
-                     {copiedCode ? 'Copiado' : 'Copiar Código'}
-                  </button>
-               </div>
-               <textarea 
-                 readOnly 
-                 value={iframeCode} 
-                 className="w-full h-32 bg-transparent text-indigo-100 font-mono text-[11px] outline-none resize-none"
-               />
+              <div className="flex justify-between items-center mb-3">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Code size={12} /> Código Iframe (Embed)
+                </label>
+                <button
+                  onClick={() => copyToClipboard(iframeCode, 'CODE')}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${copiedCode ? 'bg-emerald-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                >
+                  {copiedCode ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+                  {copiedCode ? 'Copiado' : 'Copiar Código'}
+                </button>
+              </div>
+              <textarea
+                readOnly
+                value={iframeCode}
+                className="w-full h-32 bg-transparent text-indigo-100 font-mono text-[11px] outline-none resize-none"
+              />
             </div>
 
             {/* Export JSON Button */}
             <div className="pt-4 border-t border-slate-100">
-                <button 
-                    onClick={handleExportJson} 
-                    disabled={isExporting}
-                    className="w-full py-3 bg-white border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all"
-                >
-                    {isExporting ? <RefreshCw size={14} className="animate-spin"/> : <FileJson size={14}/>}
-                    {isExporting ? 'Generando...' : 'Descargar public_calendar.json'}
-                </button>
-                <p className="text-[9px] text-center text-slate-400 mt-2">
-                    Archivo estático para integración manual (API-less).
-                </p>
+              <button
+                onClick={handleExportJson}
+                disabled={isExporting}
+                className="w-full py-3 bg-white border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-600 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all"
+              >
+                {isExporting ? <RefreshCw size={14} className="animate-spin" /> : <FileJson size={14} />}
+                {isExporting ? 'Generando...' : 'Descargar public_calendar.json'}
+              </button>
+              <p className="text-[9px] text-center text-slate-400 mt-2">
+                Archivo estático para integración manual (API-less).
+              </p>
             </div>
           </div>
         </div>
 
         {/* Right: Live Preview */}
         <div className="w-full md:w-1/2 bg-slate-100 p-8 flex flex-col justify-center relative">
-           <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-white/50 hover:bg-white rounded-full transition-colors hidden md:block"><X size={20}/></button>
-           <p className="text-center text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Vista Previa (Simulación)</p>
-           
-           <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200 w-full max-w-sm mx-auto transform transition-all duration-500 h-[500px] flex flex-col">
-              {/* Fake Widget Header */}
-              {showTitle && (
-                <div className="p-6 pb-2">
-                   <h4 className="font-black text-xl text-slate-800">{property.name}</h4>
-                   <p className="text-xs text-slate-400">Reserva directa al mejor precio</p>
-                </div>
-              )}
-              
-              {/* Fake Calendar/Form */}
-              <div className="p-6 space-y-4 flex-1">
-                 <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
-                       <p className="text-[9px] uppercase font-bold text-slate-400">Llegada</p>
-                       <p className="text-sm font-bold text-slate-700">-- / -- / --</p>
-                    </div>
-                    <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
-                       <p className="text-[9px] uppercase font-bold text-slate-400">Salida</p>
-                       <p className="text-sm font-bold text-slate-700">-- / -- / --</p>
-                    </div>
-                 </div>
-                 
-                 <div className="border border-slate-100 rounded-xl p-1">
-                    <div className="grid grid-cols-7 text-center mb-2 text-[9px] font-bold text-slate-400 pt-2">
-                       <span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span>
-                    </div>
-                    <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-600 pb-2">
-                       {[...Array(30)].map((_, i) => (
-                          <div key={i} className={`aspect-square flex items-center justify-center rounded-lg ${i === 14 || i === 15 ? 'text-white' : 'hover:bg-slate-50'}`} style={i === 14 || i === 15 ? { backgroundColor: accentColor } : {}}>
-                             {i+1}
-                          </div>
-                       ))}
-                    </div>
-                 </div>
+          <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-white/50 hover:bg-white rounded-full transition-colors hidden md:block"><X size={20} /></button>
+          <p className="text-center text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Vista Previa (Simulación)</p>
 
-                 <div className="mt-auto">
-                    <button className="w-full py-3 rounded-xl text-white font-bold text-xs shadow-lg flex items-center justify-center gap-2" style={{ backgroundColor: accentColor }}>
-                       <MousePointer size={14}/> VER DISPONIBILIDAD
-                    </button>
-                    <p className="text-[8px] text-center text-slate-300 mt-2 flex items-center justify-center gap-1">
-                       <CheckCircle2 size={8}/> Pagos Seguros con RentikPro
-                    </p>
-                 </div>
+          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200 w-full max-w-sm mx-auto transform transition-all duration-500 h-[500px] flex flex-col">
+            {/* Fake Widget Header */}
+            {showTitle && (
+              <div className="p-6 pb-2">
+                <h4 className="font-black text-xl text-slate-800">{property.name}</h4>
+                <p className="text-xs text-slate-400">Reserva directa al mejor precio</p>
               </div>
-           </div>
+            )}
+
+            {/* Fake Calendar/Form */}
+            <div className="p-6 space-y-4 flex-1">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
+                  <p className="text-[9px] uppercase font-bold text-slate-400">Llegada</p>
+                  <p className="text-sm font-bold text-slate-700">-- / -- / --</p>
+                </div>
+                <div className="bg-slate-50 border border-slate-100 rounded-xl p-3">
+                  <p className="text-[9px] uppercase font-bold text-slate-400">Salida</p>
+                  <p className="text-sm font-bold text-slate-700">-- / -- / --</p>
+                </div>
+              </div>
+
+              <div className="border border-slate-100 rounded-xl p-1">
+                <div className="grid grid-cols-7 text-center mb-2 text-[9px] font-bold text-slate-400 pt-2">
+                  <span>L</span><span>M</span><span>X</span><span>J</span><span>V</span><span>S</span><span>D</span>
+                </div>
+                <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-600 pb-2">
+                  {[...Array(30)].map((_, i) => (
+                    <div key={i} className={`aspect-square flex items-center justify-center rounded-lg ${i === 14 || i === 15 ? 'text-white' : 'hover:bg-slate-50'}`} style={i === 14 || i === 15 ? { backgroundColor: accentColor } : {}}>
+                      {i + 1}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mt-auto">
+                <button className="w-full py-3 rounded-xl text-white font-bold text-xs shadow-lg flex items-center justify-center gap-2" style={{ backgroundColor: accentColor }}>
+                  <MousePointer size={14} /> VER DISPONIBILIDAD
+                </button>
+                <p className="text-[8px] text-center text-slate-300 mt-2 flex items-center justify-center gap-1">
+                  <CheckCircle2 size={8} /> Pagos Seguros con RentikPro
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -198,16 +211,16 @@ export const Properties: React.FC = () => {
   const [properties, setProperties] = useState<Property[]>([]);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
   const [apartments, setApartments] = useState<Apartment[]>([]);
-  
+
   // Modals
   const [isPropModalOpen, setIsPropModalOpen] = useState(false);
   const [isAptModalOpen, setIsAptModalOpen] = useState(false);
-  const [widgetProp, setWidgetProp] = useState<Property | null>(null); 
-  
+  const [widgetProp, setWidgetProp] = useState<Property | null>(null);
+
   // Forms
   const [editingPropId, setEditingPropId] = useState<string | null>(null);
-  const [propForm, setPropForm] = useState({ name: '', description: '' });
-  
+  const [propForm, setPropForm] = useState({ name: '', description: '', color: '' });
+
   const [editingAptId, setEditingAptId] = useState<string | null>(null);
   const [aptForm, setAptForm] = useState({ name: '', color: '#4F46E5' });
 
@@ -250,12 +263,13 @@ export const Properties: React.FC = () => {
   const handlePropSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!propForm.name.trim()) return showFeedback('error', 'El nombre es obligatorio');
-    
+
     try {
       const prop: Property = {
         id: editingPropId || crypto.randomUUID(),
         name: propForm.name,
         description: propForm.description,
+        color: propForm.color || undefined,
         created_at: editingPropId ? (properties.find(p => p.id === editingPropId)?.created_at || Date.now()) : Date.now()
       };
       await projectManager.getStore().saveProperty(prop);
@@ -323,7 +337,7 @@ export const Properties: React.FC = () => {
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
         <div className="flex items-center gap-4">
-          <button 
+          <button
             onClick={() => setSelectedProperty(null)}
             className="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-400 hover:text-slate-900"
           >
@@ -338,12 +352,12 @@ export const Properties: React.FC = () => {
         <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden p-8">
           <div className="flex justify-between items-center mb-8">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-indigo-600 rounded-xl text-white">
+              <div className="p-2.5 rounded-xl text-white" style={{ backgroundColor: selectedProperty.color || stableColorById(selectedProperty.id) }}>
                 <LayoutGrid size={20} />
               </div>
               <h3 className="text-xl font-bold text-slate-800 tracking-tight">Apartamentos / Unidades</h3>
             </div>
-            <button 
+            <button
               onClick={() => {
                 setEditingAptId(null);
                 setAptForm({ name: '', color: '#4F46E5' });
@@ -366,7 +380,7 @@ export const Properties: React.FC = () => {
                   </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button 
+                  <button
                     onClick={() => {
                       setEditingAptId(apt.id);
                       setAptForm({ name: apt.name, color: apt.color });
@@ -397,28 +411,28 @@ export const Properties: React.FC = () => {
             <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden border border-white/20">
               <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
                 <h3 className="text-2xl font-black text-slate-800">{editingAptId ? 'Editar Unidad' : 'Nueva Unidad'}</h3>
-                <button onClick={() => setIsAptModalOpen(false)} className="text-slate-400 hover:text-slate-900"><X size={24}/></button>
+                <button onClick={() => setIsAptModalOpen(false)} className="text-slate-400 hover:text-slate-900"><X size={24} /></button>
               </div>
               <form onSubmit={handleAptSave} className="p-8 space-y-6">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Nombre / Número</label>
-                  <input 
+                  <input
                     required placeholder="Ej. Apto 101, Loft A..."
                     className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all font-bold"
-                    value={aptForm.name} onChange={e => setAptForm({...aptForm, name: e.target.value})}
+                    value={aptForm.name} onChange={e => setAptForm({ ...aptForm, name: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Color en Calendario</label>
                   <div className="flex gap-4 items-center">
-                    <input 
-                      type="color" 
+                    <input
+                      type="color"
                       className="w-16 h-16 rounded-2xl cursor-pointer border-none bg-transparent"
-                      value={aptForm.color} onChange={e => setAptForm({...aptForm, color: e.target.value})}
+                      value={aptForm.color} onChange={e => setAptForm({ ...aptForm, color: e.target.value })}
                     />
-                    <input 
+                    <input
                       className="flex-1 px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-sm uppercase"
-                      value={aptForm.color} onChange={e => setAptForm({...aptForm, color: e.target.value})}
+                      value={aptForm.color} onChange={e => setAptForm({ ...aptForm, color: e.target.value })}
                     />
                   </div>
                 </div>
@@ -440,10 +454,10 @@ export const Properties: React.FC = () => {
           <h2 className="text-3xl font-black text-slate-800 tracking-tight">Propiedades</h2>
           <p className="text-slate-500">Listado general de complejos y edificios.</p>
         </div>
-        <button 
+        <button
           onClick={() => {
             setEditingPropId(null);
-            setPropForm({ name: '', description: '' });
+            setPropForm({ name: '', description: '', color: '#4F46E5' });
             setIsPropModalOpen(true);
           }}
           className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl hover:bg-indigo-700 font-bold transition-all active:scale-95 shadow-lg shadow-indigo-100"
@@ -456,14 +470,16 @@ export const Properties: React.FC = () => {
         {properties.map(p => (
           <div key={p.id} className="group relative bg-white border border-slate-200 rounded-[2rem] p-8 hover:border-indigo-500/50 hover:shadow-xl hover:shadow-indigo-50 transition-all cursor-pointer" onClick={() => setSelectedProperty(p)}>
             <div className="flex justify-between items-start mb-6">
-              <div className="p-4 bg-slate-50 rounded-2xl group-hover:bg-indigo-600 group-hover:text-white transition-all">
-                <Building2 size={32} />
+              <div className="p-4 bg-slate-50 rounded-2xl group-hover:text-white transition-all overflow-hidden relative" style={{ color: p.color || stableColorById(p.id) }}>
+                <div className="absolute inset-0 opacity-10 group-hover:opacity-100 transition-all" style={{ backgroundColor: p.color || stableColorById(p.id) }}></div>
+                <Building2 size={32} className="relative z-10" />
               </div>
               <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                <button 
-                  onClick={() => {
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setEditingPropId(p.id);
-                    setPropForm({ name: p.name, description: p.description });
+                    setPropForm({ name: p.name, description: p.description || '', color: p.color || stableColorById(p.id) });
                     setIsPropModalOpen(true);
                   }}
                   className="p-2 text-slate-300 hover:text-indigo-600 transition-colors"
@@ -477,18 +493,18 @@ export const Properties: React.FC = () => {
             </div>
             <h3 className="text-xl font-black text-slate-800 mb-2">{p.name}</h3>
             <p className="text-slate-500 text-sm line-clamp-2 mb-6 h-10">{p.description || 'Sin descripción adicional.'}</p>
-            
+
             <div className="flex items-center justify-between pt-6 border-t border-slate-50 gap-4">
               <div className="flex items-center gap-2 text-indigo-600 font-bold text-sm">
                 Gestionar Apartamentos <ChevronRight size={16} />
               </div>
-              
+
               {/* NEW WIDGET BUTTON */}
-              <button 
+              <button
                 onClick={(e) => { e.stopPropagation(); setWidgetProp(p); }}
                 className="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-black uppercase tracking-wider text-slate-600 flex items-center gap-2 transition-colors"
               >
-                 <Globe size={12}/> Motor Reservas
+                <Globe size={12} /> Motor Reservas
               </button>
             </div>
           </div>
@@ -508,24 +524,39 @@ export const Properties: React.FC = () => {
           <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden border border-white/20">
             <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <h3 className="text-2xl font-black text-slate-800">{editingPropId ? 'Editar Propiedad' : 'Nueva Propiedad'}</h3>
-              <button onClick={() => setIsPropModalOpen(false)} className="text-slate-400 hover:text-slate-900"><X size={24}/></button>
+              <button onClick={() => setIsPropModalOpen(false)} className="text-slate-400 hover:text-slate-900"><X size={24} /></button>
             </div>
             <form onSubmit={handlePropSave} className="p-8 space-y-6">
               <div>
                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Nombre del Complejo</label>
-                <input 
+                <input
                   required placeholder="Ej. Residencial Las Palmeras..."
                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all font-bold"
-                  value={propForm.name} onChange={e => setPropForm({...propForm, name: e.target.value})}
+                  value={propForm.name} onChange={e => setPropForm({ ...propForm, name: e.target.value })}
                 />
               </div>
               <div>
                 <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Descripción</label>
-                <textarea 
+                <textarea
                   placeholder="Detalles sobre la ubicación, servicios..." rows={3}
                   className="w-full px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 outline-none transition-all font-medium"
-                  value={propForm.description} onChange={e => setPropForm({...propForm, description: e.target.value})}
+                  value={propForm.description} onChange={e => setPropForm({ ...propForm, description: e.target.value })}
                 />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2">Color distintivo</label>
+                <div className="flex gap-4 items-center">
+                  <input
+                    type="color"
+                    className="w-16 h-16 rounded-2xl cursor-pointer border-none bg-transparent"
+                    value={propForm.color} onChange={e => setPropForm({ ...propForm, color: e.target.value })}
+                  />
+                  <input
+                    className="flex-1 px-5 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl font-mono text-sm uppercase font-bold"
+                    value={propForm.color} onChange={e => setPropForm({ ...propForm, color: e.target.value })}
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2 font-medium">Este color se usará en gráficos y calendarios para identificar rápidamente esta propiedad.</p>
               </div>
               <button type="submit" className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 shadow-xl shadow-indigo-100 transition-all">
                 Guardar Propiedad
@@ -537,14 +568,13 @@ export const Properties: React.FC = () => {
 
       {/* Widget Generator Modal */}
       {widgetProp && (
-         <BookingWidgetModal property={widgetProp} onClose={() => setWidgetProp(null)} />
+        <BookingWidgetModal property={widgetProp} onClose={() => setWidgetProp(null)} />
       )}
 
       {/* Global Status Notification */}
       {status && (
-        <div className={`fixed bottom-8 right-8 flex items-center gap-3 p-4 rounded-2xl border shadow-2xl animate-in slide-in-from-bottom-4 duration-300 z-50 ${
-          status.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'
-        }`}>
+        <div className={`fixed bottom-8 right-8 flex items-center gap-3 p-4 rounded-2xl border shadow-2xl animate-in slide-in-from-bottom-4 duration-300 z-50 ${status.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-red-50 border-red-100 text-red-800'
+          }`}>
           {status.type === 'success' ? <CheckCircle2 size={20} /> : <AlertCircle size={20} />}
           <p className="text-sm font-bold">{status.msg}</p>
         </div>

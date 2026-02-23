@@ -158,6 +158,8 @@ export class BookingEmailParser {
         const missing: string[] = [];
         if (!checkIn) missing.push('start_date');
         if (!checkOut) missing.push('end_date');
+        if (!guestMatch || guestMatch[1].toLowerCase().includes('booking.com')) missing.push('guest_name');
+        if (!priceMatch) missing.push('total_price');
 
         return {
             id: crypto.randomUUID(),
@@ -171,7 +173,7 @@ export class BookingEmailParser {
 
             start_date: checkIn,
             end_date: checkOut,
-            guest_name: guestMatch ? guestMatch[1].trim() : 'Guest',
+            guest_name: (guestMatch && !guestMatch[1].toLowerCase().includes('booking.com')) ? guestMatch[1].trim() : 'Guest Booking.com',
             pax_adults: 1,
             total_price: priceMatch ? parseFloat(priceMatch[2].replace(/,/g, '')) : 0,
             currency: priceMatch ? this.mapSymbolToCurrency(priceMatch[1]) : 'EUR',
@@ -196,9 +198,12 @@ export class BookingEmailParser {
         const idMatch = sContent.match(/Reservation ID\s*[:]?\s*([A-Za-z0-9-]+)/i);
 
         const dates = sContent.match(/(\d{1,2}\s[A-Za-z]{3}\s\d{4}|\d{1,2}\/\d{1,2}\/\d{4})/g) || [];
+        const guestMatch = sContent.match(/Guest Name\s*[:]?\s*([^\n\r]+)/i) || sContent.match(/Traveler\s*[:]?\s*([^\n\r]+)/i);
+        const priceMatch = sContent.match(/Total\s*[:]?\s*([$€£])?\s*([\d,]+\.?\d*)/i);
 
         const missing: string[] = [];
         if (dates.length < 2) missing.push('start_date', 'end_date');
+        if (!guestMatch) missing.push('guest_name');
 
         return {
             id: crypto.randomUUID(),
@@ -212,10 +217,10 @@ export class BookingEmailParser {
 
             start_date: dates[0] ? this.normalizeDate(dates[0]) : '',
             end_date: dates[1] ? this.normalizeDate(dates[1]) : '',
-            guest_name: 'Guest',
+            guest_name: guestMatch ? guestMatch[1].trim() : 'Guest Vrbo',
             pax_adults: 1,
-            total_price: 0,
-            currency: 'EUR',
+            total_price: priceMatch ? parseFloat(priceMatch[2].replace(/,/g, '')) : 0,
+            currency: priceMatch ? this.mapSymbolToCurrency(priceMatch[1]) : 'EUR',
 
             missing_fields: missing,
             raw_text_snippet: body.substring(0, 500),
@@ -272,11 +277,15 @@ export class BookingEmailParser {
         // "Reserva pendiente de confirmar: 55-ABC"
         const idMatch = sContent.match(/Reserva.*?[:]\s*([A-Za-z0-9-]+)/i) || sContent.match(/Solicitud.*?[:]\s*([A-Za-z0-9-]+)/i);
         // "Fecha entrada: 01/08/2026"
-        const dateMatch = sContent.match(/Fecha entrada.*[:]\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+        const checkInMatch = sContent.match(/Fecha entrada.*[:]\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+        const checkOutMatch = sContent.match(/Fecha salida.*[:]\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+        const guestNameMatch = sContent.match(/Nombre cliente.*[:]\s*([^\n\r]+)/i);
+        const priceMatch = sContent.match(/Importe total.*[:]\s*([\d,]+\.?\d*)\s*(€|EUR)/i);
 
         const missing: string[] = [];
-        if (!dateMatch) missing.push('start_date');
-        missing.push('end_date'); // Escapada mails often miss end date or price in simple notify
+        if (!checkInMatch) missing.push('start_date');
+        if (!checkOutMatch) missing.push('end_date');
+        if (!guestNameMatch) missing.push('guest_name');
 
         return {
             id: crypto.randomUUID(),
@@ -288,19 +297,19 @@ export class BookingEmailParser {
             created_at: Date.now(),
             updated_at: Date.now(),
 
-            start_date: dateMatch ? this.normalizeDate(dateMatch[1]) : '',
-            end_date: '',
-            guest_name: 'Guest',
+            start_date: checkInMatch ? this.normalizeDate(checkInMatch[1]) : '',
+            end_date: checkOutMatch ? this.normalizeDate(checkOutMatch[1]) : '',
+            guest_name: guestNameMatch ? guestNameMatch[1].trim() : 'Guest EscapadaRural',
             pax_adults: 1,
-            total_price: 0,
+            total_price: priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : 0,
             currency: 'EUR',
 
             missing_fields: missing,
             raw_text_snippet: body.substring(0, 500),
 
             // Legacy/Compat
-            check_in: dateMatch ? this.normalizeDate(dateMatch[1]) : '',
-            check_out: '',
+            check_in: checkInMatch ? this.normalizeDate(checkInMatch[1]) : '',
+            check_out: checkOutMatch ? this.normalizeDate(checkOutMatch[1]) : '',
             platform: 'ESCAPADA_RURAL',
             source_email_id: email.id
         };

@@ -37,6 +37,8 @@ interface AvailabilityDay {
 interface ApartmentAvailability {
     apartmentId: string;
     apartmentSlug: string;
+    publicBasePrice?: number | null;
+    currency?: string;
     days: AvailabilityDay[];
 }
 
@@ -251,6 +253,8 @@ async function handleGetAvailability(request: Request, env: Env): Promise<Respon
         apartments: snapshot.apartments.map(apt => ({
             apartmentId: apt.apartmentId,
             apartmentSlug: apt.apartmentSlug,
+            publicBasePrice: apt.publicBasePrice,
+            currency: apt.currency,
             days: apt.days
                 .filter(day => day.date >= fromStr && day.date < toStr)
                 .map(day => {
@@ -265,7 +269,10 @@ async function handleGetAvailability(request: Request, env: Env): Promise<Respon
         })),
     };
 
-    return json(filtered, 200, cors);
+    return json(filtered, 200, {
+        ...cors,
+        'Cache-Control': 'public, max-age=600', // 10-min CDN cache
+    });
 }
 
 async function handlePublish(request: Request, env: Env): Promise<Response> {

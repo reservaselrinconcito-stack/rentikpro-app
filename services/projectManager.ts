@@ -268,10 +268,17 @@ export class ProjectManager {
 
   // Ensure default property exists
   private async ensureDefaultProperty() {
-    const props = await this.store.getProperties();
+    if (!this.currentProjectId) {
+      console.log("[INIT] Skipped property check (no active project context)");
+      return;
+    }
+
+    const props = await this.getStore().getProperties();
+    console.log(`[INIT] propertiesCount: ${props.length} for project: ${this.currentProjectId}`);
+
     if (props.length === 0) {
-      logger.log("Initializing default property...");
-      await this.store.saveProperty({
+      logger.log("[SEED] Creating default property...");
+      await this.getStore().saveProperty({
         id: 'prop_default',
         name: 'Propiedad principal',
         created_at: Date.now(),
@@ -280,6 +287,10 @@ export class ProjectManager {
         currency: 'EUR',
         updated_at: Date.now()
       });
+      console.log("[SEED] created default property: prop_default");
+    } else {
+      const hasDefault = props.some(p => p.id === 'prop_default');
+      console.log(`[SEED] skipped (already has ${props.length} properties, default_exists=${hasDefault})`);
     }
   }
 
@@ -744,14 +755,7 @@ export class ProjectManager {
     return this.currentProjectId;
   }
 
-  async closeProject() {
-    if (this.autoSaveInterval) clearInterval(this.autoSaveInterval);
-    this.currentProjectId = null;
-    this.lastSyncedAt = null;
-    localStorage.removeItem('active_project_id');
-    localStorage.removeItem('active_project_mode');
-    await this.store.close();
-  }
+  // ...
 
   // NEW: Download SQLite plain
   async downloadSqlite() {
@@ -1003,21 +1007,6 @@ export class ProjectManager {
     }
   }
 
-  getStore(): SQLiteStore {
-    return this.store;
-  }
-
-  getCurrentProjectId(): string | null {
-    return this.currentProjectId;
-  }
-
-  getFileSaveState(): 'idle' | 'saving' | 'saved' | 'error' {
-    return this.fileSaveState;
-  }
-
-  getStorageMode(): 'idb' | 'file' {
-    return this.storageMode;
-  }
 
   forceResetSavingState(): void {
     logger.warn("[ProjectManager] Manually resetting saving state.");

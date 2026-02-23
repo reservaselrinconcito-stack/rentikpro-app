@@ -19,6 +19,8 @@ export interface AvailabilityDay {
 export interface ApartmentAvailability {
     apartmentId: string;
     apartmentSlug: string;
+    publicBasePrice?: number | null;
+    currency?: string;
     days: AvailabilityDay[];
 }
 
@@ -124,6 +126,8 @@ export async function calculateAvailability(
         results.push({
             apartmentId: apt.id,
             apartmentSlug: slugify(apt.name),
+            publicBasePrice: apt.publicBasePrice ?? null,
+            currency: apt.currency || 'EUR',
             days,
         });
 

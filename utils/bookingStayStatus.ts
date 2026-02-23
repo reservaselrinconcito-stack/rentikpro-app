@@ -20,7 +20,7 @@ export function getStayStatus(checkIn: string, checkOut: string, nowOverride?: D
 
     const todayStr = formatter.format(now); // "YYYY-MM-DD"
 
-    if (todayStr < checkIn) {
+    if (todayStr <= checkIn) {
         return 'upcoming';
     } else if (todayStr >= checkOut) {
         return 'past';

@@ -12,8 +12,12 @@ import { formatDateES } from '../utils/dateFormat';
 import { isConfirmedBooking, isProvisionalBlock, hasRealGuest, hasAmountPositive } from '../utils/bookingClassification';
 import { getBookingDisplayName } from '../utils/bookingDisplay';
 import { mapCalendarEventToBooking, mergeBookingsAndEvents } from '../utils/bookingMapping';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Camera } from 'lucide-react';
 import { getStayStatus } from '../utils/bookingStayStatus';
+import { PulseCompletionModal } from '../components/PulseCompletionModal';
+import { PulseExtractedData } from '../services/ocrService';
+import { checkinService } from '../services/checkinService';
+import { toast } from 'sonner';
 
 export const Bookings: React.FC = () => {
   const navigate = useNavigate();
@@ -50,6 +54,7 @@ export const Bookings: React.FC = () => {
 
   const [showDebug, setShowDebug] = useState(false);
   const [debugData, setDebugData] = useState<any>(null);
+  const [isPulseModalOpen, setIsPulseModalOpen] = useState(false);
 
   const runDebug = async () => {
     const store = projectManager.getStore();
@@ -99,8 +104,9 @@ export const Bookings: React.FC = () => {
   const loadData = useCallback(async () => {
     const store = projectManager.getStore();
     try {
-      const [tableBookings, p, t, a] = await Promise.all([
+      const [tableBookings, accountingBookings, p, t, a] = await Promise.all([
         store.getBookings(),
+        store.getBookingsFromAccounting(),
         store.getProperties(),
         store.getTravelers(),
         store.getAllApartments()
@@ -110,10 +116,35 @@ export const Bookings: React.FC = () => {
       setTravelers(t);
       setAllApartments(a);
 
-      console.debug(`[Bookings] Source of Truth: SQLITE_TABLE. Result: ${tableBookings.length} bookings.`);
+      // Deduplicate bookings from both sources
+      // We prioritize bookings from Accounting (getBookingsFromAccounting) because they are often more enriched
+      // with payment data, but we keep items from Bookings that don't exist in Accounting.
+      const merged = [...accountingBookings];
+      const accIds = new Set(accountingBookings.map(b => b.id));
+      const accExtRefs = new Set(accountingBookings.filter(b => b.external_ref).map(b => b.external_ref));
 
-      setBookings(tableBookings);
-      setDataSource('internal');
+      tableBookings.forEach(b => {
+        if (!accIds.has(b.id) && (!b.external_ref || !accExtRefs.has(b.external_ref))) {
+          merged.push(b);
+        }
+      });
+
+      console.debug(`[Bookings] Merged Source: ${tableBookings.length} internal + ${accountingBookings.length} accounting. Final: ${merged.length} bookings.`);
+
+      // Console Debug for Dev (as requested)
+      const todayStr = new Date().toLocaleDateString('en-CA');
+      const future = merged.filter(b => b.check_in >= todayStr && b.status !== 'cancelled');
+      console.log(`[DEBUG:Bookings] Total: ${merged.length}, Por Venir: ${future.length}`);
+      console.table({
+        total: merged.length,
+        porVenir: future.length,
+        confirmed: merged.filter(isConfirmedBooking).length,
+        blocks: merged.filter(isProvisionalBlock).length,
+        cancelled: merged.filter(b => b.status === 'cancelled').length
+      });
+
+      setBookings(merged);
+      setDataSource(accountingBookings.length === 0 ? 'internal' : 'ical'); // ical/accounting
     } catch (e) { console.error(e); }
   }, []);
 
@@ -169,7 +200,9 @@ export const Bookings: React.FC = () => {
       source: b.source,
       guest_name: b.guest_name || '',
       payment_notes: b.payment_notes || b.summary || '',
-      payments: b.payments || []
+      payments: b.payments || [],
+      locator: (b as any).locator || '',
+      needs_details: (b as any).needs_details || false
     });
 
     // Try to find associated movement to preload payment method
@@ -309,8 +342,19 @@ export const Bookings: React.FC = () => {
 
     if (activeMainTab === 'ALL' && filterStayStatus !== 'ALL') {
       result = result.filter(b => {
-        const status = getStayStatus(b.check_in, b.check_out);
-        return status === filterStayStatus;
+        const stayStatus = getStayStatus(b.check_in, b.check_out);
+
+        // Match the date category
+        if (stayStatus !== filterStayStatus) return false;
+
+        // Custom requirements for Por venir / Staying:
+        // 1. Exclude cancelled
+        if (b.status === 'cancelled') return false;
+
+        // 2. Consistent filter: Confirmed only (blocks are handled by includeBlocks toggle)
+        if (!isConfirmedBooking(b)) return false;
+
+        return true;
       });
     }
 
@@ -386,7 +430,10 @@ export const Bookings: React.FC = () => {
         created_at: editingBookingId ? (bookings.find(bo => bo.id === editingBookingId)?.created_at || Date.now()) : Date.now(),
         // Preserve external ref if editing
         external_ref: editingBookingId ? bookings.find(bo => bo.id === editingBookingId)?.external_ref : undefined,
-        project_id: projectManager.getCurrentProjectId() || undefined
+        project_id: projectManager.getCurrentProjectId() || undefined,
+        locator: (form as any).locator || undefined,
+        needs_details: (form as any).needs_details ?? (form.status === 'pending' && form.source === 'BOOKING'),
+        enrichment_status: (form as any).enrichment_status || (form.status === 'confirmed' ? 'COMPLETE' : 'PENDING')
       };
 
       // Refined Rule: No Guest and No Amount => classify as Block
@@ -415,6 +462,11 @@ export const Bookings: React.FC = () => {
       console.log("[SAVE:UI] saveProject_done");
       notifyDataChanged();
       await loadData();
+
+      // Trigger auto check-in request if confirmed
+      if (b.status === 'confirmed') {
+        await checkinService.regenerateRequests();
+      }
 
       // CLOSE & NAVIGATE BACK (Important to clear route param)
       setIsModalOpen(false);
@@ -833,6 +885,15 @@ export const Bookings: React.FC = () => {
               <div className="p-10 border-b flex justify-between items-center bg-slate-50/50">
                 <div>
                   <h3 className="text-2xl font-black text-slate-800">{editingBookingId ? 'Editar Reserva' : 'Nueva Reserva Manual'}</h3>
+                  {(form.source === 'BOOKING' && (form as any).needs_details) && (
+                    <button
+                      type="button"
+                      onClick={() => setIsPulseModalOpen(true)}
+                      className="text-[10px] font-black uppercase text-white bg-indigo-600 px-4 py-2 rounded-xl mt-3 flex items-center gap-2 shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all active:scale-95"
+                    >
+                      <Camera size={14} /> Completar desde Pulse
+                    </button>
+                  )}
                   {isProvisionalBlock(form) && (
                     <span className="text-[10px] font-black uppercase text-amber-600 bg-amber-50 px-2 py-1 rounded mt-2 inline-block">Modo Bloqueo Activado</span>
                   )}
@@ -842,6 +903,23 @@ export const Bookings: React.FC = () => {
                   if (routeId) navigate('/bookings');
                 }} className="text-slate-400"><X size={28} /></button>
               </div>
+              <PulseCompletionModal
+                isOpen={isPulseModalOpen}
+                onClose={() => setIsPulseModalOpen(false)}
+                onComplete={(data: PulseExtractedData) => {
+                  setForm(prev => ({
+                    ...prev,
+                    guest_name: data.guest_name || prev.guest_name,
+                    locator: data.locator || (prev as any).locator,
+                    total_price: data.total_price || prev.total_price,
+                    guests: data.pax_adults || prev.guests,
+                    status: 'confirmed',
+                    notes: (prev.notes || '') + '\n[Pulse OCR Complete]'
+                  }));
+                  setIsPulseModalOpen(false);
+                  toast.success("Datos de Pulse aplicados al formulario");
+                }}
+              />
               <form onSubmit={handleSubmit} className="p-10 space-y-6">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">

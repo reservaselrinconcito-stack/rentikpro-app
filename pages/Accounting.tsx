@@ -11,6 +11,7 @@ import {
   ArrowDownUp, ArrowUp, ArrowDown, Building2, Camera, ScanLine, Receipt, Paperclip, Mail, CalendarRange,
   ChevronDown, ChevronRight, AlertTriangle
 } from 'lucide-react';
+import { stableColorById } from './Properties';
 
 type Tab = 'MOVEMENTS' | 'CHARTS' | 'TAX_DRAFT' | 'FISCAL_SETTINGS' | 'SCAN_EXPENSE';
 type FilterMode = 'MONTHLY' | 'YEARLY' | 'HISTORICAL';
@@ -54,42 +55,46 @@ const DonutChart = ({ data, title }: { data: { name: string; value: number; colo
 
   if (total <= 0) return <div className="flex items-center justify-center h-48 w-48 text-slate-300 italic text-[10px] bg-slate-50 rounded-full border border-slate-100">Sin datos</div>;
 
+  const RADIUS = 40;
+  const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+
+  // Ensure data is sorted to match ranking chart exactly
+  const sortedData = [...data].sort((a, b) => b.value - a.value);
+
+  let accumulatedPercent = 0;
+
   return (
     <div className="relative w-56 h-56 mx-auto group">
       <div className="absolute inset-0 bg-indigo-50/50 rounded-full blur-2xl group-hover:bg-indigo-100/50 transition-all"></div>
       <svg viewBox="0 0 100 100" className="transform -rotate-90 w-full h-full overflow-visible relative z-10 drop-shadow-2xl">
         <defs>
-          {data.map((slice, i) => (
+          {sortedData.map((slice, i) => (
             <linearGradient key={`grad-${i}`} id={`grad-${i}`} x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor={slice.color} />
               <stop offset="100%" stopColor={slice.color} stopOpacity={0.8} />
             </linearGradient>
           ))}
         </defs>
-        {data.map((slice, i) => {
+        {sortedData.map((slice, i) => {
           if (slice.value <= 0) return null;
           const percent = slice.value / total;
-          if (isNaN(percent)) return null;
+          const strokeDasharray = `${percent * CIRCUMFERENCE} ${CIRCUMFERENCE}`;
+          const strokeDashoffset = -accumulatedPercent * CIRCUMFERENCE;
 
-          const dashArray = 2 * Math.PI * 40;
-          const currentDash = percent * dashArray;
-
-          const prevTotal = data.slice(0, i).reduce((acc, d) => acc + (d.value || 0), 0);
-          const prevPercent = prevTotal / total;
+          accumulatedPercent += percent;
 
           return (
             <circle
               key={`c-${i}`}
-              r="40"
+              r={RADIUS}
               cx="50"
               cy="50"
               fill="transparent"
               stroke={`url(#grad-${i})`}
               strokeWidth="14"
-              strokeDasharray={`${currentDash} ${dashArray - currentDash}`}
-              strokeDashoffset={0}
+              strokeDasharray={strokeDasharray}
+              strokeDashoffset={strokeDashoffset}
               strokeLinecap="round"
-              transform={`rotate(${prevPercent * 360} 50 50)`}
               className="hover:scale-110 origin-center transition-all cursor-pointer"
             >
               <title>{slice.name}: {slice.value.toLocaleString()}€ ({Math.round(percent * 100)}%)</title>
@@ -574,12 +579,12 @@ export const Accounting: React.FC = () => {
     if (selectedPropertyId === 'ALL') {
       // Group by property
       return groupedStats.map((p) => {
-        // Stable HSL based on ID string hash or length to avoid shifting
-        const hash = p.id.split('').reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+        // Find real property to get its persistent color
+        const realProp = properties.find(prop => prop.id === p.id);
         return {
           name: p.name,
           value: p.income,
-          color: `hsl(${(210 + (hash % 150)) % 360}, 65%, 50%)`
+          color: realProp?.color || stableColorById(p.id)
         };
       }).filter(d => d.value > 0);
     } else {

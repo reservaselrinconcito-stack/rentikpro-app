@@ -62,6 +62,7 @@ const ChannelManager = lazyWithRetry(() => import('./pages/ChannelManager').then
 const QualityAssurance = lazyWithRetry(() => import('./pages/QualityAssurance').then(m => ({ default: m.QualityAssurance })));
 const Settings = lazyWithRetry(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 const BackupVault = lazyWithRetry(() => import('./pages/BackupVault').then(m => ({ default: m.BackupVault })));
+const EmailBookings = lazyWithRetry(() => import('./pages/EmailBookings').then(m => ({ default: m.EmailBookings })));
 
 import { Toaster } from 'sonner';
 import { VersionChecker } from './components/VersionChecker';
@@ -219,6 +220,7 @@ const App: React.FC = () => {
                 <Route path="/maintenance" element={<MaintenancePage store={projectManager.getStore()} />} />
                 <Route path="/accounting" element={<Accounting />} />
                 <Route path="/registry" element={<Registry />} />
+                <Route path="/email-bookings" element={<EmailBookings />} />
                 <Route path="/website-builder" element={<WebsiteBuilder />} />
                 <Route path="/settings" element={<Settings onSave={handleSave} />} />
                 <Route path="/comms" element={<Communications />} />

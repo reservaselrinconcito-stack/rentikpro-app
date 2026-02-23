@@ -4,6 +4,7 @@ import { notifyDataChanged } from './dataRefresher';
 import { securityService } from './security';
 import { logger } from './logger';
 import { bookingEmailParser } from './bookingEmailParser';
+import { checkinService } from './checkinService';
 
 export class EmailSyncService implements IChannelProvider {
   public channelType: CommunicationChannel = 'EMAIL';
@@ -25,150 +26,114 @@ export class EmailSyncService implements IChannelProvider {
       const store = projectManager.getStore();
       const accounts = await store.getAccounts();
       const emailAccounts = accounts.filter(a => a.type === 'EMAIL');
-      const apartments = await store.getAllApartments(); // Fetch apartments for hints
+      const apartments = await store.getAllApartments();
 
       for (const acc of emailAccounts) {
         try {
-          // Use Security Service to decrypt on the fly
           const config = securityService.decryptConfig(acc.config_json) as EmailConfig;
+          const newEmails = await this.simulateGmailFetch(config);
 
-          const newEmails = await this.simulateImapFetch(config);
+          for (const email of newEmails) {
+            // 1. DEDUPLICATION (Persistent)
+            const existingIngests = await store.query("SELECT id FROM email_ingest WHERE gmail_message_id = ?", [email.id]);
+            if (existingIngests.length > 0) continue;
 
-          if (newEmails.length > 0) {
-            console.log(`IMAP: ${newEmails.length} nuevos correos para ${acc.name}`);
+            // 2. CREATE INGEST RECORD
+            const ingestId = crypto.randomUUID();
+            const emailIngest: EmailIngest = {
+              id: ingestId,
+              provider: 'OTHER',
+              gmail_message_id: email.id,
+              received_at: new Date(email.date).toISOString(),
+              from_addr: email.from,
+              subject: email.subject,
+              body_text: email.body,
+              raw_links_json: [],
+              parsed_json: {},
+              status: 'NEW',
+              created_at: Date.now()
+            };
+            await store.saveEmailIngest(emailIngest);
 
-            for (const email of newEmails) {
-              // 1. Create Conversation
-              const convId = crypto.randomUUID();
-              const conversation: Conversation = {
-                id: convId,
-                traveler_id: 'unknown_traveler', // In real app, match by email
-                property_id: acc.property_id || undefined,
-                subject: email.subject,
-                status: 'OPEN',
-                last_message_at: Date.now(),
-                last_message_preview: email.body.substring(0, 50),
-                unread_count: 1,
-                tags_json: '[]',
-                created_at: Date.now(),
-                updated_at: Date.now(),
-                last_message_direction: 'INBOUND'
-              };
-              await store.saveConversation(conversation);
+            // 3. PARSE
+            const msgPlaceholder: Message = { id: crypto.randomUUID(), conversation_id: '', account_id: acc.id, direction: 'INBOUND', channel: 'EMAIL', status: 'DELIVERED', body: email.body, content_type: 'text/plain', created_at: Date.now() };
+            const pb = await bookingEmailParser.parseBookingEmail(msgPlaceholder, email.subject, ingestId, apartments);
 
-              // 2. Create Message
-              const msgId = crypto.randomUUID();
-              const message: Message = {
-                id: msgId,
-                conversation_id: convId,
-                account_id: acc.id,
-                direction: 'INBOUND',
-                channel: 'EMAIL',
-                status: 'DELIVERED',
-                body: email.body,
-                content_type: 'text/plain',
-                created_at: Date.now(),
-                metadata_json: JSON.stringify({ from: email.from })
-              };
-              await store.saveMessage(message);
-
-              // 3. Email Ingest & Parsing
-              const ingestId = crypto.randomUUID();
-              const emailIngest: EmailIngest = {
-                id: ingestId,
-                provider: 'OTHER', // Default, updated by parser if detected
-                message_id: msgId,
-                received_at: new Date(email.date).toISOString(),
-                from_addr: email.from,
-                subject: email.subject,
-                body_text: email.body.substring(0, 20000), // Limit size
-                raw_links_json: [],
-                parsed_json: {},
-                status: 'NEW',
-                created_at: Date.now()
-              };
+            if (pb) {
+              emailIngest.provider = pb.provider;
+              emailIngest.status = 'PARSED';
+              emailIngest.parsed_json = pb;
               await store.saveEmailIngest(emailIngest);
 
-              // 4. Parse with Apartments context
-              const pb = await bookingEmailParser.parseBookingEmail(message, email.subject, ingestId, apartments);
+              // 4. DEDUPLICATE BOOKING (Provider + Locator or HASH)
+              const existingBookings = await store.getBookings();
+              const isDuplicate = existingBookings.some(b =>
+                (b.external_ref && pb.provider_reservation_id && b.external_ref === pb.provider_reservation_id && b.source === 'EMAIL_TRIGGER') ||
+                (b.check_in === pb.start_date && b.check_out === pb.end_date && b.guest_name === pb.guest_name && b.apartment_id === pb.apartment_id)
+              );
 
-              if (pb) {
-                console.log(`[EmailSync] Created provisional booking from ${email.from}`);
-
-                // Update Ingest with Parsed Data
-                emailIngest.provider = pb.provider;
-                emailIngest.status = 'PARSED';
-                emailIngest.parsed_json = {
-                  summary: 'Parsed successfuly',
-                  heuristics: {
-                    id: pb.provider_reservation_id,
-                    hint: pb.apartment_hint,
-                    dates: [pb.start_date, pb.end_date],
-                    price: pb.total_price
-                  },
-                  found: Object.keys(pb).filter(k => pb[k as keyof typeof pb])
-                };
-                await store.saveEmailIngest(emailIngest);
-
-                // Save Provisional
-                await store.saveProvisionalBooking(pb);
-
-                // --- IMMEDIATE BLOCKING (User Request) ---
-                if (pb.start_date && pb.end_date && pb.apartment_hint) {
-                  const matchedApt = apartments.find(a =>
-                    a.name.toLowerCase() === (pb.apartment_hint || '').toLowerCase() ||
-                    (pb.apartment_hint || '').toLowerCase().includes(a.name.toLowerCase())
-                  );
-
-                  if (matchedApt) {
-                    // Check if blocking booking already exists
-                    const existingBookings = await store.getBookings();
-                    const blockingBooking = existingBookings.find(b => b.provisional_id === pb.id);
-
-                    const bookingData: Booking = {
-                      id: blockingBooking ? blockingBooking.id : crypto.randomUUID(),
-                      property_id: matchedApt.property_id,
-                      apartment_id: matchedApt.id,
-                      traveler_id: 'email_trigger_placeholder', // Placeholder
-                      check_in: pb.start_date,
-                      check_out: pb.end_date,
-                      status: 'confirmed', // BLOCKED
-                      total_price: pb.total_price || 0,
-                      guests: pb.pax_adults || 1,
-                      source: 'EMAIL_TRIGGER', // Special source
-                      external_ref: pb.provider_reservation_id,
-                      created_at: blockingBooking ? blockingBooking.created_at : Date.now(),
-                      guest_name: pb.guest_name || 'Unknown (Email Trigger)',
-                      provisional_id: pb.id,
-                      enrichment_status: 'PENDING',
-                      summary: `Bloqueo preventivo por Email Trigger (${pb.provider})`
-                    };
-
-                    await store.saveBooking(bookingData);
-                    console.log(`[EmailSync] Created/Updated BLOCKING booking for ${matchedApt.name}`);
-                  } else {
-                    console.warn(`[EmailSync] Could not block: Apartment hint '${pb.apartment_hint}' not resolved.`);
-                  }
-                }
-
-                // Update Ingest Status to LINKED
+              if (isDuplicate) {
                 emailIngest.status = 'LINKED';
                 await store.saveEmailIngest(emailIngest);
+                continue;
+              }
 
+              // 5. RESOLVE APARTMENT
+              const matchedApt = apartments.find(a =>
+                a.name.toLowerCase() === (pb.apartment_hint || '').toLowerCase() ||
+                (pb.apartment_hint || '').toLowerCase().includes(a.name.toLowerCase())
+              );
+
+              if (matchedApt) {
+                // 6. CREATE BOOKING
+                const isBookingProvider = pb.provider === 'BOOKING';
+                const isMissingDetails = pb.missing_fields && pb.missing_fields.length > 0;
+
+                const bookingData: Booking = {
+                  id: crypto.randomUUID(),
+                  property_id: matchedApt.property_id,
+                  apartment_id: matchedApt.id,
+                  traveler_id: 'email_ingest_' + ingestId,
+                  check_in: pb.start_date || '',
+                  check_out: pb.end_date || '',
+                  status: (isBookingProvider && isMissingDetails) ? 'pending' : 'confirmed',
+                  total_price: pb.total_price || 0,
+                  guests: pb.pax_adults || 1,
+                  source: 'EMAIL_TRIGGER',
+                  external_ref: pb.provider_reservation_id,
+                  created_at: Date.now(),
+                  guest_name: pb.guest_name || (isBookingProvider ? 'Booking.com (sin datos)' : 'Huésped Pendiente'),
+                  notes: isMissingDetails ? `Datos faltantes: ${pb.missing_fields?.join(', ')}. Origen: ${pb.provider}` : `Ingesta automática ${pb.provider}`,
+                  needs_details: isMissingDetails || isBookingProvider,
+                  provisional_id: pb.id,
+                  enrichment_status: isMissingDetails ? 'PENDING' : 'COMPLETE'
+                };
+
+                await store.saveBooking(bookingData);
+
+                // 7. AUTO CHECK-IN REQUEST
+                if (bookingData.status === 'confirmed') {
+                  await checkinService.regenerateRequests();
+                }
+
+                emailIngest.status = 'LINKED';
+                await store.saveEmailIngest(emailIngest);
                 notifyDataChanged('bookings');
               } else {
-                // Mark as handled but not booking
                 emailIngest.status = 'NEEDS_MANUAL';
-                emailIngest.parsed_json = { error: 'No booking detected or confident' };
+                emailIngest.error_message = 'No se encontró el apartamento: ' + (pb.apartment_hint || 'Desconocido');
                 await store.saveEmailIngest(emailIngest);
               }
+            } else {
+              emailIngest.status = 'NEEDS_MANUAL';
+              emailIngest.parsed_json = { info: 'No se detectó reserva en este correo.' };
+              await store.saveEmailIngest(emailIngest);
             }
-
-            // Update sync timestamp
-            config.last_sync_at = Date.now();
-            acc.config_json = securityService.encryptConfig(config);
-            await store.saveAccount(acc);
           }
+
+          config.last_sync_at = Date.now();
+          acc.config_json = securityService.encryptConfig(config);
+          await store.saveAccount(acc);
         } catch (e) {
           logger.error(`Error syncing account ${acc.name}:`, e);
         }
@@ -176,6 +141,51 @@ export class EmailSyncService implements IChannelProvider {
     } finally {
       this.isProcessing = false;
     }
+  }
+
+  private async simulateGmailFetch(config: EmailConfig): Promise<Array<{ id: string, subject: string, body: string, from: string, date: number }>> {
+    return new Promise(resolve => {
+      setTimeout(() => {
+        if (Math.random() > 0.5) {
+          const providers = ['airbnb', 'booking', 'vrbo', 'escapada'];
+          const p = providers[Math.floor(Math.random() * providers.length)];
+
+          if (p === 'airbnb') {
+            resolve([{
+              id: 'GMAIL_' + crypto.randomUUID(),
+              subject: 'Reserva confirmada - ABC123XYZ para 10 Feb',
+              from: 'automated@airbnb.com',
+              date: Date.now(),
+              body: 'Reservation confirmed. Guest: Juan Demo. Code: ABC123XYZ. Check-in: 2026-02-10. Check-out: 2026-02-15. House: Loft Central. Total: 450€.'
+            }]);
+          } else if (p === 'booking') {
+            resolve([{
+              id: 'GMAIL_' + crypto.randomUUID(),
+              subject: 'Booking.com: Nueva reserva #9988776655',
+              from: 'reservations@booking.com',
+              date: Date.now(),
+              body: 'Nueva reserva recibida via Pulse. Numero de reserva: 9988776655. Check-in: 2026-03-01. Check-out: 2026-03-05. Apartment: Loft Central.'
+            }]);
+          } else if (p === 'vrbo') {
+            resolve([{
+              id: 'GMAIL_' + crypto.randomUUID(),
+              subject: 'Reserva confirmada en Vrbo: HA-12345',
+              from: 'reserva@vrbo.com',
+              date: Date.now(),
+              body: 'Reservation ID: HA-12345. Traveler: Maria Lopez. Dates: 15/04/2026 - 20/04/2026. Total: 600€. Accommodation: Loft Central.'
+            }]);
+          } else {
+            resolve([{
+              id: 'GMAIL_' + crypto.randomUUID(),
+              subject: 'Solicitud de reserva en EscapadaRural: 22-ER-99',
+              from: 'contacto@escapadarural.com',
+              date: Date.now(),
+              body: 'Nueva reserva confirmada: 22-ER-99. Nombre cliente: Pedro Ruiz. Fecha entrada: 01/05/2026. Fecha salida: 05/05/2026. Importe total: 300 EUR.'
+            }]);
+          }
+        } else resolve([]);
+      }, 1000);
+    });
   }
 
   // (processQueue and Mocks same as before)
@@ -304,4 +314,4 @@ export class EmailSyncService implements IChannelProvider {
   public stop() { /* Managed by ChannelManager now */ }
 }
 
-export const emailService = new EmailSyncService();
+export const emailSyncService = new EmailSyncService();

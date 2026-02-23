@@ -15,10 +15,11 @@ export interface Property {
   show_prices?: boolean;
   max_range_days?: number;      // default 365
   last_published_at?: number;
+  email?: string;
   location?: string;
   logo?: string;
   phone?: string;
-  email?: string;
+  color?: string;
 }
 
 export interface Apartment {
@@ -32,6 +33,8 @@ export interface Apartment {
   ical_out_url?: string;
   ical_last_publish?: number;
   ical_event_count?: number;
+  publicBasePrice?: number | null;
+  currency?: string;
 }
 
 export interface Traveler {
@@ -75,7 +78,7 @@ export type EmailIngestStatus = 'NEW' | 'PARSED' | 'LINKED' | 'NEEDS_MANUAL' | '
 export interface EmailIngest {
   id: string;
   provider: EmailProvider;
-  message_id?: string;
+  gmail_message_id?: string;
   received_at: string; // ISO
   from_addr: string;
   subject: string;
@@ -221,6 +224,10 @@ export interface Booking {
   pax_adults?: number;
   pax_children?: number;
   pax_infants?: number;
+  ota?: string;
+  locator?: string;
+  notes?: string;
+  needs_details?: boolean;
 }
 
 export interface Stay {
@@ -337,6 +344,7 @@ export interface UserSettings {
   personal_email?: string;
   technical_reservations_email?: string;
   allow_manual_completion?: boolean; // Default true
+  enable_minimal_bookings_from_ical?: boolean;
   require_details_to_close?: boolean; // Default false
   hold_minutes?: number; // Default 15
 
@@ -355,6 +363,10 @@ export interface UserSettings {
 
   // UI Settings
   ui_scale?: number; // 0.9 to 1.2
+
+  // Cloudflare Settings
+  cloudflare_worker_url?: string;
+  cloudflare_admin_api_key?: string;
 }
 
 
@@ -1339,4 +1351,32 @@ export interface SiteOverrides {
   overridesByPath: Record<string, any>;
   hiddenEntities: string[];
   ordering: Record<string, string[]>;
+}
+
+// --- CHECK-IN SCAN PRO ---
+
+export interface BookingLocator {
+  booking_id: string;
+  locator: string;
+  created_at: number;
+}
+
+export interface CheckInToken {
+  booking_id: string;
+  token: string;
+  created_at: number;
+}
+
+export type CheckInRequestStatus = 'PENDING' | 'SENT' | 'COMPLETED';
+
+export interface CheckInRequest {
+  id: string; // reservation_id or booking_id
+  booking_id: string;
+  status: CheckInRequestStatus;
+  locator?: string;
+  token?: string;
+  sent_at?: number;
+  completed_at?: number;
+  created_at: number;
+  project_id?: string;
 }

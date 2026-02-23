@@ -14,9 +14,10 @@ import {
    RefreshCw, Plus, Trash2, Link, AlertTriangle, CheckCircle2,
    ExternalLink, Calendar, Building2, Globe, ShieldAlert, ArrowRight,
    Wifi, Clock, Settings, Play, X, Lock as LockIcon, History as HistoryIcon, ChevronRight, LayoutGrid,
-   MoreVertical, Power, HelpCircle, AlertCircle, Server, Copy, Eye, Share2, UploadCloud, Check
+   MoreVertical, Power, HelpCircle, AlertCircle, Server, Copy, Eye, Share2, UploadCloud, Check, CreditCard
 } from 'lucide-react';
 import { iCalExportService } from '../services/iCalExportService';
+import { toast } from 'sonner';
 import { isConfirmedBooking, isProvisionalBlock, isCovered } from '../utils/bookingClassification';
 
 // --- SUBCOMPONENTS ---
@@ -64,15 +65,20 @@ export const ChannelManager: React.FC = () => {
    const [apartments, setApartments] = useState<Apartment[]>([]);
    const [connections, setConnections] = useState<ChannelConnection[]>([]);
    const [bookings, setBookings] = useState<Booking[]>([]);
+   const [publicBasePrice, setPublicBasePrice] = useState<number | ''>('');
+   const [publicCurrency, setPublicCurrency] = useState('EUR');
+   const [isSavingPrice, setIsSavingPrice] = useState(false);
 
    // UI State
    const [selectedAptId, setSelectedAptId] = useState<string | null>(null);
+   const selectedApt = apartments.find(a => a.id === selectedAptId);
    const [syncingId, setSyncingId] = useState<string | null>(null);
    const [showLogs, setShowLogs] = useState(false);
 
    // Settings
    const [isOnline, setIsOnline] = useState(networkMonitor.isOnline());
    const [syncInterval, setSyncInterval] = useState<SyncInterval>(syncScheduler.getInterval());
+   const [enableMinimal, setEnableMinimal] = useState(false);
 
    // Modals
    const [isConnModalOpen, setIsConnModalOpen] = useState(false);
@@ -118,16 +124,18 @@ export const ChannelManager: React.FC = () => {
    const loadData = useCallback(async () => {
       const store = projectManager.getStore();
       try {
-         const [p, a, c, b] = await Promise.all([
+         const [p, a, c, b, settings] = await Promise.all([
             store.getProperties(),
             store.getAllApartments(),
             store.getChannelConnections(),
-            store.getBookings()
+            store.getBookings(),
+            store.getSettings()
          ]);
          setProperties(p);
          setApartments(a);
          setConnections(c);
          setBookings(b);
+         setEnableMinimal(settings.enable_minimal_bookings_from_ical || false);
       } catch (e) { console.error(e); }
    }, []);
 
@@ -135,8 +143,11 @@ export const ChannelManager: React.FC = () => {
    useDataRefresh(loadData);
 
    useEffect(() => {
-      return networkMonitor.subscribe(setIsOnline);
-   }, []);
+      if (selectedApt) {
+         setPublicBasePrice(selectedApt.publicBasePrice ?? '');
+         setPublicCurrency(selectedApt.currency || 'EUR');
+      }
+   }, [selectedAptId, apartments]);
 
    // --- ACTIONS ---
 
@@ -183,6 +194,38 @@ export const ChannelManager: React.FC = () => {
       alert("Configuración de Proxy guardada.");
    };
 
+   const handleSavePrice = async () => {
+      if (!selectedApt) return;
+      setIsSavingPrice(true);
+      try {
+         const updated: Apartment = {
+            ...selectedApt,
+            publicBasePrice: publicBasePrice === '' ? null : Number(publicBasePrice),
+            currency: publicCurrency
+         };
+         await projectManager.getStore().saveApartment(updated);
+         await projectManager.saveProject();
+
+         // Trigger republish if property has public token
+         const prop = properties.find(p => p.id === selectedApt.property_id);
+         if (prop?.public_token) {
+            import('../services/publicWebSync').then(async ({ publishAvailability }) => {
+               const settings = await projectManager.getStore().getSettings();
+               const workerUrl = settings.cloudflare_worker_url || 'https://rentikpro-availability.reservas-elrinconcito.workers.dev';
+               const adminKey = settings.cloudflare_admin_api_key || '';
+               await publishAvailability(prop, workerUrl, adminKey);
+            });
+         }
+
+         toast.success("Precio base guardado y publicado");
+         loadData();
+      } catch (e: any) {
+         toast.error("Error al guardar: " + e.message);
+      } finally {
+         setIsSavingPrice(false);
+      }
+   };
+
    const runSync = async (aptId: string) => {
       if (!isOnline) return alert("Modo Offline activado.");
       setSyncingId(aptId);
@@ -196,8 +239,19 @@ export const ChannelManager: React.FC = () => {
    const runGlobalSync = async () => {
       if (!isOnline) return alert("Modo Offline activado.");
       setSyncingId('GLOBAL');
-      await syncScheduler.triggerNow();
+      try {
+         await syncScheduler.triggerNow();
+      } catch (e: any) { alert("Error sync global: " + e.message); }
       setSyncingId(null);
+      loadData();
+   };
+
+   const toggleMinimalMode = async () => {
+      const store = projectManager.getStore();
+      const settings = await store.getSettings();
+      const newValue = !enableMinimal;
+      setEnableMinimal(newValue);
+      await store.saveSettings({ ...settings, enable_minimal_bookings_from_ical: newValue });
       loadData();
    };
 
@@ -291,7 +345,6 @@ export const ChannelManager: React.FC = () => {
       conflictGroups[b.apartment_id].push(b);
    });
 
-   const selectedApt = apartments.find(a => a.id === selectedAptId);
    const aptConnections = connections.filter(c => c.apartment_id === selectedAptId);
 
    return (
@@ -310,6 +363,14 @@ export const ChannelManager: React.FC = () => {
             </div>
 
             <div className="flex flex-wrap items-center gap-3 bg-slate-50 p-2 rounded-[1.5rem] border border-slate-100">
+               <button
+                  onClick={toggleMinimalMode}
+                  className={`flex items-center gap-2 px-4 py-3 rounded-2xl text-[10px] font-black tracking-tight transition-all border ${enableMinimal ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-100 shadow-sm'}`}
+                  title="Convierte bloqueos anónimos de Booking.com en reservas operativas"
+               >
+                  <Calendar size={14} />
+                  MODO MÍNIMO: {enableMinimal ? 'ACTIVO' : 'DESACTIVADO'}
+               </button>
                <button onClick={() => setIsConfigModalOpen(true)} className="p-3 bg-white hover:bg-slate-200 rounded-2xl text-slate-500 transition-colors shadow-sm" title="Configurar Proxy">
                   <Server size={16} />
                </button>
@@ -539,6 +600,50 @@ export const ChannelManager: React.FC = () => {
                                  <p className="text-sm text-slate-400 max-w-xs mt-2">Añade enlaces iCal de Airbnb, Booking o VRBO para sincronizar el calendario automáticamente.</p>
                               </div>
                            )}
+
+                           {/* PUBLIC BASE PRICE CARD (MINI-BLOQUE B0) */}
+                           <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm">
+                              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                                 <div className="flex items-center gap-4">
+                                    <div className="p-3 bg-indigo-50 rounded-2xl">
+                                       <CreditCard size={24} className="text-indigo-600" />
+                                    </div>
+                                    <div>
+                                       <h4 className="text-xl font-black text-slate-800">Precio Público Base</h4>
+                                       <p className="text-slate-500 text-xs font-medium mt-1">Este es el precio por noche que verán los clientes en la web (sin motor de tarifas).</p>
+                                    </div>
+                                 </div>
+                                 <div className="flex items-center gap-3 w-full md:w-auto">
+                                    <div className="relative flex-1 md:w-32">
+                                       <input
+                                          type="number"
+                                          value={publicBasePrice}
+                                          onChange={e => setPublicBasePrice(e.target.value === '' ? '' : Number(e.target.value))}
+                                          placeholder="Ej: 120"
+                                          className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:border-indigo-300 outline-none transition-all"
+                                       />
+                                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400 uppercase">{publicCurrency}</span>
+                                    </div>
+                                    <select
+                                       value={publicCurrency}
+                                       onChange={e => setPublicCurrency(e.target.value)}
+                                       className="px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none"
+                                    >
+                                       <option value="EUR">EUR (€)</option>
+                                       <option value="USD">USD ($)</option>
+                                       <option value="GBP">GBP (£)</option>
+                                    </select>
+                                    <button
+                                       onClick={handleSavePrice}
+                                       disabled={isSavingPrice}
+                                       className="px-6 py-3 bg-slate-900 text-white rounded-xl font-black text-xs hover:bg-slate-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                                    >
+                                       {isSavingPrice ? <RefreshCw size={14} className="animate-spin" /> : <Check size={16} />}
+                                       Guardar
+                                    </button>
+                                 </div>
+                              </div>
+                           </div>
 
                            {/* ICAL EXPORT SECTION (MINI-BLOQUE B1) */}
                            <div className="mt-8 bg-indigo-900 rounded-[2.5rem] p-8 text-white shadow-xl shadow-indigo-100 overflow-hidden relative">
