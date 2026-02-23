@@ -100,11 +100,12 @@ async fn dav_mkcol(client: &reqwest::Client, url: &str, auth: &str) -> Result<()
     .send()
     .await
     .map_err(|e| format!("MKCOL failed: {e}"))?;
-  if res.status().as_u16() == 201 || res.status().as_u16() == 405 {
+  let status = res.status();
+  if status.as_u16() == 201 || status.as_u16() == 405 {
     return Ok(());
   }
   let t = res.text().await.unwrap_or_default();
-  Err(format!("MKCOL {url} -> {} {t}", res.status()))
+  Err(format!("MKCOL {url} -> {status} {t}"))
 }
 
 async fn dav_get_bytes(client: &reqwest::Client, url: &str, auth: &str) -> Result<Vec<u8>, String> {
@@ -114,12 +115,13 @@ async fn dav_get_bytes(client: &reqwest::Client, url: &str, auth: &str) -> Resul
     .send()
     .await
     .map_err(|e| format!("GET failed: {e}"))?;
-  if res.status().as_u16() == 404 {
+  let status = res.status();
+  if status.as_u16() == 404 {
     return Err("NOT_FOUND".to_string());
   }
-  if !res.status().is_success() {
+  if !status.is_success() {
     let t = res.text().await.unwrap_or_default();
-    return Err(format!("GET {url} -> {} {t}", res.status()));
+    return Err(format!("GET {url} -> {status} {t}"));
   }
   let b = res.bytes().await.map_err(|e| format!("GET bytes failed: {e}"))?;
   Ok(b.to_vec())
@@ -134,9 +136,10 @@ async fn dav_put_bytes(client: &reqwest::Client, url: &str, auth: &str, bytes: V
     .send()
     .await
     .map_err(|e| format!("PUT failed: {e}"))?;
-  if !res.status().is_success() {
+  let status = res.status();
+  if !status.is_success() {
     let t = res.text().await.unwrap_or_default();
-    return Err(format!("PUT {url} -> {} {t}", res.status()));
+    return Err(format!("PUT {url} -> {status} {t}"));
   }
   Ok(())
 }
@@ -148,11 +151,12 @@ async fn dav_delete(client: &reqwest::Client, url: &str, auth: &str) -> Result<(
     .send()
     .await
     .map_err(|e| format!("DELETE failed: {e}"))?;
-  if res.status().as_u16() == 404 || res.status().is_success() {
+  let status = res.status();
+  if status.as_u16() == 404 || status.is_success() {
     return Ok(());
   }
   let t = res.text().await.unwrap_or_default();
-  Err(format!("DELETE {url} -> {} {t}", res.status()))
+  Err(format!("DELETE {url} -> {status} {t}"))
 }
 
 async fn dav_move(client: &reqwest::Client, from_url: &str, to_url: &str, auth: &str) -> Result<(), String> {
@@ -164,9 +168,10 @@ async fn dav_move(client: &reqwest::Client, from_url: &str, to_url: &str, auth: 
     .send()
     .await
     .map_err(|e| format!("MOVE failed: {e}"))?;
-  if !res.status().is_success() {
+  let status = res.status();
+  if !status.is_success() {
     let t = res.text().await.unwrap_or_default();
-    return Err(format!("MOVE {from_url} -> {} {t}", res.status()));
+    return Err(format!("MOVE {from_url} -> {status} {t}"));
   }
   Ok(())
 }
