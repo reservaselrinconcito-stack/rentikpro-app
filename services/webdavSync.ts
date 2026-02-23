@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { projectManager } from './projectManager';
 import { getLastOpenedProjectPath } from './projectFolderManager';
+import { notifyDataChanged } from './dataRefresher';
 
 export type WebDavSyncMode = 'up' | 'down';
 
@@ -88,6 +89,7 @@ export async function webdavSync(mode: WebDavSyncMode, cfg: Omit<WebDavSyncConfi
   if (res?.dbBase64 && mode === 'down' && res.success) {
     // Apply to in-memory store too
     await store.load(base64ToBytes(res.dbBase64));
+    notifyDataChanged('all');
   }
 
   return res as WebDavSyncResult;

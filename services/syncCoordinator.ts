@@ -89,6 +89,7 @@ export class SyncCoordinator {
                     url: settings.webdav_url || '',
                     user: settings.webdav_user || '',
                     pass: settings.webdav_pass || '',
+                    slug: projectManager.getCurrentProjectId() || undefined,
                 }, { force });
                 if (res.success) return { success: true };
                 if (res.conflict) {
@@ -187,6 +188,7 @@ export class SyncCoordinator {
                     url: settings.webdav_url || '',
                     user: settings.webdav_user || '',
                     pass: settings.webdav_pass || '',
+                    slug: projectManager.getCurrentProjectId() || undefined,
                 }, { force });
                 if (res.success) return { success: true };
                 if (res.conflict) {

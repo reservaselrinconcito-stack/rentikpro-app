@@ -86,36 +86,63 @@ export async function openProject(path: string): Promise<ProjectContext> {
   const res = await invoke<OpenProjectResult>('open_project_folder', { path });
   const dbBytes = base64ToBytes(res.db_base64);
 
+  // Store path early (needed for syncDown to locate the folder).
+  localStorage.setItem(LAST_PROJECT_PATH_KEY, path);
+
+  let projectName = 'Proyecto';
+  let projectId = '';
+  let projectJsonObj: any = null;
+  try {
+    projectJsonObj = JSON.parse(res.project_json);
+    projectName = projectJsonObj?.name || projectName;
+    projectId = (projectJsonObj?.id || '').trim();
+  } catch {
+    // ignore
+  }
+
+  // Ensure folder projects have a stable ID (used for WebDAV slug across devices).
+  if (!projectId) {
+    projectId = crypto.randomUUID();
+    const updated = {
+      ...(projectJsonObj && typeof projectJsonObj === 'object' ? projectJsonObj : {}),
+      schema: projectJsonObj?.schema || 1,
+      id: projectId,
+      name: projectName,
+      updatedAt: Date.now(),
+      appVersion: APP_VERSION,
+      dbFile: 'db.sqlite',
+    };
+    const updatedJson = JSON.stringify(updated, null, 2);
+    await invoke<ValidateProjectResult>('write_project_folder', {
+      path,
+      project_json: updatedJson,
+      db_base64: res.db_base64,
+      overwrite: true,
+    } as any);
+  }
+
   // Load DB into the app's store (do NOT set active_project_id; path is the desktop source-of-truth).
   await projectManager.loadProjectFromSqliteBytes(dbBytes, {
-    projectId: `proj_folder_${btoa(path).replace(/[^a-z0-9]/gi, '').slice(0, 16)}`,
-    name: (() => {
-      try {
-        const j = JSON.parse(res.project_json);
-        return j?.name || 'Proyecto';
-      } catch {
-        return 'Proyecto';
-      }
-    })(),
+    projectId,
+    name: projectName,
     mode: 'real',
     setAsActive: false,
     startAutoSave: false,
   });
 
-  localStorage.setItem(LAST_PROJECT_PATH_KEY, path);
+  // Best-effort auto sync DOWN on open (if enabled in settings).
+  try {
+    const { syncCoordinator } = await import('./syncCoordinator');
+    await syncCoordinator.syncDown().catch(() => null);
+  } catch {
+    // ignore
+  }
 
   return {
     rootPath: path,
     projectJsonPath: res.project_json_path,
     dbPath: res.db_path,
-    name: (() => {
-      try {
-        const j = JSON.parse(res.project_json);
-        return j?.name || 'Proyecto';
-      } catch {
-        return 'Proyecto';
-      }
-    })(),
+    name: projectName,
     openedAt: Date.now(),
   };
 }
@@ -127,8 +154,10 @@ export async function createProject(path: string, meta: ProjectFolderMeta): Prom
 
   const dbBytes = await ensureBlankDbBytes(meta);
   const now = Date.now();
+  const id = crypto.randomUUID();
   const projectJson = JSON.stringify({
     schema: 1,
+    id,
     name: meta.name,
     createdAt: now,
     updatedAt: now,

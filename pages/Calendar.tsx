@@ -313,6 +313,11 @@ const CalendarContent: React.FC = () => {
   }, [reservationsForGrid, apartmentsInTimeline]);
 
   const weekApartmentLaneAssignments = useMemo(() => {
+    // Monthly view uses a single continuous timeline (not per-week slices).
+    if (viewMode === 'monthly') {
+      return new Map<number, Map<string, Array<LaneAssigned<BookingReservation>>>>();
+    }
+
     const out = new Map<number, Map<string, Array<LaneAssigned<BookingReservation>>>>();
     for (const week of visibleWeeks) {
       if (week.length !== 7) continue;
@@ -333,7 +338,28 @@ const CalendarContent: React.FC = () => {
       out.set(ws, byApt);
     }
     return out;
-  }, [visibleWeeks, apartmentsInTimeline, reservationsByApartment]);
+  }, [viewMode, visibleWeeks, apartmentsInTimeline, reservationsByApartment]);
+
+  const monthApartmentLaneAssignments = useMemo(() => {
+    if (viewMode !== 'monthly') {
+      return new Map<string, Array<LaneAssigned<BookingReservation>>>();
+    }
+    if (viewStartDay === null || viewEndDayInclusive === null) {
+      return new Map<string, Array<LaneAssigned<BookingReservation>>>();
+    }
+
+    const byApt = new Map<string, Array<LaneAssigned<BookingReservation>>>();
+    for (const apt of apartmentsInTimeline) {
+      const list = reservationsByApartment.get(apt.id) || [];
+      const assigned = assignLanes(list, {
+        viewStartDay,
+        viewEndDayInclusive,
+        includeCancelled: false,
+      });
+      byApt.set(apt.id, assigned);
+    }
+    return byApt;
+  }, [viewMode, viewStartDay, viewEndDayInclusive, apartmentsInTimeline, reservationsByApartment]);
 
   const [expandedApartments, setExpandedApartments] = useState<Set<string>>(new Set());
   const toggleApartmentExpand = useCallback((aptId: string) => {
@@ -436,11 +462,196 @@ const CalendarContent: React.FC = () => {
           ))}
         </div>
       ) : (
-        /* VISTA SEMANA / MES (GRID SEMANAS): BARRAS POR RESERVA, CHECKOUT INCLUSIVO EN RENDER */
-        <div className="w-full overflow-x-auto custom-scrollbar pb-4 -mb-4 touch-pan-x">
-          <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden select-none min-w-[850px] md:min-w-full">
-            {visibleWeeks.length === 0 || viewStartDay === null || viewEndDayInclusive === null ? (
+        /* VISTA SEMANA (POR SEMANAS) + VISTA MES (MES CONTINUO) */
+        <div className={`w-full ${viewMode === 'monthly' ? 'overflow-x-hidden' : 'overflow-x-auto'} custom-scrollbar pb-4 -mb-4 touch-pan-x`}>
+          <div
+            className={`bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden select-none ${viewMode === 'monthly' ? '' : 'min-w-[850px] md:min-w-full'}`}
+          >
+            {visibleDays.length === 0 || viewStartDay === null || viewEndDayInclusive === null ? (
               <div className="p-8 text-slate-400 font-bold">No hay días para mostrar.</div>
+            ) : viewMode === 'monthly' ? (
+              (() => {
+                const MAX_LANES_COLLAPSED = 3;
+                const LANE_H = 22;
+                const LABEL_W = 220;
+                const todayIdx = dayIndexFromLocalDate(new Date());
+                const weekDays = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB'];
+
+                const startDay = viewStartDay;
+                const endDay = viewEndDayInclusive;
+                const perApt = monthApartmentLaneAssignments;
+
+                return (
+                  <div className="overflow-x-auto custom-scrollbar touch-pan-x">
+                    <div className="p-4" style={{ minWidth: LABEL_W + (visibleDays.length * 28) }}>
+                      {/* MonthlyTimeline header (42 visibleDays in one row) */}
+                      <div className="flex gap-px bg-slate-200 rounded-2xl overflow-hidden">
+                        <div className="bg-slate-50 px-4 py-2" style={{ width: LABEL_W }}>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Unidad</p>
+                        </div>
+                        <div
+                          className="grid gap-px flex-1"
+                          style={{ gridTemplateColumns: `repeat(${visibleDays.length}, minmax(28px, 1fr))`, minWidth: visibleDays.length * 28 }}
+                        >
+                          {visibleDays.map((d, idx) => {
+                            const dt = new Date(d.dayIndex * MS_PER_DAY);
+                            const dow = dt.getUTCDay();
+                            const weekday = weekDays[dow] || '';
+                            const isWeekend = dow === 0 || dow === 6;
+                            const isToday = d.dayIndex === todayIdx;
+                            const isMonthBoundary = dt.getUTCDate() === 1 || d.dayIndex === startDay;
+                            const monthLabel = new Intl.DateTimeFormat('es-ES', { month: 'short' }).format(dt);
+                            const weekDivider = (idx !== 0 && idx % 7 === 0)
+                              ? "relative before:content-[''] before:absolute before:left-[-2px] before:top-0 before:bottom-0 before:w-[2px] before:bg-slate-300/60"
+                              : '';
+
+                            return (
+                              <div
+                                key={d.dateStr}
+                                className={`bg-white px-1 py-2 text-center ${!d.inMonth ? 'bg-slate-50/70' : ''} ${weekDivider}`}
+                                title={d.dateStr}
+                              >
+                                <div className="leading-none">
+                                  {isMonthBoundary && (
+                                    <div className="text-[8px] font-black uppercase tracking-widest text-slate-300 mb-1">
+                                      {monthLabel}
+                                    </div>
+                                  )}
+                                  <div className={`text-[8px] font-black uppercase tracking-widest ${isWeekend ? 'text-rose-300' : 'text-slate-300'} ${!d.inMonth ? 'opacity-60' : ''}`}>
+                                    {weekday}
+                                  </div>
+                                  <span className={`mt-1 text-[10px] font-black inline-flex items-center justify-center ${isToday ? 'text-white bg-indigo-600 rounded-full w-5 h-5' : (isWeekend ? 'text-rose-400' : (d.inMonth ? 'text-slate-700' : 'text-slate-300'))}`}>
+                                    {dt.getUTCDate()}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Apartment rows (continuous month timeline, no per-week split) */}
+                      <div className="mt-3 space-y-3">
+                        {apartmentsInTimeline.map((apt) => {
+                          const assigned = perApt.get(apt.id) || [];
+                          const laneCount = assigned.length ? (Math.max(...assigned.map(x => x.laneIndex)) + 1) : 0;
+                          const isExpanded = expandedApartments.has(apt.id);
+                          const lanesToShow = isExpanded ? laneCount : Math.min(laneCount, MAX_LANES_COLLAPSED);
+                          const hiddenLanes = Math.max(0, laneCount - lanesToShow);
+                          const laneRows = Math.max(1, lanesToShow);
+
+                          return (
+                            <div key={`month-${startDay}-${apt.id}`} className="flex gap-3">
+                              <div className="shrink-0" style={{ width: LABEL_W }}>
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: apt.color || '#4f46e5' }}></div>
+                                      <p className="text-xs font-black text-slate-800 truncate">{apt.name}</p>
+                                    </div>
+                                    <p className="text-[10px] font-bold text-slate-400 truncate">{laneCount ? `${laneCount} lanes` : 'Sin reservas'}</p>
+                                  </div>
+                                  {hiddenLanes > 0 && (
+                                    <button
+                                      onClick={() => toggleApartmentExpand(apt.id)}
+                                      className="shrink-0 px-3 py-1 rounded-xl text-[10px] font-black uppercase border border-slate-200 bg-white text-slate-500 hover:text-indigo-600"
+                                      title={isExpanded ? 'Colapsar lanes' : 'Expandir lanes'}
+                                    >
+                                      {isExpanded ? 'Ocultar' : `+${hiddenLanes} más`}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex-1 space-y-[2px]">
+                                <div
+                                  className="grid gap-px bg-slate-200 rounded-xl overflow-hidden"
+                                  style={{
+                                    gridTemplateColumns: `repeat(${visibleDays.length}, minmax(28px, 1fr))`,
+                                    gridTemplateRows: `repeat(${laneRows}, ${LANE_H}px)`,
+                                    minWidth: visibleDays.length * 28,
+                                  }}
+                                >
+                                  {Array.from({ length: laneRows * visibleDays.length }, (_, i) => {
+                                    const rowIdx = Math.floor(i / visibleDays.length);
+                                    const colIdx = i % visibleDays.length;
+                                    const d = visibleDays[colIdx];
+
+                                    const weekDivider = (colIdx !== 0 && colIdx % 7 === 0)
+                                      ? "relative before:content-[''] before:absolute before:left-[-2px] before:top-0 before:bottom-0 before:w-[2px] before:bg-slate-300/50"
+                                      : '';
+
+                                    return (
+                                      <div
+                                        key={`month-cell-${apt.id}-${rowIdx}-${d.dateStr}`}
+                                        className={`bg-white ${!d.inMonth ? 'bg-slate-50/70' : ''} ${weekDivider}`}
+                                        style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 1 }}
+                                      ></div>
+                                    );
+                                  })}
+
+                                  {assigned
+                                    .filter(it => it.laneIndex < lanesToShow)
+                                    .map((it) => {
+                                      const b = it.booking;
+                                      const traveler = travelers.find(t => t.id === b.traveler_id);
+
+                                      const clippedStart = Math.max(it.renderStartDay, startDay);
+                                      const clippedEnd = Math.min(it.renderEndDayInclusive, endDay);
+                                      if (clippedStart > clippedEnd) return null;
+
+                                      const colStart = (clippedStart - startDay) + 1;
+                                      const colEnd = (clippedEnd - startDay) + 1;
+
+                                      const isBlock = isProvisionalBlock(b);
+                                      const baseColor = isBlock ? '#94a3b8' : (apt.color || '#4f46e5');
+                                      const isConflict = b.conflict_detected;
+                                      const isBlack = baseColor === '#000000' || baseColor === '#000';
+                                      const textColor = isBlack ? '#FFFFFF' : '#000000';
+
+                                      const style = isConflict
+                                        ? {
+                                          gridColumn: `${colStart} / ${colEnd + 1}`,
+                                          gridRow: it.laneIndex + 1,
+                                          height: LANE_H,
+                                          backgroundImage: `repeating-linear-gradient(45deg, ${baseColor}, ${baseColor} 5px, #ef4444 5px, #ef4444 10px)`,
+                                          border: '1px solid #ef4444',
+                                          color: textColor,
+                                        }
+                                        : {
+                                          gridColumn: `${colStart} / ${colEnd + 1}`,
+                                          gridRow: it.laneIndex + 1,
+                                          height: LANE_H,
+                                          backgroundColor: baseColor,
+                                          color: textColor,
+                                        };
+
+                                      return (
+                                        <div
+                                          key={`month-${apt.id}-${b.id}`}
+                                          onClick={(e) => { e.stopPropagation(); openEventDetail(b); }}
+                                          className={`z-10 px-2 text-[10px] font-black flex items-center rounded-md shadow-sm cursor-pointer hover:brightness-110 transition-all overflow-hidden whitespace-nowrap ${isConflict ? 'animate-pulse' : ''} ${isBlock ? 'opacity-70 grayscale-[0.5]' : ''}`}
+                                          style={style as any}
+                                          data-reservation-id={b.id}
+                                          title={`${isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler)} - ${apt.name} (${b.check_in} → ${b.check_out})`}
+                                        >
+                                          <span className="truncate w-full drop-shadow-sm">
+                                            {isConflict && <AlertTriangle size={10} style={{ color: textColor, fill: textColor }} />}
+                                            <span className="ml-1">{b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler))}</span>
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()
             ) : (
               <>
                 <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
