@@ -12,7 +12,8 @@ import {
   CancellationPolicy, RatePlan, PricingModifier, Fee, UserSettings,
   ProvisionalBooking, BookingPolicy, PolicyScope, EmailIngest, EmailIngestStatus,
   PaymentMode, DepositType, DepositDue, RemainingDue, SecurityDepositMethod, CancellationPolicyType,
-  CheckInRequest, PropertySnapshot, SiteDraft, SiteOverrides
+  CheckInRequest, PropertySnapshot, SiteDraft, SiteOverrides,
+  PricingDefaults, NightlyRateOverride
 } from '../types';
 import { PaymentScheduleItem, CheckoutResult, checkoutService } from './checkoutService';
 import { logger } from './logger';
@@ -1007,6 +1008,28 @@ export class SQLiteStore implements IDataStore {
     // BLOCK APARTMENT PRICE: PRECIO PÚBLICO
     await this.safeMigration("ALTER TABLE apartments ADD COLUMN public_base_price REAL", "Add public_base_price to apartments");
     await this.safeMigration("ALTER TABLE apartments ADD COLUMN currency TEXT DEFAULT 'EUR'", "Add currency to apartments");
+
+    // PRICING STUDIO DATA LAYER
+    await this.execute(`CREATE TABLE IF NOT EXISTS apartment_pricing_defaults (
+      apartment_id TEXT PRIMARY KEY,
+      currency TEXT DEFAULT 'EUR',
+      base_price REAL,
+      default_min_nights INTEGER DEFAULT 1,
+      short_stay_mode TEXT DEFAULT 'ALLOWED',
+      surcharge_type TEXT DEFAULT 'PERCENT',
+      surcharge_value REAL DEFAULT 0
+    );`);
+
+    await this.execute(`CREATE TABLE IF NOT EXISTS apartment_nightly_rates (
+      apartment_id TEXT,
+      date TEXT,
+      price REAL,
+      min_nights INTEGER,
+      short_stay_mode TEXT,
+      surcharge_type TEXT,
+      surcharge_value REAL,
+      UNIQUE(apartment_id, date)
+    );`);
   }
 
   // --- CHECK-IN SCAN PRO METHODS ---
@@ -2986,6 +3009,88 @@ export class SQLiteStore implements IDataStore {
   }
   async deleteApartment(id: string) {
     await this.executeWithParams("DELETE FROM apartments WHERE id=?", [id]);
+  }
+
+  // --- PRICING STUDIO METHODS ---
+
+  async getPricingDefaults(apartmentId: string): Promise<PricingDefaults | null> {
+    const res = await this.query("SELECT * FROM apartment_pricing_defaults WHERE apartment_id = ?", [apartmentId]);
+    if (res.length === 0) return null;
+    const row = res[0];
+    return {
+      apartmentId: row.apartment_id,
+      currency: row.currency,
+      basePrice: row.base_price,
+      defaultMinNights: row.default_min_nights,
+      shortStayMode: row.short_stay_mode,
+      surchargeType: row.surcharge_type,
+      surchargeValue: row.surcharge_value
+    };
+  }
+
+  async savePricingDefaults(apartmentId: string, defaults: PricingDefaults): Promise<void> {
+    await this.executeWithParams(
+      `INSERT OR REPLACE INTO apartment_pricing_defaults (
+        apartment_id, currency, base_price, default_min_nights, 
+        short_stay_mode, surcharge_type, surcharge_value
+      ) VALUES (?,?,?,?,?,?,?)`,
+      [
+        apartmentId, defaults.currency || 'EUR', defaults.basePrice,
+        defaults.defaultMinNights || 1, defaults.shortStayMode || 'ALLOWED',
+        defaults.surchargeType || 'PERCENT', defaults.surchargeValue || 0
+      ]
+    );
+  }
+
+  async getNightlyRates(apartmentId: string, from: string, to: string): Promise<NightlyRateOverride[]> {
+    const res = await this.query(
+      "SELECT * FROM apartment_nightly_rates WHERE apartment_id = ? AND date >= ? AND date < ?",
+      [apartmentId, from, to]
+    );
+    return res.map(row => ({
+      apartmentId: row.apartment_id,
+      date: row.date,
+      price: row.price,
+      minNights: row.min_nights,
+      shortStayMode: row.short_stay_mode,
+      surchargeType: row.surcharge_type,
+      surchargeValue: row.surcharge_value
+    }));
+  }
+
+  async upsertNightlyRatesBulk(apartmentId: string, rates: Partial<NightlyRateOverride>[]): Promise<void> {
+    await this.execute("BEGIN TRANSACTION;");
+    try {
+      for (const r of rates) {
+        if (!r.date) continue;
+        await this.executeWithParams(
+          `INSERT INTO apartment_nightly_rates (
+            apartment_id, date, price, min_nights, short_stay_mode, surcharge_type, surcharge_value
+          ) VALUES (?,?,?,?,?,?,?)
+          ON CONFLICT(apartment_id, date) DO UPDATE SET
+            price = COALESCE(excluded.price, price),
+            min_nights = COALESCE(excluded.min_nights, min_nights),
+            short_stay_mode = COALESCE(excluded.short_stay_mode, short_stay_mode),
+            surcharge_type = COALESCE(excluded.surcharge_type, surcharge_type),
+            surcharge_value = COALESCE(excluded.surcharge_value, surcharge_value)`,
+          [
+            apartmentId, r.date, r.price ?? null, r.minNights ?? null,
+            r.shortStayMode ?? null, r.surchargeType ?? null, r.surchargeValue ?? null
+          ]
+        );
+      }
+      await this.execute("COMMIT;");
+    } catch (e) {
+      await this.execute("ROLLBACK;");
+      throw e;
+    }
+  }
+
+  async deleteNightlyRatesRange(apartmentId: string, from: string, to: string): Promise<void> {
+    await this.executeWithParams(
+      "DELETE FROM apartment_nightly_rates WHERE apartment_id = ? AND date >= ? AND date < ?",
+      [apartmentId, from, to]
+    );
   }
   async loadPropertySnapshot(propertyId: string): Promise<PropertySnapshot> {
     const [propRes] = await this.query("SELECT * FROM properties WHERE id = ?", [propertyId]);

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { projectManager } from '../services/projectManager';
-import { Property, Apartment, ChannelConnection, Booking, CalendarEvent } from '../types';
+import { Property, Apartment, ChannelConnection, Booking, CalendarEvent, PricingDefaults, NightlyRateOverride } from '../types';
 import { syncEngine, getProxyUrl } from '../services/syncEngine';
 import { syncScheduler, SyncInterval } from '../services/syncScheduler';
 import { networkMonitor } from '../services/networkMonitor';
@@ -14,7 +14,7 @@ import {
    RefreshCw, Plus, Trash2, Link, AlertTriangle, CheckCircle2,
    ExternalLink, Calendar, Building2, Globe, ShieldAlert, ArrowRight,
    Wifi, Clock, Settings, Play, X, Lock as LockIcon, History as HistoryIcon, ChevronRight, LayoutGrid,
-   MoreVertical, Power, HelpCircle, AlertCircle, Server, Copy, Eye, Share2, UploadCloud, Check, CreditCard
+   MoreVertical, Power, HelpCircle, AlertCircle, Server, Copy, Eye, Share2, UploadCloud, Check, CreditCard, BarChart3, Zap, Ban
 } from 'lucide-react';
 import { iCalExportService } from '../services/iCalExportService';
 import { toast } from 'sonner';
@@ -68,6 +68,23 @@ export const ChannelManager: React.FC = () => {
    const [publicBasePrice, setPublicBasePrice] = useState<number | ''>('');
    const [publicCurrency, setPublicCurrency] = useState('EUR');
    const [isSavingPrice, setIsSavingPrice] = useState(false);
+
+   const [activeTab, setActiveTab] = useState<'channels' | 'pricing'>('channels');
+   const [pricingDefaults, setPricingDefaults] = useState<PricingDefaults | null>(null);
+   const [nightlyRates, setNightlyRates] = useState<NightlyRateOverride[]>([]);
+   const [selectionRange, setSelectionRange] = useState<{ start: string | null, end: string | null }>({ start: null, end: null });
+   const [pricingForm, setPricingForm] = useState<Partial<NightlyRateOverride>>({
+      price: null,
+      minNights: null,
+      shortStayMode: 'ALLOWED',
+      surchargeType: 'PERCENT',
+      surchargeValue: 0
+   });
+   const [weeklyPattern, setWeeklyPattern] = useState<Record<number, number | ''>>({
+      1: '', 2: '', 3: '', 4: '', 5: '', 6: '', 7: '' // 1=Mon, 7=Sun
+   });
+   const [currentMonth, setCurrentMonth] = useState(new Date());
+   const [isApplyingPricing, setIsApplyingPricing] = useState(false);
 
    // UI State
    const [selectedAptId, setSelectedAptId] = useState<string | null>(null);
@@ -148,6 +165,79 @@ export const ChannelManager: React.FC = () => {
          setPublicCurrency(selectedApt.currency || 'EUR');
       }
    }, [selectedAptId, apartments]);
+
+   useEffect(() => {
+      if (selectedAptId && activeTab === 'pricing') {
+         loadPricingData();
+      }
+   }, [selectedAptId, activeTab, currentMonth]);
+
+   const loadPricingData = async () => {
+      if (!selectedAptId) return;
+      const store = projectManager.getStore();
+      try {
+         const defaults = await store.getPricingDefaults(selectedAptId);
+         setPricingDefaults(defaults);
+
+         const y = currentMonth.getFullYear();
+         const m = currentMonth.getMonth();
+         const from = new Date(y, m, -7).toISOString().split('T')[0];
+         const to = new Date(y, m + 1, 14).toISOString().split('T')[0];
+
+         const rates = await store.getNightlyRates(selectedAptId, from, to);
+         setNightlyRates(rates);
+      } catch (e) {
+         console.error("Error loading pricing data:", e);
+      }
+   };
+
+   const handleApplyPricing = async () => {
+      if (!selectedAptId || !selectionRange.start || !selectionRange.end) return;
+      setIsApplyingPricing(true);
+      try {
+         const start = new Date(selectionRange.start);
+         const end = new Date(selectionRange.end);
+         const rates: Partial<NightlyRateOverride>[] = [];
+
+         for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+            const dateStr = d.toISOString().split('T')[0];
+            const dayOfWeek = d.getDay() === 0 ? 7 : d.getDay();
+
+            let finalPrice = pricingForm.price;
+            if (finalPrice === null && weeklyPattern[dayOfWeek] !== '') {
+               finalPrice = Number(weeklyPattern[dayOfWeek]);
+            }
+
+            rates.push({
+               date: dateStr,
+               price: finalPrice,
+               minNights: pricingForm.minNights,
+               shortStayMode: pricingForm.shortStayMode,
+               surchargeType: pricingForm.surchargeType,
+               surchargeValue: pricingForm.surchargeValue
+            });
+         }
+
+         await projectManager.getStore().upsertNightlyRatesBulk(selectedAptId, rates);
+         toast.success("Precios aplicados");
+         loadPricingData();
+      } catch (e: any) {
+         toast.error("Error: " + e.message);
+      } finally {
+         setIsApplyingPricing(false);
+      }
+   };
+
+   const handleClearOverrides = async () => {
+      if (!selectedAptId || !selectionRange.start || !selectionRange.end) return;
+      try {
+         await projectManager.getStore().deleteNightlyRatesRange(selectedAptId, selectionRange.start, selectionRange.end);
+         toast.success("Overrides eliminados");
+         loadPricingData();
+      } catch (e: any) {
+         toast.error("Error: " + e.message);
+      }
+   };
 
    // --- ACTIONS ---
 
@@ -347,6 +437,62 @@ export const ChannelManager: React.FC = () => {
 
    const aptConnections = connections.filter(c => c.apartment_id === selectedAptId);
 
+   // Pricing Helpers
+   const daysInMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+   const firstDayOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+
+   const renderCalendarDays = () => {
+      const days = [];
+      const totalDays = daysInMonth(currentMonth);
+      const startOffset = (firstDayOfMonth(currentMonth) + 6) % 7;
+
+      for (let i = 0; i < startOffset; i++) {
+         days.push(<div key={`empty-${i}`} className="bg-slate-50/50 h-24 border-slate-100 border"></div>);
+      }
+
+      for (let d = 1; d <= totalDays; d++) {
+         const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d);
+         const dateStr = date.toISOString().split('T')[0];
+         const override = nightlyRates.find(r => r.date === dateStr);
+         const price = override?.price ?? pricingDefaults?.basePrice ?? '—';
+         const isSelected = selectionRange.start && selectionRange.end &&
+            dateStr >= selectionRange.start && dateStr <= selectionRange.end;
+         const isEnd = selectionRange.end === dateStr;
+         const isStart = selectionRange.start === dateStr;
+
+         days.push(
+            <div
+               key={dateStr}
+               onClick={() => {
+                  if (!selectionRange.start || (selectionRange.start && selectionRange.end)) {
+                     setSelectionRange({ start: dateStr, end: null });
+                  } else {
+                     if (dateStr < selectionRange.start) {
+                        setSelectionRange({ start: dateStr, end: selectionRange.start });
+                     } else {
+                        setSelectionRange({ start: selectionRange.start, end: dateStr });
+                     }
+                  }
+               }}
+               className={`h-24 p-2 border border-slate-100 bg-white cursor-pointer transition-all flex flex-col justify-between group relative ${isSelected ? 'bg-indigo-50 border-indigo-200 z-10' : 'hover:bg-slate-50'} ${isStart || isEnd ? 'ring-2 ring-indigo-500 z-20' : ''}`}
+            >
+               <span className={`text-[10px] font-black ${isSelected ? 'text-indigo-600' : 'text-slate-400'}`}>{d}</span>
+               <div className="flex flex-col items-end">
+                  <span className={`text-sm font-black ${override?.price ? 'text-indigo-600' : 'text-slate-800'}`}>
+                     {price}{price !== '—' ? '€' : ''}
+                  </span>
+                  {override?.minNights && (
+                     <span className="text-[9px] font-bold text-slate-400 flex items-center gap-0.5">
+                        <Clock size={8} /> {override.minNights}n
+                     </span>
+                  )}
+               </div>
+            </div>
+         );
+      }
+      return days;
+   };
+
    return (
       <div className="h-full flex flex-col space-y-6 animate-in fade-in pb-20">
 
@@ -489,258 +635,111 @@ export const ChannelManager: React.FC = () => {
                            >
                               <RefreshCw size={14} className={syncingId === selectedApt.id ? 'animate-spin' : ''} /> Sincronizar
                            </button>
-                           <button
-                              onClick={() => { setConnForm({ channel_name: 'AIRBNB', ical_url: '', alias: '', priority: 50, enabled: true, force_direct: false }); setIsConnModalOpen(true); }}
-                              className="flex-1 md:flex-none px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center gap-2"
-                           >
-                              <Plus size={16} /> Añadir Fuente
-                           </button>
-                        </div>
-                     </div>
-
-                     {/* Sources List Grid */}
-                     <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/20">
-                        <div className="flex flex-col gap-4">
-                           {aptConnections.map(conn => (
-                              <div key={conn.id} className={`group bg-white border rounded-3xl p-1 transition-all ${conn.enabled ? 'border-slate-200 hover:border-indigo-300 hover:shadow-lg' : 'border-slate-100 opacity-60'}`}>
-                                 <div className="flex flex-col md:flex-row items-center gap-4 p-4">
-
-                                    {/* Icon */}
-                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 transition-colors ${conn.enabled ? 'bg-slate-50 group-hover:bg-indigo-50' : 'bg-slate-100 grayscale'}`}>
-                                       {conn.channel_name === 'AIRBNB' ? <Globe className="text-rose-500" size={24} /> : conn.channel_name === 'BOOKING' ? <Calendar className="text-blue-600" size={24} /> : <Link className="text-slate-500" size={24} />}
-                                    </div>
-
-                                    {/* Info Content */}
-                                    <div className="flex-1 min-w-0 w-full md:w-auto text-center md:text-left">
-                                       <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 mb-2">
-                                          <h4 className="font-bold text-slate-800 text-base truncate max-w-[200px]">{conn.alias || conn.channel_name}</h4>
-                                          <ConnectionBadge type={conn.channel_name} />
-                                          {conn.force_direct && <span className="text-[9px] font-black bg-amber-100 text-amber-600 px-2 py-0.5 rounded border border-amber-200">DIRECT</span>}
-                                       </div>
-                                       <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 flex items-center gap-2 max-w-full">
-                                          <span className="text-[10px] font-mono text-slate-400 truncate flex-1">{conn.ical_url}</span>
-                                          <button onClick={() => navigator.clipboard.writeText(conn.ical_url)} className="text-slate-300 hover:text-indigo-500 transition-colors"><Copy size={12} /></button>
-                                       </div>
-                                       {(conn.last_status === 'INVALID_TOKEN' || conn.last_status === 'TOKEN_CADUCADO') && (
-                                          <div className="mt-2 text-[10px] text-rose-600 font-bold bg-rose-50 px-2 py-1 rounded inline-block border border-rose-100">
-                                             Token inválido/caducado. Pega un nuevo enlace.
-                                          </div>
-                                       )}
-                                       {conn.sync_log?.includes('Dominio no permitido') && (
-                                          <div className="mt-2 text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded inline-block border border-amber-100">
-                                             Dominio restringido por el Proxy. Avisar a soporte.
-                                          </div>
-                                       )}
-                                    </div>
-
-                                    {/* Divider for Mobile */}
-                                    <div className="w-full h-px bg-slate-50 md:hidden"></div>
-
-                                    {/* Status & Priority */}
-                                    <div className="flex items-center gap-6 md:border-l md:border-slate-100 md:pl-6">
-                                       <StatusDot status={conn.last_status} enabled={conn.enabled} lastSync={conn.last_sync} />
-
-                                       <div className="flex flex-col items-center">
-                                          <span className="text-[9px] font-black uppercase text-slate-300 mb-1">Prio</span>
-                                          <div className="flex items-end gap-0.5 h-4">
-                                             <div className={`w-1 rounded-sm ${conn.priority >= 20 ? 'bg-indigo-300' : 'bg-slate-200'} h-2`}></div>
-                                             <div className={`w-1 rounded-sm ${conn.priority >= 50 ? 'bg-indigo-400' : 'bg-slate-200'} h-3`}></div>
-                                             <div className={`w-1 rounded-sm ${conn.priority >= 80 ? 'bg-indigo-600' : 'bg-slate-200'} h-4`}></div>
-                                          </div>
-                                          <span className="text-[9px] font-bold text-slate-500 mt-0.5">{conn.priority}</span>
-                                       </div>
-                                    </div>
-
-                                    {/* Actions */}
-                                    <div className="flex gap-2 w-full md:w-auto justify-end border-t md:border-0 border-slate-50 pt-3 md:pt-0 mt-2 md:mt-0">
-                                       <button
-                                          onClick={() => { setConnForm(conn); setIsConnModalOpen(true); }}
-                                          className="p-2.5 bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 rounded-xl transition-all shadow-sm"
-                                          title="Configurar"
-                                       >
-                                          <Settings size={16} />
-                                       </button>
-                                       <button
-                                          onClick={async () => {
-                                             const events = await projectManager.getStore().getCalendarEvents(conn.id);
-                                             setDetailsData({ connection: conn, events });
-                                             setIsDetailsModalOpen(true);
-                                          }}
-                                          className="p-2.5 bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 rounded-xl transition-all shadow-sm"
-                                          title="Ver Detalles"
-                                       >
-                                          <Eye size={16} />
-                                       </button>
-                                       {(conn.last_status === 'ERROR' || conn.last_status === 'INVALID_TOKEN' || conn.last_status === 'TOKEN_CADUCADO' || conn.sync_log?.includes('Dominio no permitido')) && (
-                                          <button
-                                             onClick={() => handleRetryConnection(conn)}
-                                             disabled={syncingId === conn.id}
-                                             className="px-3 py-2 bg-rose-600 text-white rounded-xl font-bold text-[10px] hover:bg-rose-700 transition-all shadow-md flex items-center gap-1.5 animate-pulse"
-                                          >
-                                             <RefreshCw size={12} className={syncingId === conn.id ? 'animate-spin' : ''} />
-                                             {(conn.last_status === 'INVALID_TOKEN' || conn.last_status === 'TOKEN_CADUCADO') ? 'Actualizar Enlace' : 'Reintentar'}
-                                          </button>
-                                       )}
-                                       <button
-                                          onClick={() => handleDeleteConnection(conn.id)}
-                                          className="p-2.5 bg-white border border-slate-200 hover:border-rose-300 hover:text-rose-600 rounded-xl transition-all shadow-sm"
-                                          title="Eliminar"
-                                       >
-                                          <Trash2 size={16} />
-                                       </button>
-                                    </div>
-                                 </div>
-                              </div>
-                           ))}
-
-                           {aptConnections.length === 0 && (
-                              <div className="flex flex-col items-center justify-center py-20 text-center opacity-60 border-2 border-dashed border-slate-200 rounded-[3rem]">
-                                 <Link size={48} className="text-slate-300 mb-4" />
-                                 <h4 className="text-xl font-bold text-slate-400">Sin conexiones configuradas</h4>
-                                 <p className="text-sm text-slate-400 max-w-xs mt-2">Añade enlaces iCal de Airbnb, Booking o VRBO para sincronizar el calendario automáticamente.</p>
-                              </div>
+                           {activeTab === 'channels' && (
+                              <button
+                                 onClick={() => { setConnForm({ channel_name: 'AIRBNB', ical_url: '', alias: '', priority: 50, enabled: true, force_direct: false }); setIsConnModalOpen(true); }}
+                                 className="flex-1 md:flex-none px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-700 transition-all shadow-lg flex items-center justify-center gap-2"
+                              >
+                                 <Plus size={16} /> Añadir Fuente
+                              </button>
                            )}
-
-                           {/* PUBLIC BASE PRICE CARD (MINI-BLOQUE B0) */}
-                           <div className="bg-white border border-slate-200 rounded-[2.5rem] p-8 shadow-sm">
-                              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                                 <div className="flex items-center gap-4">
-                                    <div className="p-3 bg-indigo-50 rounded-2xl">
-                                       <CreditCard size={24} className="text-indigo-600" />
-                                    </div>
-                                    <div>
-                                       <h4 className="text-xl font-black text-slate-800">Precio Público Base</h4>
-                                       <p className="text-slate-500 text-xs font-medium mt-1">Este es el precio por noche que verán los clientes en la web (sin motor de tarifas).</p>
-                                    </div>
-                                 </div>
-                                 <div className="flex items-center gap-3 w-full md:w-auto">
-                                    <div className="relative flex-1 md:w-32">
-                                       <input
-                                          type="number"
-                                          value={publicBasePrice}
-                                          onChange={e => setPublicBasePrice(e.target.value === '' ? '' : Number(e.target.value))}
-                                          placeholder="Ej: 120"
-                                          className="w-full pl-4 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold focus:border-indigo-300 outline-none transition-all"
-                                       />
-                                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400 uppercase">{publicCurrency}</span>
-                                    </div>
-                                    <select
-                                       value={publicCurrency}
-                                       onChange={e => setPublicCurrency(e.target.value)}
-                                       className="px-3 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none"
-                                    >
-                                       <option value="EUR">EUR (€)</option>
-                                       <option value="USD">USD ($)</option>
-                                       <option value="GBP">GBP (£)</option>
-                                    </select>
-                                    <button
-                                       onClick={handleSavePrice}
-                                       disabled={isSavingPrice}
-                                       className="px-6 py-3 bg-slate-900 text-white rounded-xl font-black text-xs hover:bg-slate-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                                    >
-                                       {isSavingPrice ? <RefreshCw size={14} className="animate-spin" /> : <Check size={16} />}
-                                       Guardar
-                                    </button>
-                                 </div>
-                              </div>
-                           </div>
-
-                           {/* ICAL EXPORT SECTION (MINI-BLOQUE B1) */}
-                           <div className="mt-8 bg-indigo-900 rounded-[2.5rem] p-8 text-white shadow-xl shadow-indigo-100 overflow-hidden relative">
-                              {/* Decorative element */}
-                              <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-20 -mt-20 blur-3xl"></div>
-
-                              <div className="relative z-10">
-                                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
-                                    <div className="flex items-center gap-4">
-                                       <div className="p-3 bg-white/10 rounded-2xl backdrop-blur-md">
-                                          <Share2 size={24} className="text-indigo-200" />
-                                       </div>
-                                       <div>
-                                          <h4 className="text-xl font-black">Exportar Calendario (iCal)</h4>
-                                          <p className="text-indigo-200 text-xs font-medium mt-1">Comparte la disponibilidad de este apartamento con otras plataformas.</p>
-                                       </div>
-                                    </div>
-                                    <button
-                                       onClick={() => handlePublish(selectedApt.id)}
-                                       disabled={isPublishing}
-                                       className="w-full md:w-auto px-8 py-3 bg-white text-indigo-900 rounded-2xl font-black text-xs hover:bg-indigo-50 transition-all flex items-center justify-center gap-2 shadow-lg active:scale-95 disabled:opacity-50"
-                                    >
-                                       {isPublishing ? <RefreshCw size={14} className="animate-spin" /> : <UploadCloud size={16} />}
-                                       {selectedApt.ical_export_token ? 'Actualizar Publicación' : 'Activar Exportación'}
-                                    </button>
-                                 </div>
-
-                                 {selectedApt.ical_export_token ? (
-                                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
-                                       <div className="bg-black/20 backdrop-blur-sm border border-white/10 rounded-2xl p-4">
-                                          <label className="text-[10px] font-black uppercase text-indigo-300 mb-2 block">Tu URL Pública iCal</label>
-                                          <div className="flex items-center gap-3">
-                                             <div className="flex-1 bg-black/30 p-3 rounded-xl font-mono text-[10px] text-indigo-100 break-all border border-white/5">
-                                                {selectedApt.ical_out_url || `https://rentikpro-cm-proxy.reservas-elrinconcito.workers.dev/ical/${selectedApt.ical_export_token}.ics`}
-                                             </div>
-                                             <button
-                                                onClick={() => {
-                                                   navigator.clipboard.writeText(selectedApt.ical_out_url || `https://rentikpro-cm-proxy.reservas-elrinconcito.workers.dev/ical/${selectedApt.ical_export_token}.ics`);
-                                                   alert("URL copiada al portapapeles.");
-                                                }}
-                                                className="p-3 bg-white/10 hover:bg-white/20 rounded-xl transition-colors shrink-0"
-                                                title="Copiar URL"
-                                             >
-                                                <Copy size={16} />
-                                             </button>
-                                          </div>
-                                       </div>
-                                       <div className="flex flex-wrap items-center gap-3">
-                                          <div className="flex items-center gap-2 text-[10px] text-indigo-300 font-bold bg-white/5 w-fit px-3 py-1.5 rounded-full">
-                                             <Check size={12} className="text-emerald-400" />
-                                             Sincronizado vía Cloudflare Worker
-                                          </div>
-                                          {selectedApt.ical_last_publish && (
-                                             <div className="flex items-center gap-2 text-[10px] text-indigo-300 font-bold bg-white/5 w-fit px-3 py-1.5 rounded-full">
-                                                <Clock size={12} />
-                                                Publicado: {dateFormat.formatTimestampForUser(selectedApt.ical_last_publish)}
-                                             </div>
-                                          )}
-                                          {selectedApt.ical_event_count !== undefined && (
-                                             <div className="flex items-center gap-2 text-[10px] text-indigo-300 font-bold bg-white/5 w-fit px-3 py-1.5 rounded-full">
-                                                <Calendar size={12} />
-                                                {selectedApt.ical_event_count} eventos exportados
-                                             </div>
-                                          )}
-                                       </div>
-                                    </div>
-                                 ) : (
-                                    <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center">
-                                       <p className="text-sm text-indigo-100/60 italic">Haz clic en "Activar Exportación" para generar tu enlace único de sincronización.</p>
-                                    </div>
-                                 )}
-                              </div>
-                           </div>
                         </div>
                      </div>
 
-                     {/* Apartment Logs & Footer */}
-                     <div className="bg-slate-900 text-slate-300 border-t border-slate-800">
-                        <button onClick={() => setShowLogs(!showLogs)} className="w-full p-4 flex justify-between items-center text-xs font-bold uppercase tracking-widest hover:bg-slate-800 transition-colors">
-                           <span className="flex items-center gap-2"><HistoryIcon size={14} /> Log de Sincronización</span>
-                           {showLogs ? <ChevronRight size={14} className="rotate-90" /> : <ChevronRight size={14} />}
+                     {/* TAB NAVIGATION */}
+                     <div className="flex bg-slate-100/50 p-1 mx-8 mt-4 rounded-2xl border border-slate-200/50">
+                        <button
+                           onClick={() => setActiveTab('channels')}
+                           className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black transition-all ${activeTab === 'channels' ? 'bg-white text-indigo-600 shadow-sm border border-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
+                        >
+                           <Link size={14} /> Conexiones iCal
                         </button>
-                        {showLogs && (
-                           <div className="p-6 pt-0 space-y-2 border-t border-slate-800 max-h-48 overflow-y-auto font-mono text-[10px]">
-                              {aptConnections.map(c => (
-                                 <div key={c.id} className="flex justify-between items-center py-1">
-                                    <div className="flex items-center gap-2">
-                                       <span className={c.last_status === 'ERROR' && c.enabled ? 'text-rose-400' : 'text-emerald-400'}>●</span>
-                                       <span className="opacity-70">{c.alias || c.channel_name}:</span>
-                                    </div>
-                                    <span className="opacity-50 text-right truncate max-w-[300px]">{c.sync_log || 'Sin actividad reciente'}</span>
-                                 </div>
-                              ))}
-                              {aptConnections.length === 0 && <p className="opacity-30">No hay fuentes para mostrar logs.</p>}
-                           </div>
-                        )}
+                        <button
+                           onClick={() => setActiveTab('pricing')}
+                           className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black transition-all ${activeTab === 'pricing' ? 'bg-white text-indigo-600 shadow-sm border border-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
+                        >
+                           <BarChart3 size={14} /> Pricing Studio
+                        </button>
                      </div>
+
+                     {activeTab === 'channels' ? (
+                        <>
+                           <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/20">
+                              <div className="flex flex-col gap-4">
+                                 {aptConnections.map(conn => (
+                                    <div key={conn.id} className={`group bg-white border border-slate-200 rounded-3xl p-1 transition-all`}>
+                                       <div className="flex flex-col md:flex-row items-center gap-4 p-4">
+                                          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 transition-colors bg-slate-50`}>
+                                             {conn.channel_name === 'AIRBNB' ? <Globe className="text-rose-500" size={24} /> : conn.channel_name === 'BOOKING' ? <Calendar className="text-blue-600" size={24} /> : <Link className="text-slate-500" size={24} />}
+                                          </div>
+                                          <div className="flex-1 min-w-0">
+                                             <div className="flex items-center gap-2 mb-1"><h4 className="font-bold text-slate-800">{conn.alias || conn.channel_name}</h4><ConnectionBadge type={conn.channel_name} /></div>
+                                             <div className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-1.5 flex items-center gap-2 max-w-full">
+                                                <span className="text-[10px] font-mono text-slate-400 truncate flex-1">{conn.ical_url}</span>
+                                             </div>
+                                          </div>
+                                          <div className="flex items-center gap-6 md:border-l md:border-slate-100 md:pl-6">
+                                             <StatusDot status={conn.last_status} enabled={conn.enabled} lastSync={conn.last_sync} />
+                                          </div>
+                                          <div className="flex gap-2">
+                                             <button onClick={() => { setConnForm(conn); setIsConnModalOpen(true); }} className="p-2.5 bg-white border border-slate-200 hover:border-indigo-300 rounded-xl transition-all shadow-sm"><Settings size={16} /></button>
+                                             <button onClick={() => handleDeleteConnection(conn.id)} className="p-2.5 bg-white border border-slate-200 hover:border-rose-300 rounded-xl transition-all shadow-sm"><Trash2 size={16} /></button>
+                                          </div>
+                                       </div>
+                                    </div>
+                                 ))}
+                                 {aptConnections.length === 0 && <div className="py-20 text-center text-slate-400 text-sm">No hay fuentes iCal conectadas.</div>}
+                              </div>
+                           </div>
+                           <div className="bg-slate-900 text-slate-300 border-t border-slate-800 p-4">
+                              <button onClick={() => setShowLogs(!showLogs)} className="w-full text-left text-xs font-bold uppercase tracking-widest hover:bg-slate-800 transition-colors flex items-center gap-2"><HistoryIcon size={14} /> Log de Sincronización</button>
+                           </div>
+                        </>
+                     ) : (
+                        <div className="flex-1 flex flex-col xl:flex-row min-h-0 overflow-hidden bg-slate-50/20 p-8 gap-8">
+                           {/* Calendar & Editor Area */}
+                           <div className="flex-1 flex flex-col gap-6 min-h-0">
+                              <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-6 md:p-10 flex flex-col h-full overflow-hidden">
+                                 {/* Calendar Header */}
+                                 <div className="flex items-center justify-between mb-8">
+                                    <h4 className="text-2xl font-black text-slate-800 flex items-center gap-3">
+                                       <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl"><Calendar size={24} /></div>
+                                       {currentMonth.toLocaleString('es-ES', { month: 'long', year: 'numeric' }).toUpperCase()}
+                                    </h4>
+                                    <div className="flex items-center gap-3 bg-slate-50 p-2 rounded-2xl border border-slate-100">
+                                       <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-3 bg-white hover:bg-slate-200 rounded-xl text-slate-500 transition-all shadow-sm"><ArrowRight size={18} className="rotate-180" /></button>
+                                       <button onClick={() => setCurrentMonth(new Date())} className="px-4 py-3 bg-white text-[10px] font-black uppercase text-slate-400 hover:text-indigo-600 transition-all rounded-xl shadow-sm">Hoy</button>
+                                       <button onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-3 bg-white hover:bg-slate-200 rounded-xl text-slate-500 transition-all shadow-sm"><ArrowRight size={18} /></button>
+                                    </div>
+                                 </div>
+                                 <div className="grid grid-cols-7 gap-px bg-slate-100 rounded-[2rem] overflow-hidden border border-slate-200 flex-1">
+                                    {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => (<div key={d} className="bg-slate-50 p-4 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest">{d}</div>))}
+                                    {renderCalendarDays()}
+                                 </div>
+                                 <div className="mt-8 flex items-center gap-8 px-4">
+                                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-md bg-white border border-slate-200"></div><span className="text-[10px] font-black text-slate-400 uppercase">Precio Base</span></div>
+                                    <div className="flex items-center gap-2"><div className="w-3 h-3 rounded-md bg-indigo-50 border border-indigo-200"></div><span className="text-[10px] font-black text-slate-400 uppercase">Seleccionado</span></div>
+                                    <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-indigo-600"></div><span className="text-[10px] font-black text-slate-400 uppercase mt-0.5">Override Activo</span></div>
+                                 </div>
+                              </div>
+                           </div>
+                           <div className="w-full xl:w-[400px] flex flex-col gap-6 overflow-y-auto custom-scrollbar">
+                              <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm p-8 flex flex-col gap-6">
+                                 <div className="flex items-center gap-4"><div className="p-3 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-100"><Zap size={24} /></div><div><h4 className="text-xl font-black text-slate-800">Editor de Rango</h4><p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-1">{selectionRange.start ? `${selectionRange.start} — ${selectionRange.end || '?'}` : 'Selecciona días'}</p></div></div>
+                                 {selectionRange.start ? (
+                                    <div className="space-y-6 animate-in fade-in slide-in-from-top-4">
+                                       <div className="space-y-4">
+                                          <div className="flex flex-col gap-2"><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Precio por Noche (€)</label><input type="number" value={pricingForm.price || ''} onChange={e => setPricingForm({ ...pricingForm, price: e.target.value ? Number(e.target.value) : null })} className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:border-indigo-300 outline-none transition-all" /></div>
+                                          <div className="grid grid-cols-2 gap-4"><div className="flex flex-col gap-2"><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Estancia Mínima</label><input type="number" value={pricingForm.minNights || ''} onChange={e => setPricingForm({ ...pricingForm, minNights: e.target.value ? Number(e.target.value) : null })} className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:border-indigo-300 outline-none" /></div><div className="flex flex-col gap-2"><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Estancias Cortas</label><select value={pricingForm.shortStayMode || 'ALLOWED'} onChange={e => setPricingForm({ ...pricingForm, shortStayMode: e.target.value as any })} className="w-full px-3 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none"><option value="ALLOWED">Permitido</option><option value="NOT_ALLOWED">Denegado</option><option value="WITH_SURCHARGE">Con Recargo</option></select></div></div>
+                                       </div>
+                                       <div className="pt-4 border-t border-slate-50 space-y-3"><button onClick={handleApplyPricing} disabled={isApplyingPricing || !selectionRange.end} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50">{isApplyingPricing ? <RefreshCw size={14} className="animate-spin" /> : <Check size={18} />} APLICAR CAMBIOS AL RANGO</button><button onClick={handleClearOverrides} className="w-full py-4 bg-white border border-slate-200 text-rose-500 rounded-2xl font-black text-xs hover:bg-rose-50 transition-all flex items-center justify-center gap-2"><Ban size={18} /> LIMPIAR OVERRIDES</button></div>
+                                    </div>
+                                 ) : <div className="py-12 flex flex-col items-center justify-center text-center px-4"><div className="p-4 bg-slate-50 rounded-full mb-4"><Plus size={32} className="text-slate-200" /></div><p className="text-slate-400 text-xs font-bold leading-relaxed">Selecciona un rango en el calendario.</p></div>}
+                              </div>
+                              <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-xl"><div className="flex items-center gap-3 mb-6"><div className="p-2 bg-slate-800 rounded-xl"><HistoryIcon size={20} className="text-indigo-400" /></div><h4 className="text-sm font-black uppercase tracking-widest">Patrón Semanal</h4></div><div className="grid grid-cols-2 gap-3 mb-6">{['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d, i) => (<div key={d} className="flex items-center gap-3 bg-white/5 border border-white/10 p-2 rounded-xl"><span className="text-[10px] font-black text-white/30 uppercase w-8 text-center">{d}</span><input type="number" value={weeklyPattern[i + 1]} onChange={e => setWeeklyPattern({ ...weeklyPattern, [i + 1]: e.target.value ? Number(e.target.value) : '' })} className="bg-transparent text-sm font-bold w-full outline-none text-white placeholder:text-white/10" placeholder="Base" /></div>))}</div><button onClick={handleApplyPricing} disabled={!selectionRange.start || !selectionRange.end} className="w-full py-4 bg-indigo-500 hover:bg-indigo-400 text-white rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/40 disabled:opacity-20">APLICAR PATRÓN AL RANGO</button></div>
+                           </div>
+                        </div>
+                     )}
                   </div>
                ) : (
                   // DEFAULT DASHBOARD VIEW
@@ -906,6 +905,15 @@ export const ChannelManager: React.FC = () => {
                               <p className="text-xs text-slate-400">Gestionados</p>
                            </div>
                         </div>
+                        {aptConnections.length === 0 && (
+                           <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed border-slate-200 rounded-[2.5rem] bg-slate-50/50">
+                              <Link size={48} className="text-slate-200 mb-4" />
+                              <p className="text-slate-400 font-bold">No hay fuentes iCal conectadas</p>
+                              <button onClick={() => setIsConnModalOpen(true)} className="mt-4 text-indigo-600 font-black text-xs flex items-center gap-2 px-4 py-2 bg-indigo-50 rounded-xl hover:bg-indigo-100 transition-all">
+                                 <Plus size={14} /> Conectar primera fuente
+                              </button>
+                           </div>
+                        )}
                      </div>
                   </div>
                )}

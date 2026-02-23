@@ -37,6 +37,26 @@ export interface Apartment {
   currency?: string;
 }
 
+export interface PricingDefaults {
+  apartmentId: string;
+  currency: string;
+  basePrice: number;
+  defaultMinNights: number;
+  shortStayMode: 'ALLOWED' | 'NOT_ALLOWED' | 'WITH_SURCHARGE';
+  surchargeType: 'PERCENT' | 'FIXED';
+  surchargeValue: number;
+}
+
+export interface NightlyRateOverride {
+  apartmentId: string;
+  date: string; // YYYY-MM-DD
+  price?: number | null;
+  minNights?: number | null;
+  shortStayMode?: 'ALLOWED' | 'NOT_ALLOWED' | 'WITH_SURCHARGE' | null;
+  surchargeType?: 'PERCENT' | 'FIXED' | null;
+  surchargeValue?: number | null;
+}
+
 export interface Traveler {
   id: string;
   nombre: string;
