@@ -1,42 +1,27 @@
-
 {
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "RentikPro",
+  "version": "0.1.0",
+  "identifier": "com.rentikpro.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev -- --port 3000",
     "beforeBuildCommand": "npm run build",
-    "devPath": "http://localhost:3000",
-    "distDir": "../dist"
+    "devUrl": "http://localhost:3000",
+    "frontendDist": "../dist"
   },
-  "package": {
-    "productName": "RentikPro",
-    "version": "0.1.0"
-  },
-  "tauri": {
-    "allowlist": {
-      "all": false,
-      "fs": {
-        "all": true,
-        "scope": ["$APPDATA/*", "$DOCUMENT/*", "$CACHE/*", "$HOME/*"]
-      },
-      "dialog": {
-        "all": true
-      },
-      "path": {
-        "all": true
-      }
-    },
-    "bundle": {
-      "active": true,
-      "identifier": "com.rentikpro.app",
-      "targets": "all"
-    },
+  "app": {
     "windows": [
       {
-        "fullscreen": false,
+        "title": "RentikPro",
+        "width": 1080,
         "height": 720,
         "resizable": true,
-        "title": "RentikPro",
-        "width": 1080
+        "fullscreen": false
       }
     ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
   }
 }
