@@ -90,6 +90,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   };
 
   const isDebugMode = location.search.includes('debug=1');
+  const diagnosticsEnabled = (() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return !!import.meta.env.DEV || import.meta.env.VITE_ENABLE_DIAGNOSTICS === '1' || params.get('diag') === '1' || localStorage.getItem('rp_enable_diagnostics') === '1';
+    } catch {
+      return !!import.meta.env.DEV || import.meta.env.VITE_ENABLE_DIAGNOSTICS === '1';
+    }
+  })();
 
   useEffect(() => {
     // Optional: Auto-open if query param present and we just loaded?
@@ -186,6 +194,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
       <NavItem to="/qa" icon={Activity} label="Calidad / Tests" onClick={mobile ? handleNavClick : undefined} />
       <NavItem to="/backup" icon={ShieldCheck} label="Backup Vault" onClick={mobile ? handleNavClick : undefined} />
       <NavItem to="/settings" icon={Settings} label="Configuración" onClick={mobile ? handleNavClick : undefined} />
+      {diagnosticsEnabled && (
+        <NavItem to="/diagnostics" icon={Bug} label="Diagnostics" onClick={mobile ? handleNavClick : undefined} />
+      )}
 
       {isDebugMode && (
         <button

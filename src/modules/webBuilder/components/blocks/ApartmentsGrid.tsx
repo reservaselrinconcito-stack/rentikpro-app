@@ -43,7 +43,8 @@ export const ApartmentsGrid: React.FC<{ data: any; styles?: any; variant?: strin
                                     className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-700"
                                 />
                                 <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-md px-4 py-2 rounded-full shadow-lg font-black text-slate-900 z-10">
-                                    {item.price}<span className="text-xs font-bold text-slate-500 font-sans">/noche</span>
+                                    {item.price}
+                                    {item.price !== 'Consultar' && <span className="text-xs font-bold text-slate-500 font-sans">/noche</span>}
                                 </div>
                             </div>
 

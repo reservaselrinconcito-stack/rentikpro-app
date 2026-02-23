@@ -30,7 +30,7 @@ export const PublishPanel: React.FC<PublishPanelProps> = ({ config, onChange, on
     };
 
     const PREVIEW_BASE_URL = import.meta.env.VITE_PUBLIC_WEB_BASE || 'https://rp-web-6h9.pages.dev';
-    const finalUrl = `${PREVIEW_BASE_URL}/?slug=${config.slug || '...'}`;
+    const finalUrl = config.slug ? `${PREVIEW_BASE_URL}/${config.slug}` : `${PREVIEW_BASE_URL}/...`;
 
     return (
         <div className="space-y-6 animate-in fade-in">

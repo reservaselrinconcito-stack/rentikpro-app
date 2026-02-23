@@ -173,6 +173,17 @@ export const ChannelManager: React.FC = () => {
       }
    }, [selectedAptId, activeTab, currentMonth]);
 
+   // Common today helper (start of day local)
+   const getTodayStr = () => {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+   };
+   const todayStr = getTodayStr();
+
+   const formatLocalDate = (date: Date) => {
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+   };
+
    const loadPricingData = async () => {
       if (!selectedAptId) return;
       try {
@@ -181,8 +192,9 @@ export const ChannelManager: React.FC = () => {
 
          const y = currentMonth.getFullYear();
          const m = currentMonth.getMonth();
-         const from = new Date(y, m, -7).toISOString().split('T')[0];
-         const to = new Date(y, m + 1, 14).toISOString().split('T')[0];
+         // Load a window of days around the month
+         const from = formatLocalDate(new Date(y, m, -7));
+         const to = formatLocalDate(new Date(y, m + 1, 14));
 
          const rates = await pricingStudioStore.getNightlyRates(selectedAptId, from, to);
          setNightlyRates(rates);
@@ -191,20 +203,29 @@ export const ChannelManager: React.FC = () => {
       }
    };
 
-   const handleApplyPricing = async () => {
+   const handleApplyPricing = async (usePatternOnly = false) => {
       if (!selectedAptId || !selectionRange.start || !selectionRange.end) return;
       setIsApplyingPricing(true);
       try {
-         const start = new Date(selectionRange.start);
-         const end = new Date(selectionRange.end);
+         // Use T12:00:00 to avoid timezone shifts when parsing YYYY-MM-DD
+         const start = new Date(selectionRange.start + 'T12:00:00');
+         const end = new Date(selectionRange.end + 'T12:00:00');
          const rates: Partial<NightlyRateOverride>[] = [];
 
          for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            const dateStr = d.toISOString().split('T')[0];
-            const dayOfWeek = d.getDay() === 0 ? 7 : d.getDay();
+            const dateStr = formatLocalDate(d);
 
-            let finalPrice = pricingForm.price;
-            if (finalPrice === null && weeklyPattern[dayOfWeek] !== '') {
+            // Filter past dates (redundant but safe)
+            if (dateStr < todayStr) continue;
+
+            const dayOfWeek = d.getDay() === 0 ? 7 : d.getDay();
+            let finalPrice = usePatternOnly ? null : pricingForm.price;
+
+            // If in pattern mode, we use the pattern. 
+            // If in normal mode, we use pattern only if manual price is null.
+            if (usePatternOnly) {
+               finalPrice = weeklyPattern[dayOfWeek] !== '' ? Number(weeklyPattern[dayOfWeek]) : null;
+            } else if (finalPrice === null && weeklyPattern[dayOfWeek] !== '') {
                finalPrice = Number(weeklyPattern[dayOfWeek]);
             }
 
@@ -218,7 +239,15 @@ export const ChannelManager: React.FC = () => {
             });
          }
 
-         await pricingStudioStore.upsertNightlyRatesBulk(selectedAptId, rates);
+         if (rates.length === 0) {
+            toast.error("No puedes modificar fechas pasadas");
+            return;
+         }
+
+         const result = await pricingStudioStore.upsertNightlyRatesBulk(selectedAptId, rates);
+         if (result.skippedCount > 0) {
+            toast.warning(`${result.skippedCount} fechas pasadas fueron ignoradas`);
+         }
          toast.success("Precios aplicados");
          loadPricingData();
       } catch (e: any) {
@@ -231,7 +260,13 @@ export const ChannelManager: React.FC = () => {
    const handleClearOverrides = async () => {
       if (!selectedAptId || !selectionRange.start || !selectionRange.end) return;
       try {
-         await pricingStudioStore.deleteNightlyRatesRange(selectedAptId, selectionRange.start, selectionRange.end);
+         const filterFrom = selectionRange.start < todayStr ? todayStr : selectionRange.start;
+         if (filterFrom > selectionRange.end) {
+            toast.error("No puedes modificar fechas pasadas");
+            return;
+         }
+
+         await pricingStudioStore.deleteNightlyRatesRange(selectedAptId, filterFrom, selectionRange.end);
          toast.success("Overrides eliminados");
          loadPricingData();
       } catch (e: any) {
@@ -452,7 +487,8 @@ export const ChannelManager: React.FC = () => {
 
       for (let d = 1; d <= totalDays; d++) {
          const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), d);
-         const dateStr = date.toISOString().split('T')[0];
+         const dateStr = formatLocalDate(date);
+         const isPast = dateStr < todayStr;
          const override = nightlyRates.find(r => r.date === dateStr);
          const price = override?.price ?? pricingDefaults?.basePrice ?? '—';
          const isSelected = selectionRange.start && selectionRange.end &&
@@ -464,6 +500,7 @@ export const ChannelManager: React.FC = () => {
             <div
                key={dateStr}
                onClick={() => {
+                  if (isPast) return;
                   if (!selectionRange.start || (selectionRange.start && selectionRange.end)) {
                      setSelectionRange({ start: dateStr, end: null });
                   } else {
@@ -474,10 +511,13 @@ export const ChannelManager: React.FC = () => {
                      }
                   }
                }}
-               className={`h-24 p-2 border border-slate-100 bg-white cursor-pointer transition-all flex flex-col justify-between group relative ${isSelected ? 'bg-indigo-50 border-indigo-200 z-10' : 'hover:bg-slate-50'} ${isStart || isEnd ? 'ring-2 ring-indigo-500 z-20' : ''}`}
+               className={`h-24 p-2 border border-slate-100 bg-white transition-all flex flex-col justify-between group relative 
+                  ${isPast ? 'bg-slate-200/50 cursor-not-allowed grayscale-[0.5]' : 'cursor-pointer'}
+                  ${isSelected ? 'bg-indigo-50 border-indigo-200 z-10' : !isPast ? 'hover:bg-slate-50' : ''} 
+                  ${isStart || isEnd ? 'ring-2 ring-indigo-500 z-20' : ''}`}
             >
-               <span className={`text-[10px] font-black ${isSelected ? 'text-indigo-600' : 'text-slate-400'}`}>{d}</span>
-               <div className="flex flex-col items-end">
+               <span className={`text-[10px] font-black ${isSelected ? 'text-indigo-600' : isPast ? 'text-slate-300' : 'text-slate-400'}`}>{d}</span>
+               <div className={`flex flex-col items-end ${isPast ? 'opacity-30' : ''}`}>
                   <span className={`text-sm font-black ${override?.price ? 'text-indigo-600' : 'text-slate-800'}`}>
                      {price}{price !== '—' ? '€' : ''}
                   </span>
@@ -732,11 +772,11 @@ export const ChannelManager: React.FC = () => {
                                           <div className="flex flex-col gap-2"><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Precio por Noche (€)</label><input type="number" value={pricingForm.price || ''} onChange={e => setPricingForm({ ...pricingForm, price: e.target.value ? Number(e.target.value) : null })} className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:border-indigo-300 outline-none transition-all" /></div>
                                           <div className="grid grid-cols-2 gap-4"><div className="flex flex-col gap-2"><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Estancia Mínima</label><input type="number" value={pricingForm.minNights || ''} onChange={e => setPricingForm({ ...pricingForm, minNights: e.target.value ? Number(e.target.value) : null })} className="w-full px-4 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-bold focus:border-indigo-300 outline-none" /></div><div className="flex flex-col gap-2"><label className="text-[10px] font-black text-slate-400 uppercase ml-1">Estancias Cortas</label><select value={pricingForm.shortStayMode || 'ALLOWED'} onChange={e => setPricingForm({ ...pricingForm, shortStayMode: e.target.value as any })} className="w-full px-3 py-4 bg-slate-50 border border-slate-100 rounded-2xl text-xs font-bold outline-none"><option value="ALLOWED">Permitido</option><option value="NOT_ALLOWED">Denegado</option><option value="WITH_SURCHARGE">Con Recargo</option></select></div></div>
                                        </div>
-                                       <div className="pt-4 border-t border-slate-50 space-y-3"><button onClick={handleApplyPricing} disabled={isApplyingPricing || !selectionRange.end} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50">{isApplyingPricing ? <RefreshCw size={14} className="animate-spin" /> : <Check size={18} />} APLICAR CAMBIOS AL RANGO</button><button onClick={handleClearOverrides} className="w-full py-4 bg-white border border-slate-200 text-rose-500 rounded-2xl font-black text-xs hover:bg-rose-50 transition-all flex items-center justify-center gap-2"><Ban size={18} /> LIMPIAR OVERRIDES</button></div>
+                                       <div className="pt-4 border-t border-slate-50 space-y-3"><button onClick={() => handleApplyPricing(false)} disabled={isApplyingPricing || !selectionRange.end} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-100 disabled:opacity-50">{isApplyingPricing ? <RefreshCw size={14} className="animate-spin" /> : <Check size={18} />} APLICAR CAMBIOS AL RANGO</button><button onClick={handleClearOverrides} className="w-full py-4 bg-white border border-slate-200 text-rose-500 rounded-2xl font-black text-xs hover:bg-rose-50 transition-all flex items-center justify-center gap-2"><Ban size={18} /> LIMPIAR OVERRIDES</button></div>
                                     </div>
                                  ) : <div className="py-12 flex flex-col items-center justify-center text-center px-4"><div className="p-4 bg-slate-50 rounded-full mb-4"><Plus size={32} className="text-slate-200" /></div><p className="text-slate-400 text-xs font-bold leading-relaxed">Selecciona un rango en el calendario.</p></div>}
                               </div>
-                              <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-xl"><div className="flex items-center gap-3 mb-6"><div className="p-2 bg-slate-800 rounded-xl"><HistoryIcon size={20} className="text-indigo-400" /></div><h4 className="text-sm font-black uppercase tracking-widest">Patrón Semanal</h4></div><div className="grid grid-cols-2 gap-3 mb-6">{['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d, i) => (<div key={d} className="flex items-center gap-3 bg-white/5 border border-white/10 p-2 rounded-xl"><span className="text-[10px] font-black text-white/30 uppercase w-8 text-center">{d}</span><input type="number" value={weeklyPattern[i + 1]} onChange={e => setWeeklyPattern({ ...weeklyPattern, [i + 1]: e.target.value ? Number(e.target.value) : '' })} className="bg-transparent text-sm font-bold w-full outline-none text-white placeholder:text-white/10" placeholder="Base" /></div>))}</div><button onClick={handleApplyPricing} disabled={!selectionRange.start || !selectionRange.end} className="w-full py-4 bg-indigo-500 hover:bg-indigo-400 text-white rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/40 disabled:opacity-20">APLICAR PATRÓN AL RANGO</button></div>
+                              <div className="bg-slate-900 rounded-[2.5rem] p-8 text-white shadow-xl"><div className="flex items-center gap-3 mb-6"><div className="p-2 bg-slate-800 rounded-xl"><HistoryIcon size={20} className="text-indigo-400" /></div><h4 className="text-sm font-black uppercase tracking-widest">Patrón Semanal</h4></div><div className="grid grid-cols-2 gap-3 mb-6">{['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].map((d, i) => (<div key={d} className="flex items-center gap-3 bg-white/5 border border-white/10 p-2 rounded-xl"><span className="text-[10px] font-black text-white/30 uppercase w-8 text-center">{d}</span><input type="number" value={weeklyPattern[i + 1]} onChange={e => setWeeklyPattern({ ...weeklyPattern, [i + 1]: e.target.value ? Number(e.target.value) : '' })} className="bg-transparent text-sm font-bold w-full outline-none text-white placeholder:text-white/10" placeholder="Base" /></div>))}</div><button onClick={() => handleApplyPricing(true)} disabled={!selectionRange.start || !selectionRange.end} className="w-full py-4 bg-indigo-500 hover:bg-indigo-400 text-white rounded-2xl font-black text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/40 disabled:opacity-20">APLICAR PATRÓN AL RANGO</button></div>
                            </div>
                         </div>
                      )}

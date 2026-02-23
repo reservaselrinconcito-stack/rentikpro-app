@@ -8,6 +8,7 @@ import { useDataRefresh } from '../services/dataRefresher';
 import { APP_VERSION } from '../src/version';
 import { isConfirmedBooking, isProvisionalBlock, isSameDay, isOccupiedToday } from '../utils/bookingClassification';
 import { getBookingDisplayName } from '../utils/bookingDisplay';
+import { toast } from 'sonner';
 
 const StatCard = ({ label, value, icon: Icon, color, onClick }: { label: string, value: string | number, icon: any, color: string, onClick?: () => void }) => (
   <div
@@ -26,6 +27,8 @@ const StatCard = ({ label, value, icon: Icon, color, onClick }: { label: string,
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
+
+  const RP_WEB_BASE = 'https://rp-web-6h9.pages.dev';
 
   // -- EXISTING STATE --
   const [stats, setStats] = useState({
@@ -461,13 +464,24 @@ export const Dashboard: React.FC = () => {
 
             <div className="relative z-10">
               <h3 className="text-2xl font-black mb-1">{myWebsite ? myWebsite.name : 'Tu Sitio Web'}</h3>
-              <p className="text-white/60 text-xs mb-8 truncate font-medium">{myWebsite?.subdomain ? `${myWebsite.subdomain}.rentik.pro` : 'Aún no configurado'}</p>
+              <p className="text-white/60 text-xs mb-8 truncate font-medium">
+                {myWebsite?.subdomain ? `${RP_WEB_BASE}/${myWebsite.slug || myWebsite.subdomain}` : 'Aún no configurado'}
+              </p>
 
               <div className="flex gap-3">
                 {myWebsite ? (
                   <>
-                    <button
-                      onClick={() => window.open(`https://${myWebsite.subdomain}.rentik.pro`, '_blank')}
+                     <button
+                      onClick={async () => {
+                        const slugRaw = myWebsite.slug || myWebsite.subdomain;
+                        const slug = (slugRaw || '').trim().replace(/^\/+/, '');
+                        if (!slug) {
+                          toast.error('Primero guarda o genera el slug del sitio');
+                          return;
+                        }
+                        const url = `${RP_WEB_BASE}/${slug}`;
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                      }}
                       className="flex-1 py-4 bg-white text-indigo-900 rounded-2xl font-black text-xs hover:bg-slate-50 transition-all flex items-center justify-center gap-2 active:scale-95 shadow-lg"
                     >
                       <ExternalLink size={16} /> Abrir Sitio

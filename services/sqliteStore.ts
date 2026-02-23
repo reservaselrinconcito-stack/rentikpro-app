@@ -2977,21 +2977,66 @@ export class SQLiteStore implements IDataStore {
 
   async getAllApartments() {
     const res = await this.query("SELECT * FROM apartments");
+
+    const normalizePublicBasePrice = (v: any): number | null => {
+      if (v === undefined || v === null) return null;
+      const n = typeof v === 'number' ? v : Number(v);
+      if (!Number.isFinite(n)) return null;
+      // Public contract: when not available, use null (never 0)
+      if (n <= 0) return null;
+      return n;
+    };
+
     return res.map(a => ({
       ...a,
       is_active: a.is_active !== 0,
-      publicBasePrice: a.public_base_price ?? null,
+      publicBasePrice: normalizePublicBasePrice(a.public_base_price),
       currency: a.currency || 'EUR'
     }));
   }
   async getApartments(pid: string) {
-    const res = await this.query("SELECT * FROM apartments WHERE property_id=?", [pid]);
-    return res.map(a => ({
+    let res = [];
+    try {
+      // Priority: Pricing Studio defaults (base_price) > Legacy (public_base_price)
+      res = await this.query(`
+        SELECT a.*, d.base_price as studio_base_price
+        FROM apartments a
+        LEFT JOIN apartment_pricing_defaults d ON d.apartment_id = a.id
+        WHERE a.property_id = ?
+      `, [pid]);
+    } catch (e) {
+      // Pricing store unavailable/corrupt: keep payload stable.
+      // IMPORTANT: For public payloads, we prefer returning null instead of a potentially stale/incorrect number.
+      logger.warn("[DB] getApartments pricing defaults join failed; returning apartments with publicBasePrice=null", e);
+      res = await this.query("SELECT * FROM apartments WHERE property_id=?", [pid]);
+    }
+
+    const normalizePublicBasePrice = (v: any): number | null => {
+      if (v === undefined || v === null) return null;
+      const n = typeof v === 'number' ? v : Number(v);
+      if (!Number.isFinite(n)) return null;
+      // Public contract: when not available, use null (never 0)
+      if (n <= 0) return null;
+      return n;
+    };
+
+    return res.map(a => {
+      const joinFailed = a.studio_base_price === undefined;
+      const publicBasePrice = joinFailed
+        ? null
+        : normalizePublicBasePrice(
+          (a.studio_base_price !== null && a.studio_base_price !== undefined)
+            ? a.studio_base_price
+            : a.public_base_price
+        );
+
+      return ({
       ...a,
       is_active: a.is_active !== 0,
-      publicBasePrice: a.public_base_price ?? null,
+      publicBasePrice,
       currency: a.currency || 'EUR'
-    }));
+      });
+    });
   }
   async saveApartment(a: Apartment) {
     await this.executeWithParams(

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { projectManager } from '../services/projectManager';
 import { useNavigate } from 'react-router-dom';
+import { PricingDefaults, NightlyRateOverride, DayStayRule } from '../types';
+import { pricingStudioStore } from '../services/pricingStudioStore';
 import {
     Activity, ShieldCheck, AlertTriangle, Database,
     Save, Layout, CheckCircle2, XCircle, Search,
@@ -19,6 +21,16 @@ interface DiagResult {
 
 export const Diagnostics: React.FC = () => {
     const navigate = useNavigate();
+
+    const diagnosticsEnabled = (() => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            return !!import.meta.env.DEV || import.meta.env.VITE_ENABLE_DIAGNOSTICS === '1' || params.get('diag') === '1' || localStorage.getItem('rp_enable_diagnostics') === '1';
+        } catch {
+            return !!import.meta.env.DEV || import.meta.env.VITE_ENABLE_DIAGNOSTICS === '1';
+        }
+    })();
+
     const [projectId, setProjectId] = useState<string>('');
     const [storageMode, setStorageMode] = useState<string>('');
     const [tables, setTables] = useState<string[]>([]);
@@ -31,6 +43,162 @@ export const Diagnostics: React.FC = () => {
     const [dashboardMetrics, setDashboardMetrics] = useState<Record<string, number>>({});
     const [useFallback, setUseFallback] = useState<boolean>(false);
     const [fixLogs, setFixLogs] = useState<string[]>([]);
+
+    // Pricing diagnostics (internal)
+    const today = new Date().toISOString().slice(0, 10);
+    const plusDays = (d: string, n: number) => {
+        const dt = new Date(`${d}T00:00:00Z`);
+        dt.setUTCDate(dt.getUTCDate() + n);
+        return dt.toISOString().slice(0, 10);
+    };
+
+    const [apartmentId, setApartmentId] = useState<string>('');
+    const [from, setFrom] = useState<string>(today);
+    const [to, setTo] = useState<string>(plusDays(today, 14));
+
+    const [pricingLoading, setPricingLoading] = useState(false);
+    const [pricingError, setPricingError] = useState<string | null>(null);
+    const [defaults, setDefaults] = useState<PricingDefaults | null>(null);
+    const [nightlyOverridesRaw, setNightlyOverridesRaw] = useState<NightlyRateOverride[]>([]);
+    const [nightlyResolved, setNightlyResolved] = useState<NightlyRateOverride[]>([]);
+    const [stayRules, setStayRules] = useState<DayStayRule[]>([]);
+
+    const [snapshotLoading, setSnapshotLoading] = useState(false);
+    const [snapshotError, setSnapshotError] = useState<string | null>(null);
+    const [publicSnapshot, setPublicSnapshot] = useState<any | null>(null);
+    const [publicSnapshotSlug, setPublicSnapshotSlug] = useState<string>('');
+
+    const safeStringify = (obj: any) => {
+        try { return JSON.stringify(obj, null, 2); } catch { return String(obj); }
+    };
+
+    const policySeverity = (p: any): number => p === 'NOT_ALLOWED' ? 2 : p === 'WITH_SURCHARGE' ? 1 : 0;
+    const policyLabel = (s: number): string => s === 2 ? 'NOT_ALLOWED' : s === 1 ? 'WITH_SURCHARGE' : 'ALLOWED';
+
+    const resolveSiteSlugFromApartment = async (aptId: string): Promise<{ slug: string | null; propertyId: string | null }> => {
+        const store = projectManager.getStore();
+        const aptRows = await store.query('SELECT property_id FROM apartments WHERE id = ? LIMIT 1', [aptId]);
+        const propertyId = aptRows?.[0]?.property_id || null;
+        if (!propertyId) return { slug: null, propertyId: null };
+
+        // Prefer published site
+        const siteRows = await store.query(
+            "SELECT subdomain FROM web_sites WHERE property_id = ? AND is_published = 1 ORDER BY updated_at DESC LIMIT 1",
+            [propertyId]
+        ).catch(() => []);
+        if (siteRows?.[0]?.subdomain) return { slug: siteRows[0].subdomain, propertyId };
+
+        // Fallback: any site
+        const anySiteRows = await store.query(
+            'SELECT subdomain FROM web_sites WHERE property_id = ? ORDER BY updated_at DESC LIMIT 1',
+            [propertyId]
+        ).catch(() => []);
+        return { slug: anySiteRows?.[0]?.subdomain || null, propertyId };
+    };
+
+    const loadPricing = async () => {
+        setPricingLoading(true);
+        setPricingError(null);
+
+        try {
+            if (!apartmentId) throw new Error('Falta apartmentId');
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+                throw new Error('from/to deben ser YYYY-MM-DD');
+            }
+            if (to <= from) throw new Error('to debe ser > from (to es exclusivo)');
+
+            const store = projectManager.getStore();
+            const [d, raw, resolved, rules] = await Promise.all([
+                store.getPricingDefaults(apartmentId),
+                store.getNightlyRates(apartmentId, from, to),
+                pricingStudioStore.getNightlyRates(apartmentId, from, to),
+                pricingStudioStore.computeStayRules(apartmentId, from, to),
+            ]);
+
+            setDefaults(d);
+            setNightlyOverridesRaw(raw);
+            setNightlyResolved(resolved);
+            setStayRules(rules);
+        } catch (e: any) {
+            setPricingError(e?.message || String(e));
+        } finally {
+            setPricingLoading(false);
+        }
+    };
+
+    const loadPublicSnapshot = async () => {
+        setSnapshotLoading(true);
+        setSnapshotError(null);
+        setPublicSnapshot(null);
+
+        let resolved: { slug: string | null; propertyId: string | null } | null = null;
+
+        try {
+            if (!apartmentId) throw new Error('Falta apartmentId (se usa para resolver el slug)');
+
+            resolved = await resolveSiteSlugFromApartment(apartmentId);
+            const slug = publicSnapshotSlug || resolved.slug;
+            if (!slug) throw new Error('No se pudo resolver slug desde apartmentId (no hay web_sites para la propiedad).');
+
+            const apiBase = import.meta.env.VITE_PUBLIC_API_BASE || 'https://rentikpro-public-api.reservas-elrinconcito.workers.dev';
+            const url = `${apiBase}/public/site-config/snapshot?slug=${encodeURIComponent(slug)}`;
+
+            const res = await fetch(url, { mode: 'cors' });
+            if (!res.ok) {
+                const text = await res.text().catch(() => '');
+                throw new Error(`HTTP ${res.status} cargando snapshot: ${text || res.statusText}`);
+            }
+            const json = await res.json();
+            setPublicSnapshot(json);
+            setPublicSnapshotSlug(slug);
+        } catch (e: any) {
+            const msg = e?.message || String(e);
+            // Fallback: build a local preview (helps debug when worker/CORS is down)
+            try {
+                const propertyId = resolved?.propertyId;
+                if (propertyId) {
+                    const store = projectManager.getStore();
+                    const snap = await store.loadPropertySnapshot(propertyId);
+                    const localPreview = {
+                        _meta: { source: 'local_preview', note: 'Fetch remoto fallido; esto es el JSON que genera localmente a partir de DB.' },
+                        version: 1,
+                        slug: publicSnapshotSlug || resolved?.slug || null,
+                        site: {
+                            id: snap.property.id,
+                            name: snap.property.name,
+                            description: snap.property.description ?? null,
+                            logoUrl: snap.property.logo ?? null,
+                            contact: {
+                                phone: snap.property.phone ?? null,
+                                email: snap.property.email ?? null,
+                                location: snap.property.location ?? null,
+                            }
+                        },
+                        apartments: (snap.apartments || []).map(a => ({
+                            id: a.id,
+                            name: a.name,
+                            photos: [],
+                            capacity: null,
+                            publicBasePrice: a.publicBasePrice ?? null,
+                            currency: a.currency || snap.property.currency || 'EUR'
+                        })),
+                        availability: {
+                            enabled: snap.property.web_calendar_enabled === true,
+                            propertyId: snap.property.id,
+                            urlTemplate: `${(import.meta as any).env?.VITE_PUBLIC_API_BASE || 'https://rentikpro-public-api.reservas-elrinconcito.workers.dev'}/public/availability?propertyId=${encodeURIComponent(snap.property.id)}&from=YYYY-MM-DD&to=YYYY-MM-DD`
+                        }
+                    };
+                    setPublicSnapshot(localPreview);
+                }
+            } catch {
+                // ignore fallback errors
+            }
+
+            setSnapshotError(msg);
+        } finally {
+            setSnapshotLoading(false);
+        }
+    };
 
     const addLog = (msg: string) => {
         setFixLogs(prev => [...prev.slice(-9), `[${new Date().toLocaleTimeString()}] ${msg}`]);
@@ -243,6 +411,31 @@ export const Diagnostics: React.FC = () => {
         runDiagnostics();
     }, []);
 
+    if (!diagnosticsEnabled) {
+        return (
+            <div className="space-y-6 animate-in fade-in pb-20">
+                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl">
+                            <AlertCircle size={22} />
+                        </div>
+                        <div>
+                            <h2 className="text-2xl font-black text-slate-800">Diagnostics deshabilitado</h2>
+                            <p className="text-sm text-slate-500 font-medium">
+                                Disponible solo en DEV o con feature flag (`?diag=1` o `localStorage.rp_enable_diagnostics=1`).
+                            </p>
+                        </div>
+                    </div>
+                    <div className="mt-6">
+                        <button onClick={() => navigate('/')} className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs">
+                            Volver al Dashboard
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-8 animate-in fade-in pb-20">
             <div className="flex justify-between items-center bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
@@ -361,6 +554,226 @@ export const Diagnostics: React.FC = () => {
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    </Section>
+
+                    <Section title="Pricing + Public Snapshot" icon={Activity}>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="md:col-span-1">
+                                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">apartmentId</label>
+                                <input
+                                    value={apartmentId}
+                                    onChange={e => setApartmentId(e.target.value)}
+                                    placeholder="apt_..."
+                                    className="mt-2 w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-mono text-xs"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">from (YYYY-MM-DD)</label>
+                                <input
+                                    value={from}
+                                    onChange={e => setFrom(e.target.value)}
+                                    className="mt-2 w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-mono text-xs"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">to (exclusive)</label>
+                                <input
+                                    value={to}
+                                    onChange={e => setTo(e.target.value)}
+                                    className="mt-2 w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-mono text-xs"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="mt-4">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">public snapshot slug (optional override)</label>
+                            <input
+                                value={publicSnapshotSlug}
+                                onChange={e => setPublicSnapshotSlug(e.target.value)}
+                                placeholder="subdomain / slug"
+                                className="mt-2 w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white font-mono text-xs"
+                            />
+                            <p className="mt-2 text-[10px] text-slate-400 font-bold">
+                                Tip: abre con `/?diag=1#/diagnostics` o activa `localStorage.rp_enable_diagnostics=1`.
+                            </p>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-3">
+                            <button
+                                onClick={loadPricing}
+                                disabled={pricingLoading}
+                                className="px-6 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs disabled:opacity-50"
+                            >
+                                {pricingLoading ? 'Loading…' : 'Load pricing'}
+                            </button>
+                            <button
+                                onClick={loadPublicSnapshot}
+                                disabled={snapshotLoading}
+                                className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs disabled:opacity-50"
+                            >
+                                {snapshotLoading ? 'Loading…' : 'Load public snapshot'}
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const report = {
+                                        apartmentId,
+                                        from,
+                                        to,
+                                        defaults,
+                                        nightlyOverridesRaw,
+                                        nightlyResolved,
+                                        stayRules,
+                                        publicSnapshot,
+                                    };
+                                    navigator.clipboard.writeText(safeStringify(report));
+                                    toast.success('Copiado al portapapeles');
+                                }}
+                                className="px-6 py-3 bg-white border border-slate-200 rounded-2xl font-black text-xs"
+                            >
+                                <Copy size={14} />
+                                <span className="ml-2">Copy report</span>
+                            </button>
+                        </div>
+
+                        {(pricingError || snapshotError) && (
+                            <div className="mt-4 p-4 bg-rose-50 border border-rose-100 rounded-2xl text-rose-700 text-xs font-bold whitespace-pre-wrap">
+                                {pricingError && `Pricing error: ${pricingError}\n`}
+                                {snapshotError && `Snapshot error: ${snapshotError}`}
+                            </div>
+                        )}
+
+                        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">defaults</p>
+                                    <button
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(safeStringify(defaults));
+                                            toast.success('Defaults copiados');
+                                        }}
+                                        className="text-[10px] font-black text-slate-500 hover:text-indigo-600"
+                                    >
+                                        Copy
+                                    </button>
+                                </div>
+                                <pre className="text-[10px] text-slate-700 font-mono overflow-auto max-h-[260px]">{safeStringify(defaults)}</pre>
+                            </div>
+
+                            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">nightly overrides (raw store.getNightlyRates)</p>
+                                    <button
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(safeStringify(nightlyOverridesRaw));
+                                            toast.success('Overrides copiados');
+                                        }}
+                                        className="text-[10px] font-black text-slate-500 hover:text-indigo-600"
+                                    >
+                                        Copy
+                                    </button>
+                                </div>
+                                <pre className="text-[10px] text-slate-700 font-mono overflow-auto max-h-[260px]">{safeStringify(nightlyOverridesRaw)}</pre>
+                            </div>
+
+                            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">resolved overrides (pricingStudioStore.getNightlyRates)</p>
+                                    <button
+                                        onClick={() => {
+                                            navigator.clipboard.writeText(safeStringify(nightlyResolved));
+                                            toast.success('Resolved copiado');
+                                        }}
+                                        className="text-[10px] font-black text-slate-500 hover:text-indigo-600"
+                                    >
+                                        Copy
+                                    </button>
+                                </div>
+                                <pre className="text-[10px] text-slate-700 font-mono overflow-auto max-h-[260px]">{safeStringify(nightlyResolved)}</pre>
+                            </div>
+
+                            <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                                <div className="flex items-center justify-between mb-3">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">public snapshot</p>
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-[10px] font-black text-slate-400">slug: {publicSnapshotSlug || 'n/a'}</span>
+                                        <button
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(safeStringify(publicSnapshot));
+                                                toast.success('Snapshot copiado');
+                                            }}
+                                            className="text-[10px] font-black text-slate-500 hover:text-indigo-600"
+                                        >
+                                            Copy
+                                        </button>
+                                    </div>
+                                </div>
+                                <pre className="text-[10px] text-slate-700 font-mono overflow-auto max-h-[260px]">{safeStringify(publicSnapshot)}</pre>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 bg-white border border-slate-200 rounded-2xl overflow-hidden">
+                            <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-black text-slate-800">computeStayRules (resolved per-day)</p>
+                                    <p className="text-[10px] text-slate-400 font-bold">
+                                        minNightsEffective (max in range): {stayRules.length ? Math.max(...stayRules.map(r => r.minNights || 0)) : 0} · shortStayPolicy (worst): {stayRules.length ? policyLabel(Math.max(...stayRules.map(r => policySeverity(r.shortStayMode)))) : 'n/a'}
+                                    </p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(safeStringify(stayRules));
+                                        toast.success('Stay rules copiados');
+                                    }}
+                                    className="text-[10px] font-black text-slate-500 hover:text-indigo-600"
+                                >
+                                    Copy
+                                </button>
+                            </div>
+
+                            <div className="overflow-auto max-h-[380px]">
+                                <table className="min-w-full text-xs">
+                                    <thead className="sticky top-0 bg-slate-50 border-b border-slate-100">
+                                        <tr className="text-[10px] uppercase tracking-widest text-slate-400 font-black">
+                                            <th className="text-left p-3">date</th>
+                                            <th className="text-right p-3">price</th>
+                                            <th className="text-right p-3">minNightsEffective</th>
+                                            <th className="text-left p-3">shortStayPolicy</th>
+                                            <th className="text-left p-3">isOverride</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {stayRules.length === 0 ? (
+                                            <tr><td className="p-4 text-slate-400 font-bold" colSpan={5}>Sin datos (carga pricing)</td></tr>
+                                        ) : (
+                                            stayRules.map(r => (
+                                                <tr key={r.date} className="border-b border-slate-50">
+                                                    <td className="p-3 font-mono text-slate-700">{r.date}</td>
+                                                    <td className="p-3 font-mono text-right text-slate-700">{r.price}</td>
+                                                    <td className="p-3 font-mono text-right text-slate-700">{r.minNights}</td>
+                                                    <td className="p-3 font-mono text-slate-700">{String(r.shortStayMode)}</td>
+                                                    <td className="p-3 font-mono text-slate-700">{r.isOverride ? 'yes' : 'no'}</td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="mt-4 p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">publicBasePrice in snapshot (selected apartment)</p>
+                            <p className="text-sm font-black text-slate-800">
+                                {(() => {
+                                    try {
+                                        const apt = publicSnapshot?.apartments?.find((a: any) => a?.id === apartmentId);
+                                        const v = apt?.publicBasePrice;
+                                        return v === null || v === undefined ? 'null' : String(v);
+                                    } catch {
+                                        return 'n/a';
+                                    }
+                                })()}
+                            </p>
                         </div>
                     </Section>
 

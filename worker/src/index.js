@@ -43,6 +43,136 @@ export default {
       return addCors(new Response("OK", { status: 200 }), origin);
     }
 
+    // GET /public/site-config/snapshot?slug=...
+    // Stable public payload for RPWeb v0 (brand + apartments + publicBasePrice + availability URL)
+    if (path === "/public/site-config/snapshot" && request.method === "GET") {
+      const slug = url.searchParams.get("slug") || url.searchParams.get("subdomain");
+      if (!slug || typeof slug !== "string" || slug.length > 100) {
+        return addCors(new Response(JSON.stringify({ error: "Invalid slug" }), {
+          status: 400, headers: { "Content-Type": "application/json" }
+        }), origin);
+      }
+
+      const normalizePublicBasePrice = (v) => {
+        if (v === undefined || v === null) return null;
+        const n = typeof v === 'number' ? v : Number(v);
+        if (!Number.isFinite(n)) return null;
+        // Public contract: when not available, use null (never 0)
+        if (n <= 0) return null;
+        return n;
+      };
+
+      try {
+        // 1) Resolve site -> property
+        const site = await env.DB
+          .prepare("SELECT subdomain, property_id, is_published FROM web_sites WHERE subdomain = ?")
+          .bind(slug)
+          .first();
+
+        if (!site) {
+          return addCors(new Response(JSON.stringify({ error: "Not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" }
+          }), origin);
+        }
+
+        if (site.is_published === 0) {
+          return addCors(new Response(JSON.stringify({ error: "Site not published" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" }
+          }), origin);
+        }
+
+        const propertyId = site.property_id;
+        const property = await env.DB
+          .prepare("SELECT id, name, description, logo, phone, email, location, currency, web_calendar_enabled FROM properties WHERE id = ?")
+          .bind(propertyId)
+          .first();
+
+        // 2) Apartments + pricing defaults (do not break payload if pricing store fails)
+        let aptResults = [];
+        let pricingStoreOk = true;
+        try {
+          const apts = await env.DB.prepare(`
+            SELECT a.id, a.name, a.public_base_price, a.currency,
+                   d.base_price as studio_base_price
+            FROM apartments a
+            LEFT JOIN apartment_pricing_defaults d ON d.apartment_id = a.id
+            WHERE a.property_id = ?
+          `).bind(propertyId).all();
+          aptResults = (apts && apts.results) ? apts.results : [];
+        } catch (e) {
+          pricingStoreOk = false;
+          // Still return apartments list; publicBasePrice must be null.
+          try {
+            const apts = await env.DB
+              .prepare("SELECT id, name, currency FROM apartments WHERE property_id = ?")
+              .bind(propertyId)
+              .all();
+            aptResults = (apts && apts.results) ? apts.results : [];
+          } catch {
+            aptResults = [];
+          }
+        }
+
+        const apartments = aptResults.map((a) => {
+          const currency = a.currency || property?.currency || 'EUR';
+          const publicBasePrice = pricingStoreOk
+            ? normalizePublicBasePrice(
+              (a.studio_base_price !== null && a.studio_base_price !== undefined)
+                ? a.studio_base_price
+                : a.public_base_price
+            )
+            : null;
+
+          return {
+            id: a.id,
+            name: a.name,
+            photos: [],
+            capacity: null,
+            publicBasePrice,
+            currency
+          };
+        });
+
+        const payload = {
+          version: 1,
+          slug,
+          site: {
+            id: property?.id || propertyId,
+            name: property?.name || slug,
+            description: property?.description ?? null,
+            logoUrl: property?.logo ?? null,
+            contact: {
+              phone: property?.phone ?? null,
+              email: property?.email ?? null,
+              location: property?.location ?? null
+            }
+          },
+          apartments,
+          availability: {
+            enabled: property?.web_calendar_enabled === 1,
+            propertyId: property?.id || propertyId,
+            // Public availability lives behind a tokened endpoint; this URL is the public entry point.
+            urlTemplate: `${url.origin}/public/availability?propertyId=${encodeURIComponent(property?.id || propertyId)}&from=YYYY-MM-DD&to=YYYY-MM-DD`
+          }
+        };
+
+        return addCors(new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "public, max-age=300, s-maxage=900"
+          }
+        }), origin);
+      } catch (err) {
+        return addCors(new Response(JSON.stringify({ error: err.message || String(err) }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" }
+        }), origin);
+      }
+    }
+
     // GET /public/site-config?slug=...
     if (path === "/public/site-config" && request.method === "GET") {
       const slug = url.searchParams.get("slug");
@@ -61,7 +191,10 @@ export default {
 
       return addCors(new Response(configStr, {
         status: 200,
-        headers: { "Content-Type": "application/json" }
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, max-age=300, s-maxage=900"
+        }
       }), origin);
     }
 
@@ -137,7 +270,11 @@ export default {
       }
 
       return addCors(new Response(configStr, {
-        status: 200, headers: { "Content-Type": "application/json" }
+        status: 200,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "public, max-age=300, s-maxage=900"
+        }
       }), origin);
     }
 
@@ -355,7 +492,8 @@ export default {
             headers: {
               "Content-Type": "application/json",
               "Access-Control-Allow-Origin": origin || "*",
-              "Vary": "Origin"
+              "Vary": "Origin",
+              "Cache-Control": "public, max-age=300, s-maxage=900"
             }
           });
         }
@@ -387,7 +525,8 @@ export default {
               headers: {
                 "Content-Type": "application/json",
                 "Access-Control-Allow-Origin": origin || "*",
-                "Vary": "Origin"
+                "Vary": "Origin",
+                "Cache-Control": "public, max-age=300, s-maxage=900"
               }
             });
           }
@@ -416,7 +555,8 @@ export default {
             headers: {
               "Content-Type": "application/json",
               "Access-Control-Allow-Origin": origin || "*",
-              "Vary": "Origin"
+              "Vary": "Origin",
+              "Cache-Control": "public, max-age=300, s-maxage=900"
             }
           });
 

@@ -271,7 +271,7 @@ async function handleGetAvailability(request: Request, env: Env): Promise<Respon
 
     return json(filtered, 200, {
         ...cors,
-        'Cache-Control': 'public, max-age=600', // 10-min CDN cache
+        'Cache-Control': 'public, max-age=300, s-maxage=900', // 5-min browser, 15-min CDN
     });
 }
 

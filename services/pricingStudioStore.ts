@@ -16,7 +16,37 @@ export class PricingStudioStore {
 
     async getPricingDefaults(apartmentId: string): Promise<PricingDefaults | null> {
         const store = await this.getStore();
-        return await store.getPricingDefaults(apartmentId);
+        const d = await store.getPricingDefaults(apartmentId);
+        if (!d) return null;
+
+        // Invariants (FASE 1): missing values must be null (never 0).
+        // If basePrice is not a positive finite number, treat as "no defaults".
+        const base = (typeof (d as any).basePrice === 'number') ? (d as any).basePrice : Number((d as any).basePrice);
+        if (!Number.isFinite(base) || base <= 0) return null;
+
+        const minN = (typeof (d as any).defaultMinNights === 'number') ? (d as any).defaultMinNights : Number((d as any).defaultMinNights);
+        const defaultMinNights = Number.isFinite(minN) && minN >= 1 ? Math.floor(minN) : 1;
+
+        const shortStayMode = (d.shortStayMode === 'ALLOWED' || d.shortStayMode === 'NOT_ALLOWED' || d.shortStayMode === 'WITH_SURCHARGE')
+            ? d.shortStayMode
+            : 'ALLOWED';
+
+        const surchargeType = (d.surchargeType === 'PERCENT' || d.surchargeType === 'FIXED')
+            ? d.surchargeType
+            : 'PERCENT';
+
+        const sv = (typeof (d as any).surchargeValue === 'number') ? (d as any).surchargeValue : Number((d as any).surchargeValue);
+        const surchargeValue = Number.isFinite(sv) ? sv : 0;
+
+        return {
+            apartmentId: d.apartmentId,
+            currency: d.currency || 'EUR',
+            basePrice: base,
+            defaultMinNights,
+            shortStayMode,
+            surchargeType,
+            surchargeValue,
+        };
     }
 
     async upsertPricingDefaults(apartmentId: string, defaults: PricingDefaults): Promise<void> {
@@ -35,25 +65,59 @@ export class PricingStudioStore {
 
         if (!defaults) return overrides;
 
+        const normalizePositiveNumberOrNull = (v: any): number | null => {
+            if (v === undefined || v === null) return null;
+            const n = typeof v === 'number' ? v : Number(v);
+            if (!Number.isFinite(n)) return null;
+            // Invariant: when not set, use null (never 0)
+            if (n <= 0) return null;
+            return n;
+        };
+
+        const normalizeMinNightsOrNull = (v: any): number | null => {
+            if (v === undefined || v === null) return null;
+            const n = typeof v === 'number' ? v : Number(v);
+            if (!Number.isFinite(n)) return null;
+            if (n <= 0) return null;
+            return Math.floor(n);
+        };
+
         // Fallback defaults -> nightly for individual fields if they are missing/null in the override
         return overrides.map(o => ({
             ...o,
-            price: o.price ?? defaults.basePrice,
-            minNights: o.minNights ?? defaults.defaultMinNights,
+            price: normalizePositiveNumberOrNull(o.price) ?? defaults.basePrice,
+            minNights: normalizeMinNightsOrNull(o.minNights) ?? defaults.defaultMinNights,
             shortStayMode: o.shortStayMode ?? defaults.shortStayMode,
             surchargeType: o.surchargeType ?? defaults.surchargeType,
             surchargeValue: o.surchargeValue ?? defaults.surchargeValue,
         }));
     }
 
-    async upsertNightlyRatesBulk(apartmentId: string, rates: Partial<NightlyRateOverride>[]): Promise<void> {
+    private getTodayStr(): string {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+
+    async upsertNightlyRatesBulk(apartmentId: string, rates: Partial<NightlyRateOverride>[]): Promise<{ skippedCount: number }> {
         const store = await this.getStore();
-        await store.upsertNightlyRatesBulk(apartmentId, rates);
+        const todayStr = this.getTodayStr();
+        const validRates = rates.filter(r => r.date && r.date >= todayStr);
+        const skippedCount = rates.length - validRates.length;
+
+        if (validRates.length > 0) {
+            await store.upsertNightlyRatesBulk(apartmentId, validRates);
+        }
+        return { skippedCount };
     }
 
     async deleteNightlyRatesRange(apartmentId: string, from: string, to: string): Promise<void> {
         const store = await this.getStore();
-        await store.deleteNightlyRatesRange(apartmentId, from, to);
+        const todayStr = this.getTodayStr();
+        const effectiveFrom = from < todayStr ? todayStr : from;
+
+        if (effectiveFrom <= to) {
+            await store.deleteNightlyRatesRange(apartmentId, effectiveFrom, to);
+        }
     }
 
     private resolvePolicy(p1: ShortStayMode, p2: ShortStayMode): ShortStayMode {
