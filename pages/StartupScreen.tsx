@@ -3,6 +3,7 @@ import { Play, FilePlus, Upload, ShieldCheck, Gamepad2, ArrowRight, Loader2, Che
 import { projectManager } from '../services/projectManager';
 import { projectPersistence, ProjectMetadata } from '../services/projectPersistence'; // Import persistence
 import { notifyDataChanged } from '../services/dataRefresher';
+import { createProject, openProject, pickProjectFolder, getLastOpenedProjectPath, validateProject } from '../services/projectFolderManager';
 
 export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
     const [loading, setLoading] = useState(false);
@@ -12,6 +13,14 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
         typeof (window as any).showOpenFilePicker === 'function' &&
         typeof (window as any).showSaveFilePicker === 'function'
     );
+
+    const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+    const lastProjectPath = getLastOpenedProjectPath();
+
+    // Fix for missing definitions
+    const legacyProjects: any[] = [];
+    const handleExportLegacy = (id: string) => console.log('Export legacy', id);
+    const handleMigrateLegacy = (id: string) => console.log('Migrate legacy', id);
 
     useEffect(() => {
         loadRecent();
@@ -125,13 +134,34 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
         await projectManager.createNewProjectFileAndInit('rentikpro.rentikpro');
     });
 
+    const handleCreateFolderProject = () => wrapAction('Creando proyecto (carpeta)', async () => {
+        const folder = await pickProjectFolder();
+        if (!folder) return;
+        await createProject(folder, { name: `Proyecto ${new Date().toLocaleDateString()}` });
+    });
+
+    const handleOpenFolderProject = () => wrapAction('Abriendo proyecto (carpeta)', async () => {
+        const folder = await pickProjectFolder();
+        if (!folder) return;
+        const v = await validateProject(folder);
+        if (!v.ok) throw new Error(v.error || 'Carpeta de proyecto inválida');
+        await openProject(folder);
+    });
+
+    const handleOpenLastFolderProject = () => wrapAction('Abriendo último proyecto', async () => {
+        if (!lastProjectPath) throw new Error('No hay último proyecto guardado');
+        const v = await validateProject(lastProjectPath);
+        if (!v.ok) throw new Error(v.error || 'Carpeta de proyecto inválida');
+        await openProject(lastProjectPath);
+    });
+
     if (loading || error) {
         const isTimeout = loadingTimer > 12; // 12s threshold
         const showRecovery = error || isTimeout;
 
         if (showRecovery) {
             return (
-                <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6">
+                <div className="flex items-center justify-center p-6 w-full">
                     <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl max-w-lg w-full text-center space-y-6 border border-slate-100 animate-in zoom-in-95 duration-300">
                         <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto ${error ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
                             {error ? <ShieldCheck size={40} /> : <Loader2 size={40} className="animate-spin" />}
@@ -195,7 +225,7 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
         }
 
         return (
-            <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+            <div className="flex items-center justify-center py-20 w-full">
                 <div className="flex flex-col items-center gap-6 animate-in fade-in zoom-in-95 duration-500">
                     <div className="relative">
                         <div className="absolute inset-0 bg-indigo-400/20 rounded-full blur-xl animate-pulse"></div>
@@ -217,7 +247,7 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
     const activeId = localStorage.getItem('active_project_id');
 
     return (
-        <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 select-none animate-in fade-in duration-500">
+        <div className="flex items-center justify-center p-2 select-none animate-in fade-in duration-500 w-full">
             <div className="max-w-4xl w-full grid md:grid-cols-2 gap-0 bg-white rounded-3xl shadow-xl overflow-hidden border border-slate-200">
 
                 {/* Left Side: Brand & Welcome */}
@@ -265,7 +295,77 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
                         <p className="text-slate-500 text-sm">Selecciona cómo quieres empezar hoy.</p>
                     </div>
 
+                    {isTauri && (
+                        <div className="bg-slate-50 border border-slate-100 rounded-3xl p-5">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Proyecto (carpeta)</p>
+                                    {lastProjectPath ? (
+                                        <p className="mt-2 text-xs font-mono text-slate-500 truncate">{lastProjectPath}</p>
+                                    ) : (
+                                        <p className="mt-2 text-xs font-bold text-slate-400">Sin proyecto reciente</p>
+                                    )}
+                                </div>
+                                <div className="flex flex-wrap gap-2 justify-end">
+                                    {lastProjectPath && (
+                                        <button
+                                            onClick={handleOpenLastFolderProject}
+                                            className="px-4 py-2 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700"
+                                        >
+                                            Abrir último
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={handleOpenFolderProject}
+                                        className="px-4 py-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-600 hover:bg-slate-50"
+                                    >
+                                        Abrir carpeta
+                                    </button>
+                                    <button
+                                        onClick={handleCreateFolderProject}
+                                        className="px-4 py-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-600 hover:bg-slate-50"
+                                    >
+                                        Crear carpeta
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <div className="space-y-3">
+                        {isTauri && legacyProjects.length > 0 && (
+                            <div className="bg-white border border-slate-200 rounded-3xl p-5">
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Datos antiguos detectados</p>
+                                <p className="text-xs text-slate-500 font-bold mt-2">
+                                    Proyectos guardados en IndexedDB (legacy). Recomendado: exportar backup y migrar a carpeta.
+                                </p>
+
+                                <div className="mt-4 space-y-2">
+                                    {legacyProjects.slice(0, 4).map(p => (
+                                        <div key={p.id} className="flex items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-100 rounded-2xl">
+                                            <div className="min-w-0">
+                                                <p className="text-xs font-black text-slate-800 truncate">{p.name}</p>
+                                                <p className="text-[10px] font-bold text-slate-400 truncate">{new Date(p.lastModified).toLocaleString()}</p>
+                                            </div>
+                                            <div className="flex gap-2 shrink-0">
+                                                <button
+                                                    onClick={() => handleExportLegacy(p.id)}
+                                                    className="px-3 py-2 rounded-xl text-[10px] font-black uppercase border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                                                >
+                                                    Exportar backup
+                                                </button>
+                                                <button
+                                                    onClick={() => handleMigrateLegacy(p.id)}
+                                                    className="px-3 py-2 rounded-xl text-[10px] font-black uppercase bg-indigo-600 text-white hover:bg-indigo-700"
+                                                >
+                                                    Migrar a carpeta
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                         {lastRealProject && (
                             <button onClick={() => handleOpenRecent(lastRealProject.id)} className="w-full flex items-center justify-between p-4 bg-indigo-50 border border-indigo-200 rounded-xl hover:bg-indigo-100 hover:border-indigo-300 transition-all group">
                                 <div className="flex items-center gap-3 overflow-hidden">
@@ -345,8 +445,8 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
                             disabled={!supportsFile}
                             title={supportsFile ? 'Abre un archivo .rentikpro desde disco' : 'Disponible en Chrome / Edge'}
                             className={`w-full flex items-center justify-between p-4 border rounded-xl transition-all group ${supportsFile
-                                    ? 'bg-white border-slate-200 hover:border-sky-500 hover:shadow-md cursor-pointer'
-                                    : 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed'
+                                ? 'bg-white border-slate-200 hover:border-sky-500 hover:shadow-md cursor-pointer'
+                                : 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed'
                                 }`}
                         >
                             <div className="flex items-center gap-3">
@@ -366,8 +466,8 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
                             disabled={!supportsFile}
                             title={supportsFile ? 'Crea un nuevo proyecto guardado como archivo' : 'Disponible en Chrome / Edge'}
                             className={`w-full flex items-center justify-between p-4 border rounded-xl transition-all group ${supportsFile
-                                    ? 'bg-white border-slate-200 hover:border-violet-500 hover:shadow-md cursor-pointer'
-                                    : 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed'
+                                ? 'bg-white border-slate-200 hover:border-violet-500 hover:shadow-md cursor-pointer'
+                                : 'bg-slate-50 border-slate-100 opacity-50 cursor-not-allowed'
                                 }`}
                         >
                             <div className="flex items-center gap-3">

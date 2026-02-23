@@ -4,8 +4,9 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "node scripts/generate-version.js && vite build",
+    "prepare:sqljs": "node scripts/prepare-sqljs.js",
+    "dev": "npm run prepare:sqljs && vite",
+    "build": "npm run prepare:sqljs && node scripts/generate-version.js && vite build",
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
@@ -29,11 +30,12 @@
     "sonner": "^2.0.7",
     "sql.js": "^1.10.3",
     "tesseract.js": "^5.0.5",
-    "vite": "^5.2.11"
+    "vite": "^5.2.11",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
     "@playwright/test": "^1.42.0",
+    "@tauri-apps/cli": "^2.0.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20.15.0",

@@ -15,6 +15,7 @@ import {
    DeviceMode, InspectorTab, BlockType, BlockStyle, BlockNode, PageState, HistoryState
 } from "../types";
 import { createSiteDraftFromSnapshot, resolveSiteConfig, updateSiteDraftWithLevel } from "../services/siteResolver";
+import { publicPublisher } from "../services/publicPublisher";
 
 const STORAGE_KEY = "rentikpro.websiteBuilder.draft.v1";
 
@@ -1099,15 +1100,37 @@ export const WebsiteBuilder = () => {
       setSelectedId(nextSelected);
    }, [selected, pageHistory.present, setState]);
 
-   const publishWeb = () => {
-      const nowTs = now();
-      const updated = {
-         ...pageHistory.present,
-         meta: { ...pageHistory.present.meta, publishedAt: nowTs },
-      };
-      setPresent(updated);
-      localStorage.setItem("rentikpro.websiteBuilder.live.v1", JSON.stringify(updated));
-      toast.success("¡Web publicada con éxito!");
+   const publishWeb = async () => {
+      const propertyId = selectedPropertyId || projectManager.getActivePropertyId();
+      if (!propertyId) {
+         toast.error("Selecciona una propiedad vinculada antes de publicar");
+         return;
+      }
+
+      const tid = toast.loading("Publicando cambios en la web...");
+      try {
+         const nowTs = now();
+         const updated = {
+            ...pageHistory.present,
+            meta: { ...pageHistory.present.meta, publishedAt: nowTs },
+         };
+
+         // 1. Local Save
+         setPresent(updated);
+         localStorage.setItem("rentikpro.websiteBuilder.live.v1", JSON.stringify(updated));
+
+         // 2. Remote Public Data Publish (Snapshot + Availability)
+         const ok = await publicPublisher.publish(propertyId);
+
+         if (ok) {
+            toast.success("¡Web y datos sincronizados con éxito!", { id: tid });
+         } else {
+            // Toast handled by service usually, but fallback
+            toast.error("Fallo la publicación de datos remotos", { id: tid });
+         }
+      } catch (e: any) {
+         toast.error("Error al publicar: " + e.message, { id: tid });
+      }
    };
 
    const openLivePreview = () => {

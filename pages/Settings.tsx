@@ -15,11 +15,13 @@ import { publishAvailability, generatePublicToken } from '../services/publicWebS
 
 import { useStore } from '../hooks/useStore';
 
+import { syncCoordinator } from '../services/syncCoordinator';
+
 export const Settings = ({ onSave }: { onSave: () => void }) => {
     const navigate = useNavigate();
     const store = useStore(); // Added useStore hook
     const [settings, setSettings] = useState<UserSettings | null>(null); // Changed initial state to null
-    const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'backup' | 'email_ingest' | 'policies' | 'smtp' | 'web_publica'>('profile'); // Added activeTab state
+    const [activeTab, setActiveTab] = useState<'profile' | 'notifications' | 'backup' | 'email_ingest' | 'policies' | 'smtp' | 'web_publica' | 'sync'>('profile'); // Added activeTab state
     const [loading, setLoading] = useState(true); // Added loading state
 
     // Web Pública state
@@ -253,6 +255,12 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                         className={`px-6 py-4 text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'backup' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}
                     >
                         Backup
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('sync')}
+                        className={`px-6 py-4 text-sm font-medium whitespace-nowrap transition-colors ${activeTab === 'sync' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-slate-600 hover:text-slate-900'}`}
+                    >
+                        🔄 Sincronización (BYOC)
                     </button>
                 </nav>
             </div>
@@ -1415,6 +1423,142 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                             </div>
                         )}
                     </div>
+                </div>
+            )}
+
+            {activeTab === 'sync' && (
+                <div className="bg-white p-10 rounded-[3rem] border border-slate-200 shadow-sm space-y-6">
+                    <div className="flex items-center gap-4 mb-6">
+                        <div className="p-4 bg-indigo-100 text-indigo-600 rounded-2xl">
+                            <RefreshCw size={28} />
+                        </div>
+                        <div>
+                            <h3 className="text-2xl font-black text-slate-800">Sincronización WebDAV (BYOC)</h3>
+                            <p className="text-slate-400 text-sm">Trae tu propia nube (Bring Your Own Cloud) para sincronizar entre dispositivos.</p>
+                        </div>
+                    </div>
+
+                    <div className="bg-slate-50 p-6 rounded-3xl border border-slate-200 space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h4 className="font-bold text-slate-700">Estado de Sincronización</h4>
+                                <p className="text-xs text-slate-400">Activa la sincronización remota automática (al abrir/cerrar).</p>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                                <input
+                                    type="checkbox"
+                                    className="sr-only peer"
+                                    checked={settings.webdav_sync_enabled || false}
+                                    onChange={e => updateField('webdav_sync_enabled', e.target.checked)}
+                                />
+                                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+
+                        {settings.webdav_sync_enabled && (
+                            <div className="space-y-4 pt-4 border-t border-slate-100">
+                                <div>
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">URL WebDAV (Endpoint)</label>
+                                    <input
+                                        type="url"
+                                        className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                        value={settings.webdav_url || ''}
+                                        onChange={e => updateField('webdav_url', e.target.value)}
+                                        placeholder="https://tu-nube.com/remote.php/dav/files/user/"
+                                    />
+                                    <p className="text-[10px] text-slate-400 mt-2">Ej: Nextcloud, OwnCloud, Synology, etc. El sistema creará una carpeta /RentikProSync/</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Usuario</label>
+                                        <input
+                                            type="text"
+                                            className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                            value={settings.webdav_user || ''}
+                                            onChange={e => updateField('webdav_user', e.target.value)}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">Contraseña / App Token</label>
+                                        <input
+                                            type="password"
+                                            className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-medium focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                                            value={settings.webdav_pass || ''}
+                                            onChange={e => updateField('webdav_pass', e.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {settings.webdav_sync_enabled && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <button
+                                onClick={async () => {
+                                    const tid = toast.loading("Comprobando nube...");
+                                    try {
+                                        const res = await syncCoordinator.syncDown();
+                                        toast.dismiss(tid);
+                                        if (res.success) {
+                                            toast.success("Sincronización completada.");
+                                            // Optional: reload if data changed
+                                        } else if (res.conflict) {
+                                            if (confirm("Conflicto detectado: La nube tiene una versión diferente que también ha sido modificada. ¿Quieres SOBRESCRIBIR tu local con la versión de la nube?")) {
+                                                const fres = await syncCoordinator.syncDown(true);
+                                                if (fres.success) {
+                                                    toast.success("Proyecto restaurado desde la nube.");
+                                                    window.location.reload();
+                                                }
+                                            }
+                                        } else {
+                                            toast.error(res.error || "Error de sincronización");
+                                        }
+                                    } catch (e: any) {
+                                        toast.dismiss(tid);
+                                        toast.error(e.message);
+                                    }
+                                }}
+                                className="p-8 bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-3xl hover:bg-indigo-100 transition-all flex flex-col items-center gap-3 text-center"
+                            >
+                                <Download size={24} />
+                                <div>
+                                    <h4 className="font-black">Descargar de Nube</h4>
+                                    <p className="text-[10px] opacity-70">Traer versión remota a este dispositivo</p>
+                                </div>
+                            </button>
+
+                            <button
+                                onClick={async () => {
+                                    const tid = toast.loading("Subiendo a la nube...");
+                                    try {
+                                        const res = await syncCoordinator.syncUp();
+                                        toast.dismiss(tid);
+                                        if (res.success) {
+                                            toast.success("Subida completada con éxito.");
+                                        } else if (res.conflict) {
+                                            if (confirm("Conflicto detectado: La nube tiene una versión más reciente. ¿Quieres SOBRESCRIBIR la nube con tu versión local?")) {
+                                                const fres = await syncCoordinator.syncUp(true);
+                                                if (fres.success) toast.success("Nube actualizada (Sobrescrita).");
+                                            }
+                                        } else {
+                                            toast.error(res.error || "Error de subida");
+                                        }
+                                    } catch (e: any) {
+                                        toast.dismiss(tid);
+                                        toast.error(e.message);
+                                    }
+                                }}
+                                className="p-8 bg-white border border-slate-200 text-slate-700 rounded-3xl hover:bg-indigo-50 hover:border-indigo-100 transition-all flex flex-col items-center gap-3 text-center"
+                            >
+                                <Upload size={24} />
+                                <div>
+                                    <h4 className="font-black">Subir a la Nube</h4>
+                                    <p className="text-[10px] opacity-70">Guardar versión local como maestra en la nube</p>
+                                </div>
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 

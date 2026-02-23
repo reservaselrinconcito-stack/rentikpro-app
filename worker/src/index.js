@@ -13,15 +13,14 @@ export default {
       ];
       const h = new Headers(resp.headers);
 
-      // Si el origin está en allowlist o es nulo (OTA/GET directo), permitimos
       if (!originHeader || allowedOrigins.includes(originHeader.replace(/\/$/, ""))) {
         h.set("Access-Control-Allow-Origin", originHeader || "*");
       }
 
       h.set("Vary", "Origin");
-      h.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD");
+      h.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD,PUT");
       h.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Key, If-None-Match");
-      h.set("Access-Control-Expose-Headers", "ETag, Content-Length");
+      h.set("Access-Control-Expose-Headers", "ETag, Content-Length, X-Generated-At");
       h.set("Access-Control-Max-Age", "86400");
 
       return new Response(resp.body, {
@@ -29,6 +28,13 @@ export default {
         statusText: resp.statusText,
         headers: h
       });
+    }
+
+    async function generateETag(content) {
+      const msgUint8 = new TextEncoder().encode(content);
+      const hashBuffer = await crypto.subtle.digest("SHA-1", msgUint8);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return `W/"${hashArray.map(b => b.toString(16).padStart(2, "0")).join("")}"`;
     }
 
     // Preflight
@@ -53,33 +59,43 @@ export default {
         }), origin);
       }
 
-      const normalizePublicBasePrice = (v) => {
-        if (v === undefined || v === null) return null;
-        const n = typeof v === 'number' ? v : Number(v);
-        if (!Number.isFinite(n)) return null;
-        // Public contract: when not available, use null (never 0)
-        if (n <= 0) return null;
-        return n;
+      const MIN_VALID_SNAPSHOT = {
+        version: 1,
+        slug: slug,
+        site: { name: "RentikPro Property", description: "Cargando..." },
+        apartments: [],
+        availability: { enabled: false }
       };
 
       try {
-        // 1) Resolve site -> property
+        // 0) Try KV snapshot first (The new snap:live:slug pattern)
+        const cachedSnap = await env.SITE_CONFIGS.get(`snap:live:${slug}`);
+        if (cachedSnap) {
+          const etag = await generateETag(cachedSnap);
+          if (request.headers.get("If-None-Match") === etag) {
+            return addCors(new Response(null, { status: 304 }), origin);
+          }
+          return addCors(new Response(cachedSnap, {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json; charset=utf-8",
+              "ETag": etag,
+              "Cache-Control": "public, max-age=300"
+            }
+          }), origin);
+        }
+
+        // 1) Fallback to DB logic (V0 legacy support)
         const site = await env.DB
           .prepare("SELECT subdomain, property_id, is_published FROM web_sites WHERE subdomain = ?")
           .bind(slug)
           .first();
 
-        if (!site) {
-          return addCors(new Response(JSON.stringify({ error: "Not found" }), {
-            status: 404,
-            headers: { "Content-Type": "application/json" }
-          }), origin);
-        }
-
-        if (site.is_published === 0) {
-          return addCors(new Response(JSON.stringify({ error: "Site not published" }), {
-            status: 403,
-            headers: { "Content-Type": "application/json" }
+        if (!site || site.is_published === 0) {
+          // If not in DB, maybe return min valid instead of 404 to avoid "white screen"
+          return addCors(new Response(JSON.stringify(MIN_VALID_SNAPSHOT), {
+            status: 200,
+            headers: { "Content-Type": "application/json; charset=utf-8" }
           }), origin);
         }
 
@@ -89,9 +105,8 @@ export default {
           .bind(propertyId)
           .first();
 
-        // 2) Apartments + pricing defaults (do not break payload if pricing store fails)
+        // (rest of the mapping remains the same, but with min valid fallback)
         let aptResults = [];
-        let pricingStoreOk = true;
         try {
           const apts = await env.DB.prepare(`
             SELECT a.id, a.name, a.public_base_price, a.currency,
@@ -100,44 +115,23 @@ export default {
             LEFT JOIN apartment_pricing_defaults d ON d.apartment_id = a.id
             WHERE a.property_id = ?
           `).bind(propertyId).all();
-          aptResults = (apts && apts.results) ? apts.results : [];
-        } catch (e) {
-          pricingStoreOk = false;
-          // Still return apartments list; publicBasePrice must be null.
-          try {
-            const apts = await env.DB
-              .prepare("SELECT id, name, currency FROM apartments WHERE property_id = ?")
-              .bind(propertyId)
-              .all();
-            aptResults = (apts && apts.results) ? apts.results : [];
-          } catch {
-            aptResults = [];
-          }
+          aptResults = apts?.results || [];
+        } catch {
+          const apts = await env.DB.prepare("SELECT id, name, currency FROM apartments WHERE property_id = ?").bind(propertyId).all();
+          aptResults = apts?.results || [];
         }
 
-        const apartments = aptResults.map((a) => {
-          const currency = a.currency || property?.currency || 'EUR';
-          const publicBasePrice = pricingStoreOk
-            ? normalizePublicBasePrice(
-              (a.studio_base_price !== null && a.studio_base_price !== undefined)
-                ? a.studio_base_price
-                : a.public_base_price
-            )
-            : null;
+        const apartments = aptResults.map((a) => ({
+          id: a.id,
+          name: a.name,
+          photos: [],
+          capacity: null,
+          publicBasePrice: (a.studio_base_price ?? a.public_base_price ?? null),
+          currency: a.currency || property?.currency || 'EUR'
+        }));
 
-          return {
-            id: a.id,
-            name: a.name,
-            photos: [],
-            capacity: null,
-            publicBasePrice,
-            currency
-          };
-        });
-
-        const payload = {
-          version: 1,
-          slug,
+        const payload = JSON.stringify({
+          version: 1, slug,
           site: {
             id: property?.id || propertyId,
             name: property?.name || slug,
@@ -153,22 +147,23 @@ export default {
           availability: {
             enabled: property?.web_calendar_enabled === 1,
             propertyId: property?.id || propertyId,
-            // Public availability lives behind a tokened endpoint; this URL is the public entry point.
             urlTemplate: `${url.origin}/public/availability?propertyId=${encodeURIComponent(property?.id || propertyId)}&from=YYYY-MM-DD&to=YYYY-MM-DD`
           }
-        };
+        });
 
-        return addCors(new Response(JSON.stringify(payload), {
+        const etag = await generateETag(payload);
+        return addCors(new Response(payload, {
           status: 200,
           headers: {
             "Content-Type": "application/json; charset=utf-8",
-            "Cache-Control": "public, max-age=300, s-maxage=900"
+            "ETag": etag,
+            "Cache-Control": "public, max-age=300"
           }
         }), origin);
+
       } catch (err) {
-        return addCors(new Response(JSON.stringify({ error: err.message || String(err) }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" }
+        return addCors(new Response(JSON.stringify({ error: err.message, fallback: MIN_VALID_SNAPSHOT }), {
+          status: 500, headers: { "Content-Type": "application/json" }
         }), origin);
       }
     }
@@ -189,20 +184,106 @@ export default {
         }), origin);
       }
 
+      const etag = await generateETag(configStr);
+      if (request.headers.get("If-None-Match") === etag) {
+        return addCors(new Response(null, { status: 304 }), origin);
+      }
+
       return addCors(new Response(configStr, {
         status: 200,
         headers: {
           "Content-Type": "application/json",
-          "Cache-Control": "public, max-age=300, s-maxage=900"
+          "ETag": etag,
+          "Cache-Control": "public, max-age=600"
         }
       }), origin);
     }
 
     // Helper for admin auth
     function getAdminToken(req) {
-      const authHeader = req.headers.get("Authorization");
-      if (!authHeader || !authHeader.startsWith("Bearer ")) return null;
-      return authHeader.split(" ")[1];
+      const auth = req.headers.get("Authorization") || "";
+      if (auth.startsWith("Bearer ")) return auth.substring(7);
+      return req.headers.get("X-Admin-Key") || "";
+    }
+
+    // --- PUBLISHER BY SLUG ENDPOINTS ---
+    if (path === "/public/staging/snapshot" && request.method === "PUT") {
+      const token = getAdminToken(request);
+      if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
+        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }), origin);
+      }
+      const slug = url.searchParams.get("slug");
+      if (!slug) return addCors(new Response(JSON.stringify({ error: "Missing slug" }), { status: 400 }), origin);
+
+      const body = await request.text();
+      const generatedAt = Date.now();
+      await env.SITE_CONFIGS.put(`snap:staging:${slug}`, body, {
+        metadata: { generatedAt, slug, type: 'snapshot' }
+      });
+
+      return addCors(new Response(JSON.stringify({ ok: true, slug, generatedAt }), {
+        status: 200, headers: { "Content-Type": "application/json" }
+      }), origin);
+    }
+
+    if (path === "/public/commit" && request.method === "POST") {
+      const token = getAdminToken(request);
+      if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
+        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }), origin);
+      }
+      const slug = url.searchParams.get("slug");
+      if (!slug) return addCors(new Response(JSON.stringify({ error: "Missing slug" }), { status: 400 }), origin);
+
+      const { value, metadata } = await env.SITE_CONFIGS.getWithMetadata(`snap:staging:${slug}`);
+      if (!value) return addCors(new Response(JSON.stringify({ error: "Nothing to commit for this slug" }), { status: 404 }), origin);
+
+      await env.SITE_CONFIGS.put(`snap:live:${slug}`, value, {
+        metadata: { ...metadata, committedAt: Date.now() }
+      });
+
+      return addCors(new Response(JSON.stringify({ ok: true, slug }), {
+        status: 200, headers: { "Content-Type": "application/json" }
+      }), origin);
+    }
+
+    // --- PUBLISHER ADMIN ENDPOINTS (PROPERTY_ID BASED) ---
+
+    // POST /admin/site-config/commit?propertyId=...
+    if (path === "/admin/site-config/commit" && request.method === "POST") {
+      const token = getAdminToken(request);
+      if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
+        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }), origin);
+      }
+
+      try {
+        const propertyId = url.searchParams.get("propertyId");
+        if (!propertyId) throw new Error("Missing propertyId");
+
+        // Atomic "Commit": Move staging to final
+        async function commitType(type) {
+          const stagingKey = `pub:${type}:${propertyId}:staging`;
+          const finalKey = `pub:${type}:${propertyId}`;
+          const { value, metadata } = await env.SITE_CONFIGS.getWithMetadata(stagingKey);
+          if (value) {
+            await env.SITE_CONFIGS.put(finalKey, value, {
+              metadata: { ...metadata, isStaging: false, committedAt: Date.now() }
+            });
+            return true;
+          }
+          return false;
+        }
+
+        const [snapOk, availOk] = await Promise.all([
+          commitType('snapshot'),
+          commitType('availability')
+        ]);
+
+        return addCors(new Response(JSON.stringify({ ok: true, snapshot: snapOk, availability: availOk }), {
+          status: 200, headers: { "Content-Type": "application/json" }
+        }), origin);
+      } catch (err) {
+        return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
+      }
     }
 
     // PUT /admin/site-config
@@ -635,47 +716,47 @@ export default {
       }
 
       // 2. GET /public/availability
-      if (path.startsWith("/public/availability") && request.method === "GET") {
-        const subdomain = url.searchParams.get("subdomain");
+      if (path === "/public/availability" && request.method === "GET") {
+        const propertyId = url.searchParams.get("propertyId");
+        if (!propertyId) return addCors(new Response("Missing propertyId", { status: 400 }), origin);
 
-        // C. Load Site & Validate
-        const { site, response } = await resolveAndValidateSite(subdomain, env, origin);
-        if (response) return response;
+        const key = `pub:availability:${propertyId}`;
+        const { value, metadata } = await env.SITE_CONFIGS.getWithMetadata(key);
 
-        if (site.public_token !== token) {
-          return addCors(new Response(JSON.stringify({ error: "Invalid public token" }), { status: 401 }), origin);
+        if (!value) {
+          return addCors(new Response(JSON.stringify({ error: "Availability not found" }), { status: 404 }), origin);
         }
 
-        // D. Validate CORS
-        const corsError = enforceCors(request, site);
-        if (corsError) return corsError;
-
-        try {
-          // Mock Availability Logic (Restoring structure)
-          // In real impl, would query 'calendars' or 'bookings' table
-          const availabilityConfig = {
-            // Placeholder data
-            property_id: site.property_id,
-            available: true,
-            // We would fetch real data here
-          };
-
-          const resp = new Response(JSON.stringify(availabilityConfig), {
-            status: 200,
-            headers: { "Content-Type": "application/json" }
-          });
-
-          const h = new Headers(resp.headers);
-          if (origin) {
-            h.set("Access-Control-Allow-Origin", origin);
-            h.set("Access-Control-Allow-Methods", "GET, OPTIONS");
-            h.set("Access-Control-Allow-Headers", "Content-Type, X-PUBLIC-TOKEN");
+        return addCors(new Response(value, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Generated-At": metadata?.generatedAt?.toString() || "",
+            "Cache-Control": "public, max-age=60" // Tight cache for occupancy
           }
-          return new Response(resp.body, { status: 200, headers: h });
+        }), origin);
+      }
 
-        } catch (err) {
-          return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
+      // 3. GET /public/snapshot
+      if (path === "/public/snapshot" && request.method === "GET") {
+        const propertyId = url.searchParams.get("propertyId");
+        if (!propertyId) return addCors(new Response("Missing propertyId", { status: 400 }), origin);
+
+        const key = `pub:snapshot:${propertyId}`;
+        const { value, metadata } = await env.SITE_CONFIGS.getWithMetadata(key);
+
+        if (!value) {
+          return addCors(new Response(JSON.stringify({ error: "Snapshot not found" }), { status: 404 }), origin);
         }
+
+        return addCors(new Response(value, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Generated-At": metadata?.generatedAt?.toString() || "",
+            "Cache-Control": "public, max-age=300"
+          }
+        }), origin);
       }
     }
 

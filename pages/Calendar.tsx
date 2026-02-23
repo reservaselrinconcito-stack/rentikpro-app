@@ -13,6 +13,9 @@ import {
 import { formatDateES, formatDateRangeES } from '../utils/dateFormat';
 import { isConfirmedBooking, isProvisionalBlock, isCovered } from '../utils/bookingClassification';
 import { getBookingDisplayName } from '../utils/bookingDisplay';
+import { DayIndex, formatDay } from '../utils/day';
+import { assignLanes, LaneAssigned } from '../utils/assignLanes';
+import { ReservationLike } from '../utils/reservationIntervals';
 
 type ViewMode = 'monthly' | 'weekly' | 'yearly';
 
@@ -21,6 +24,19 @@ const toDateStr = (date: Date) => {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+};
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const dayIndexFromLocalDate = (date: Date): DayIndex => {
+  return Math.floor(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / MS_PER_DAY);
+};
+
+const startOfWeekMonday = (date: Date): Date => {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const dow = d.getDay(); // 0=Sun..6=Sat
+  const delta = dow === 0 ? 6 : (dow - 1); // Mon=0
+  d.setDate(d.getDate() - delta);
+  return d;
 };
 
 // --- LOCAL ERROR BOUNDARY FOR CALENDAR ---
@@ -85,8 +101,36 @@ const CalendarContent: React.FC = () => {
     console.debug(`[Calendar] query_source=ACCOUNTING_TRUTH project_id=${activeProjectId} selected_prop=${selectedPropertyId}`);
 
     try {
-      const [allBookings, pList, tList, aList] = await Promise.all([
-        store.getBookings(),
+      const computeRange = () => {
+        if (viewMode === 'weekly') {
+          const ws = startOfWeekMonday(currentDate);
+          const startIdx = dayIndexFromLocalDate(ws);
+          const from = formatDay(startIdx);
+          const to = formatDay(startIdx + 7); // exclusive
+          return { from, to };
+        }
+
+        if (viewMode === 'yearly') {
+          const y = currentDate.getFullYear();
+          return { from: `${y}-01-01`, to: `${y + 1}-01-01` };
+        }
+
+        // Monthly grid = 6 weeks (Mon..Sun)
+        const y = currentDate.getFullYear();
+        const m = currentDate.getMonth();
+        const firstOfMonth = new Date(y, m, 1);
+        const gridStart = startOfWeekMonday(firstOfMonth);
+        const startIdx = dayIndexFromLocalDate(gridStart);
+        const from = formatDay(startIdx);
+        const to = formatDay(startIdx + (6 * 7)); // 42 days, exclusive
+        return { from, to };
+      };
+
+      const { from, to } = computeRange();
+      const propertyId = selectedPropertyId !== 'all' ? selectedPropertyId : undefined;
+
+      const [rangeBookings, pList, tList, aList] = await Promise.all([
+        store.queryReservationsByRange(null, from, to, { propertyId, includeCancelled: true } as any),
         store.getProperties(),
         store.getTravelers(),
         store.getAllApartments()
@@ -96,16 +140,16 @@ const CalendarContent: React.FC = () => {
       setTravelers(tList);
       setApartments(aList);
 
-      console.debug(`[Calendar] Source of Truth: BOOKINGS. Result: ${allBookings.length} bookings.`);
+      console.debug(`[Calendar] Source of Truth: BOOKINGS (range ${from}..${to}). Result: ${rangeBookings.length} bookings.`);
 
-      setBookings(allBookings);
+      setBookings(rangeBookings);
       setDataSource('internal');
     } catch (err) {
       console.error("Error cargando calendario:", err);
     }
-  }, []);
+  }, [currentDate, viewMode, selectedPropertyId]);
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { loadData(); }, [loadData]);
 
   // Handle routing for deep links (F1)
   useEffect(() => {
@@ -117,11 +161,23 @@ const CalendarContent: React.FC = () => {
       // Could also set a state to highlight arrivals
     }
 
-    if (routeId && bookings.length > 0) {
-      const b = bookings.find(x => x.id === routeId || x.linked_event_id === routeId);
-      if (b) {
-        openEventDetail(b);
-      }
+    if (routeId) {
+      (async () => {
+        // Prefer direct fetch (may be outside current visible range)
+        try {
+          const store = projectManager.getStore();
+          const b = await store.getBooking(routeId);
+          if (b) {
+            openEventDetail(b);
+            return;
+          }
+        } catch (_) { }
+
+        if (bookings.length > 0) {
+          const b = bookings.find(x => x.id === routeId || x.linked_event_id === routeId);
+          if (b) openEventDetail(b);
+        }
+      })();
     }
   }, [routeId, bookings]);
 
@@ -161,56 +217,133 @@ const CalendarContent: React.FC = () => {
     return [...confirmed, ...provisionalNotCovered];
   }, [confirmed, provisionalNotCovered, provisionalCovered, showCovered]);
 
-  // --- ALGORITMO DE SLOTTING (CARRILES) ---
-  const bookingSlots = useMemo(() => {
-    // Ordenamos por fecha de entrada la lista filtrada de visualización
-    const sorted = [...displayBookings].sort((a, b) => {
-      const diff = a.check_in.localeCompare(b.check_in);
-      if (diff !== 0) return diff;
-      return b.check_out.localeCompare(a.check_out);
-    });
-
-    const slots: string[] = []; // Guarda la fecha HASTA la cual el slot está ocupado
-    const mapping = new Map<string, number>();
-
-    sorted.forEach(b => {
-      if (selectedPropertyId !== 'all' && b.property_id !== selectedPropertyId) return;
-
-      let placed = false;
-      // Buscar el primer slot donde quepa esta reserva
-      for (let i = 0; i < slots.length; i++) {
-        // CAMBIO CLAVE (Block 10): Usamos '>' estricto para forzar salto de línea si
-        // la nueva reserva empieza el mismo día que acaba la anterior.
-        // Esto genera el efecto de "dos fichas apiladas" (checkout + checkin) en el mismo día.
-        if (b.check_in > slots[i]) {
-          mapping.set(b.id, i);
-          slots[i] = b.check_out;
-          placed = true;
-          break;
-        }
-      }
-
-      if (!placed) {
-        mapping.set(b.id, slots.length);
-        slots.push(b.check_out);
-      }
-    });
-
-    return mapping;
-    // FIX: deps must be [displayBookings] not [bookings] because the sorted array
-    // inside iterates displayBookings. Using [bookings] caused stale slot maps when
-    // displayBookings changed due to React batching.
-  }, [displayBookings, selectedPropertyId]);
-
   const getBookingsForDate = (date: Date) => {
     const dStr = toDateStr(date);
     return displayBookings.filter(b => {
       if (selectedPropertyId !== 'all' && b.property_id !== selectedPropertyId) return false;
       // REGLA VISUAL (Block 10): Incluimos el día de salida (`<=`) para pintar el chip de checkout.
-      // Como forzamos rows distintos en bookingSlots, no se solapan, se apilan.
       return dStr >= b.check_in && dStr <= b.check_out;
     });
   };
+
+  type VisibleDay = { dayIndex: DayIndex; dateStr: string; inMonth: boolean };
+
+  const visibleWeeks = useMemo((): VisibleDay[][] => {
+    if (viewMode === 'weekly') {
+      const start = startOfWeekMonday(currentDate);
+      const startIdx = dayIndexFromLocalDate(start);
+      const week: VisibleDay[] = [];
+      for (let i = 0; i < 7; i++) {
+        const idx = startIdx + i;
+        week.push({ dayIndex: idx, dateStr: formatDay(idx), inMonth: true });
+      }
+      return [week];
+    }
+
+    if (viewMode === 'monthly') {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const firstOfMonth = new Date(year, month, 1);
+      const gridStart = startOfWeekMonday(firstOfMonth);
+      const gridStartIdx = dayIndexFromLocalDate(gridStart);
+
+      const weeks: VisibleDay[][] = [];
+      for (let w = 0; w < 6; w++) {
+        const week: VisibleDay[] = [];
+        for (let d = 0; d < 7; d++) {
+          const idx = gridStartIdx + (w * 7) + d;
+          const dt = new Date(idx * MS_PER_DAY);
+          const inMonth = dt.getUTCFullYear() === year && dt.getUTCMonth() === month;
+          week.push({ dayIndex: idx, dateStr: formatDay(idx), inMonth });
+        }
+        weeks.push(week);
+      }
+      return weeks;
+    }
+
+    return [];
+  }, [currentDate, viewMode]);
+
+  const visibleDays = useMemo((): VisibleDay[] => {
+    return visibleWeeks.flat();
+  }, [visibleWeeks]);
+
+  const viewStartDay = visibleDays.length ? visibleDays[0].dayIndex : null;
+  const viewEndDayInclusive = visibleDays.length ? visibleDays[visibleDays.length - 1].dayIndex : null;
+
+  // Monthly visible range definition (grid range, inclusive)
+  const monthStartDay = (viewMode === 'monthly' && visibleWeeks.length) ? visibleWeeks[0][0].dayIndex : null;
+  const monthEndDay = (viewMode === 'monthly' && visibleWeeks.length) ? visibleWeeks[visibleWeeks.length - 1][6].dayIndex : null;
+  const visibleRangeInclusive: [DayIndex, DayIndex] | null = (viewStartDay !== null && viewEndDayInclusive !== null)
+    ? [viewStartDay, viewEndDayInclusive]
+    : null;
+
+  type BookingReservation = ReservationLike & { booking: Booking };
+
+  const reservationsForGrid = useMemo((): BookingReservation[] => {
+    return displayBookings
+      .filter(b => selectedPropertyId === 'all' || b.property_id === selectedPropertyId)
+      .map((b) => ({
+        id: b.id,
+        apartmentId: b.apartment_id,
+        checkIn: b.check_in,
+        checkOut: b.check_out,
+        status: b.status === 'blocked' ? 'blocked' : (b.status === 'cancelled' ? 'cancelled' : 'booked'),
+        booking: b,
+      }));
+  }, [displayBookings, selectedPropertyId]);
+
+  const apartmentsInTimeline = useMemo(() => {
+    const filtered = selectedPropertyId === 'all'
+      ? apartments
+      : apartments.filter(a => a.property_id === selectedPropertyId);
+
+    return [...filtered].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [apartments, selectedPropertyId]);
+
+  const reservationsByApartment = useMemo(() => {
+    const byApt = new Map<string, BookingReservation[]>();
+    for (const apt of apartmentsInTimeline) byApt.set(apt.id, []);
+    for (const r of reservationsForGrid) {
+      const list = byApt.get(r.apartmentId) || [];
+      list.push(r);
+      byApt.set(r.apartmentId, list);
+    }
+    return byApt;
+  }, [reservationsForGrid, apartmentsInTimeline]);
+
+  const weekApartmentLaneAssignments = useMemo(() => {
+    const out = new Map<number, Map<string, Array<LaneAssigned<BookingReservation>>>>();
+    for (const week of visibleWeeks) {
+      if (week.length !== 7) continue;
+      const ws = week[0].dayIndex;
+      const we = week[6].dayIndex;
+      const byApt = new Map<string, Array<LaneAssigned<BookingReservation>>>();
+
+      for (const apt of apartmentsInTimeline) {
+        const list = reservationsByApartment.get(apt.id) || [];
+        const assigned = assignLanes(list, {
+          viewStartDay: ws,
+          viewEndDayInclusive: we,
+          includeCancelled: false,
+        });
+        byApt.set(apt.id, assigned);
+      }
+
+      out.set(ws, byApt);
+    }
+    return out;
+  }, [visibleWeeks, apartmentsInTimeline, reservationsByApartment]);
+
+  const [expandedApartments, setExpandedApartments] = useState<Set<string>>(new Set());
+  const toggleApartmentExpand = useCallback((aptId: string) => {
+    setExpandedApartments(prev => {
+      const next = new Set(prev);
+      if (next.has(aptId)) next.delete(aptId);
+      else next.add(aptId);
+      return next;
+    });
+  }, []);
 
   const upcomingBookings = useMemo(() => {
     const today = toDateStr(new Date());
@@ -220,37 +353,10 @@ const CalendarContent: React.FC = () => {
       .slice(0, 5);
   }, [confirmed]);
 
-  const calendarDays = useMemo(() => {
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-
-    if (viewMode === 'monthly') {
-      const firstDay = new Date(year, month, 1).getDay();
-      const offset = firstDay === 0 ? 6 : firstDay - 1;
-      const days = [];
-
-      for (let i = offset - 1; i >= 0; i--) {
-        const d = new Date(year, month, -i);
-        days.push({ date: d, currentMonth: false, dateStr: toDateStr(d) });
-      }
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      for (let i = 1; i <= daysInMonth; i++) {
-        const d = new Date(year, month, i);
-        days.push({ date: d, currentMonth: true, dateStr: toDateStr(d) });
-      }
-      const remaining = 42 - days.length;
-      for (let i = 1; i <= remaining; i++) {
-        const d = new Date(year, month + 1, i);
-        days.push({ date: d, currentMonth: false, dateStr: toDateStr(d) });
-      }
-      return days;
-    }
-    return [];
-  }, [currentDate, viewMode]);
-
   const navigateDate = (dir: number) => {
     const d = new Date(currentDate);
-    if (viewMode === 'monthly') d.setMonth(d.getMonth() + dir);
+    if (viewMode === 'weekly') d.setDate(d.getDate() + dir * 7);
+    else if (viewMode === 'monthly') d.setMonth(d.getMonth() + dir);
     else d.setFullYear(d.getFullYear() + dir);
     setCurrentDate(d);
   };
@@ -266,15 +372,25 @@ const CalendarContent: React.FC = () => {
           <div>
             <h2 className="text-2xl font-black text-slate-800 tracking-tight">Calendario</h2>
             <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
-              <span>Vista Mensual</span>
+              <span>{viewMode === 'weekly' ? 'Vista Semanal' : (viewMode === 'yearly' ? 'Vista Anual' : 'Vista Mensual')}</span>
               <span>•</span>
-              <span>{viewMode === 'yearly' ? currentDate.getFullYear() : `${new Intl.DateTimeFormat('es-ES', { month: 'long' }).format(currentDate)} ${currentDate.getFullYear()}`}</span>
+              <span>
+                {viewMode === 'yearly'
+                  ? currentDate.getFullYear()
+                  : (viewMode === 'weekly'
+                    ? (visibleDays.length
+                      ? `${formatDateES(visibleDays[0].dateStr)} — ${formatDateES(visibleDays[visibleDays.length - 1].dateStr)}`
+                      : '')
+                    : `${new Intl.DateTimeFormat('es-ES', { month: 'long' }).format(currentDate)} ${currentDate.getFullYear()}`
+                  )}
+              </span>
             </div>
           </div>
         </div>
 
         <div className="flex gap-3">
           <div className="bg-slate-100 p-1 rounded-2xl flex gap-1">
+            <button onClick={() => setViewMode('weekly')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'weekly' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Semana</button>
             <button onClick={() => setViewMode('monthly')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'monthly' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Mes</button>
             <button onClick={() => setViewMode('yearly')} className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase transition-all ${viewMode === 'yearly' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>Año</button>
           </div>
@@ -320,110 +436,186 @@ const CalendarContent: React.FC = () => {
           ))}
         </div>
       ) : (
-        /* VISTA MENSUAL CONTINUA CON SLOTS */
+        /* VISTA SEMANA / MES (GRID SEMANAS): BARRAS POR RESERVA, CHECKOUT INCLUSIVO EN RENDER */
         <div className="w-full overflow-x-auto custom-scrollbar pb-4 -mb-4 touch-pan-x">
           <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden select-none min-w-[850px] md:min-w-full">
-            <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
-              {['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map((d, i) => (
-                <div key={d} className={`py-3 text-center text-[10px] font-black uppercase tracking-widest ${i >= 5 ? 'text-rose-400' : 'text-slate-400'}`}>{d}</div>
-              ))}
-            </div>
+            {visibleWeeks.length === 0 || viewStartDay === null || viewEndDayInclusive === null ? (
+              <div className="p-8 text-slate-400 font-bold">No hay días para mostrar.</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50">
+                  {['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map((d, i) => (
+                    <div key={d} className={`py-3 text-center text-[10px] font-black uppercase tracking-widest ${i >= 5 ? 'text-rose-400' : 'text-slate-400'}`}>{d}</div>
+                  ))}
+                </div>
 
-            <div className="grid grid-cols-7 gap-px bg-slate-200 border-b border-slate-200">
-              {calendarDays.map((day, i) => {
-                const dayBookings = getBookingsForDate(day.date);
-                const isToday = day.dateStr === toDateStr(new Date());
+                {(() => {
+                  const MAX_LANES_COLLAPSED = 3;
+                  const LANE_H = 22;
+                  const LABEL_W = 220;
+                  const todayIdx = dayIndexFromLocalDate(new Date());
 
-                const slotsInDay = dayBookings.map(b => bookingSlots.get(b.id) ?? -1);
-                const maxSlot = Math.max(-1, ...slotsInDay);
-
-                const renderSlots = Array.from({ length: maxSlot + 1 }, (_, slotIndex) => {
-                  return dayBookings.find(b => bookingSlots.get(b.id) === slotIndex) || null;
-                });
-
-                return (
-                  <div key={i} className={`min-h-[140px] bg-white relative flex flex-col ${!day.currentMonth ? 'bg-slate-50/50' : ''}`}>
-                    <div className="p-2 flex justify-between items-start z-10 relative pointer-events-none">
-                      <span className={`text-[10px] font-bold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-indigo-600 text-white' : (day.currentMonth ? 'text-slate-700' : 'text-slate-300')}`}>
-                        {day.date.getDate()}
-                      </span>
-                    </div>
-
-                    <div className="flex-1 flex flex-col pt-1 w-full relative z-20">
-                      {renderSlots.map((b, idx) => {
-                        if (!b) {
-                          return <div key={`spacer-${idx}`} className="h-[22px] mb-[2px]"></div>;
-                        }
-
-                        const apt = apartments.find(a => a.id === b.apartment_id);
-                        const traveler = travelers.find(t => t.id === b.traveler_id);
-
-                        const isStart = b.check_in === day.dateStr;
-                        // isEnd (Block 10): Now strictly the checkout day itself, since we include it visually
-                        const isEnd = b.check_out === day.dateStr;
-
-                        let roundedClass = 'rounded-md';
-                        let marginClass = 'mx-1';
-
-                        if (isStart && !isEnd) {
-                          roundedClass = 'rounded-l-md rounded-r-none';
-                          marginClass = 'ml-1 -mr-px';
-                        } else if (!isStart && isEnd) {
-                          roundedClass = 'rounded-l-none rounded-r-md';
-                          marginClass = '-ml-px mr-1';
-                        } else if (!isStart && !isEnd) {
-                          roundedClass = 'rounded-none';
-                          marginClass = '-mx-px';
-                        } else if (isStart && isEnd) {
-                          // Single day case (start/end same day)
-                          roundedClass = 'rounded-md';
-                          marginClass = 'mx-1';
-                        }
-
-                        const isBlock = isProvisionalBlock(b);
-                        const baseColor = isBlock ? '#94a3b8' : (apt?.color || '#4f46e5');
-                        const isConflict = b.conflict_detected;
-
-                        const isBlack = baseColor === '#000000' || baseColor === '#000';
-                        const textColor = isBlack ? '#FFFFFF' : '#000000';
-
-                        const style = isConflict
-                          ? {
-                            backgroundImage: `repeating-linear-gradient(45deg, ${baseColor}, ${baseColor} 5px, #ef4444 5px, #ef4444 10px)`,
-                            border: '1px solid #ef4444',
-                            color: textColor
-                          }
-                          : { backgroundColor: baseColor, color: textColor };
+                  return (
+                    <div className="divide-y divide-slate-100">
+                      {visibleWeeks.map((week) => {
+                        if (week.length !== 7) return null;
+                        const weekStart = week[0].dayIndex;
+                        const weekEnd = week[6].dayIndex;
+                        const perApt = weekApartmentLaneAssignments.get(weekStart) || new Map();
 
                         return (
-                          <div
-                            key={b.id}
-                            onClick={(e) => { e.stopPropagation(); openEventDetail(b); }}
-                            className={`
-                                h-[22px] mb-[2px] text-[10px] font-bold flex items-center px-2 cursor-pointer
-                                hover:brightness-110 transition-all shadow-sm relative z-30
-                                ${roundedClass} ${marginClass}
-                                ${isConflict ? 'animate-pulse' : ''}
-                                ${isBlock ? 'opacity-70 grayscale-[0.5]' : ''}
-                              `}
-                            style={style}
-                            title={`${isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler)} (${b.guests}pax) - ${apt?.name} ${isConflict ? '[CONFLICTO]' : ''}`}
-                          >
-                            {/* Render text on Check-in (Start) OR on Single-Day (Start && End) */}
-                            {((isStart) || day.date.getDay() === 1) && (
-                              <span className="truncate w-full drop-shadow-md whitespace-nowrap flex items-center gap-1">
-                                {isConflict && <AlertTriangle size={8} style={{ color: textColor, fill: textColor }} />}
-                                {b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler))} {(!isBlock && b.guests) ? `${b.guests}pax` : ''}
-                              </span>
-                            )}
+                          <div key={weekStart} className="p-4">
+                            {/* Week header row */}
+                            <div className="flex gap-px bg-slate-200 rounded-2xl overflow-hidden">
+                              <div className="bg-slate-50 px-4 py-2" style={{ width: LABEL_W }}>
+                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Semana</p>
+                              </div>
+                              <div className="grid grid-cols-7 gap-px flex-1">
+                                {week.map((d) => {
+                                  const dt = new Date(d.dayIndex * MS_PER_DAY);
+                                  const dow = dt.getUTCDay();
+                                  const isWeekend = dow === 0 || dow === 6;
+                                  const isToday = d.dayIndex === todayIdx;
+                                  return (
+                                    <div
+                                      key={d.dateStr}
+                                      className={`bg-white px-2 py-2 ${!d.inMonth ? 'bg-slate-50/70' : ''}`}
+                                    >
+                                      <span className={`text-[10px] font-black ${isToday ? 'text-white bg-indigo-600 rounded-full w-5 h-5 flex items-center justify-center' : (isWeekend ? 'text-rose-400' : (d.inMonth ? 'text-slate-700' : 'text-slate-300'))}`}>
+                                        {dt.getUTCDate()}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Apartment rows */}
+                            <div className="mt-3 space-y-3">
+                              {apartmentsInTimeline.map((apt) => {
+                                const assigned = perApt.get(apt.id) || [];
+                                const laneCount = assigned.length ? (Math.max(...assigned.map(x => x.laneIndex)) + 1) : 0;
+                                const isExpanded = expandedApartments.has(apt.id);
+                                const lanesToShow = isExpanded ? laneCount : Math.min(laneCount, MAX_LANES_COLLAPSED);
+                                const hiddenLanes = Math.max(0, laneCount - lanesToShow);
+
+                                const byLane = new Map<number, Array<LaneAssigned<BookingReservation>>>();
+                                for (let i = 0; i < laneCount; i++) byLane.set(i, []);
+                                for (const a of assigned) {
+                                  const list = byLane.get(a.laneIndex) || [];
+                                  list.push(a);
+                                  byLane.set(a.laneIndex, list);
+                                }
+
+                                return (
+                                  <div key={`${weekStart}-${apt.id}`} className="flex gap-3">
+                                    <div className="shrink-0" style={{ width: LABEL_W }}>
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                          <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: apt.color || '#4f46e5' }}></div>
+                                            <p className="text-xs font-black text-slate-800 truncate">{apt.name}</p>
+                                          </div>
+                                          <p className="text-[10px] font-bold text-slate-400 truncate">{laneCount ? `${laneCount} lanes` : 'Sin reservas'}</p>
+                                        </div>
+                                        {hiddenLanes > 0 && (
+                                          <button
+                                            onClick={() => toggleApartmentExpand(apt.id)}
+                                            className="shrink-0 px-3 py-1 rounded-xl text-[10px] font-black uppercase border border-slate-200 bg-white text-slate-500 hover:text-indigo-600"
+                                            title={isExpanded ? 'Colapsar lanes' : 'Expandir lanes'}
+                                          >
+                                            {isExpanded ? 'Ocultar' : `+${hiddenLanes} más`}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div className="flex-1 min-w-[560px] space-y-[2px]">
+                                      {laneCount === 0 ? (
+                                        <div className="grid grid-cols-7 gap-px bg-slate-200 rounded-xl overflow-hidden" style={{ height: LANE_H }}>
+                                          {week.map((d) => (
+                                            <div key={`${weekStart}-empty-${apt.id}-${d.dateStr}`} className={`bg-white ${!d.inMonth ? 'bg-slate-50/70' : ''}`}></div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        Array.from({ length: lanesToShow }, (_, laneIdx) => {
+                                          const laneItems = byLane.get(laneIdx) || [];
+                                          return (
+                                            <div key={`${weekStart}-${apt.id}-lane-${laneIdx}`} className="grid grid-cols-7 gap-px bg-slate-200 rounded-xl overflow-hidden" style={{ height: LANE_H }}>
+                                              {week.map((d) => (
+                                                <div key={`${weekStart}-${apt.id}-${laneIdx}-${d.dateStr}`} className={`bg-white ${!d.inMonth ? 'bg-slate-50/70' : ''}`}></div>
+                                              ))}
+
+                                              {laneItems.map((it) => {
+                                                const b = it.booking;
+                                                const traveler = travelers.find(t => t.id === b.traveler_id);
+
+                                                const monthClipStart = monthStartDay !== null ? monthStartDay : weekStart;
+                                                const monthClipEnd = monthEndDay !== null ? monthEndDay : weekEnd;
+                                                const clippedStart = Math.max(it.renderStartDay, weekStart, monthClipStart);
+                                                const clippedEnd = Math.min(it.renderEndDayInclusive, weekEnd, monthClipEnd);
+                                                if (clippedStart > clippedEnd) return null;
+
+                                                const colStart = (clippedStart - weekStart) + 1;
+                                                const colEnd = (clippedEnd - weekStart) + 2;
+
+                                                const isBlock = isProvisionalBlock(b);
+                                                const baseColor = isBlock ? '#94a3b8' : (apt.color || '#4f46e5');
+                                                const isConflict = b.conflict_detected;
+                                                const isBlack = baseColor === '#000000' || baseColor === '#000';
+                                                const textColor = isBlack ? '#FFFFFF' : '#000000';
+
+                                                const style = isConflict
+                                                  ? {
+                                                    gridColumn: `${colStart} / ${colEnd}`,
+                                                    gridRow: 1,
+                                                    height: LANE_H,
+                                                    backgroundImage: `repeating-linear-gradient(45deg, ${baseColor}, ${baseColor} 5px, #ef4444 5px, #ef4444 10px)`,
+                                                    border: '1px solid #ef4444',
+                                                    color: textColor,
+                                                  }
+                                                  : {
+                                                    gridColumn: `${colStart} / ${colEnd}`,
+                                                    gridRow: 1,
+                                                    height: LANE_H,
+                                                    backgroundColor: baseColor,
+                                                    color: textColor,
+                                                  };
+
+                                                return (
+                                                  <div
+                                                    key={`${weekStart}-${apt.id}-${b.id}`}
+                                                    onClick={(e) => { e.stopPropagation(); openEventDetail(b); }}
+                                                    className={`z-10 px-2 text-[10px] font-black flex items-center rounded-md shadow-sm cursor-pointer hover:brightness-110 transition-all overflow-hidden whitespace-nowrap ${isConflict ? 'animate-pulse' : ''} ${isBlock ? 'opacity-70 grayscale-[0.5]' : ''}`}
+                                                    style={style as any}
+                                                    data-reservation-id={b.id}
+                                                    data-week-start={weekStart}
+                                                    title={`${isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler)} - ${apt.name} (${b.check_in} → ${b.check_out})`}
+                                                  >
+                                                    <span className="truncate w-full drop-shadow-sm">
+                                                      {isConflict && <AlertTriangle size={10} style={{ color: textColor, fill: textColor }} />}
+                                                      <span className="ml-1">{b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler))}</span>
+                                                    </span>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          );
+                                        })
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         );
                       })}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })()}
+              </>
+            )}
           </div>
         </div>
       )}

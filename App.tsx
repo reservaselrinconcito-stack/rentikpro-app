@@ -154,14 +154,6 @@ const App: React.FC = () => {
     return <RescueMode error={bootError} />;
   }
 
-  if (initializing) {
-    return <PageLoader />;
-  }
-
-  if (!isProjectOpen) {
-    return <StartupScreen onOpen={() => setIsProjectOpen(true)} />;
-  }
-
   const handleSave = async () => {
     try {
       await projectManager.saveProject();
@@ -183,25 +175,17 @@ const App: React.FC = () => {
     }
   };
 
-  const handleExitDemo = async () => {
-    if (confirm("¿Salir del modo demo? Todos los datos de prueba se cerrarán.")) {
-      await projectManager.exitDemo();
-      setIsProjectOpen(false);
-    }
-  };
-
   return (
     <ErrorBoundary onError={(error) => setBootError(error)}>
-      <>
+      <Router>
         <Toaster />
         <VersionChecker />
-        <Router>
-          <Layout onSave={handleSave} onClose={handleClose}>
-            {projectManager.getCurrentMode() === 'demo' && (
-              <div className="md:hidden bg-amber-500 text-white text-xs font-bold text-center py-1">
-                MODO DEMO ACTIVADO
-              </div>
-            )}
+        <Layout onSave={handleSave} onClose={handleClose}>
+          {initializing ? (
+            <PageLoader />
+          ) : !isProjectOpen ? (
+            <StartupScreen onOpen={() => setIsProjectOpen(true)} />
+          ) : (
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
@@ -234,9 +218,9 @@ const App: React.FC = () => {
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
             </Suspense>
-          </Layout>
-        </Router>
-      </>
+          )}
+        </Layout>
+      </Router>
     </ErrorBoundary>
   );
 };

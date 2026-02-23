@@ -400,6 +400,19 @@ export interface UserSettings {
   // Cloudflare Settings
   cloudflare_worker_url?: string;
   cloudflare_admin_api_key?: string;
+
+  // WebDAV Sync (BYOC)
+  webdav_url?: string;
+  webdav_user?: string;
+  webdav_pass?: string;
+  webdav_sync_enabled?: boolean;
+}
+
+export interface SyncState {
+  version: number;
+  lastModified: number;
+  sha256: string;
+  clientId: string;
 }
 
 

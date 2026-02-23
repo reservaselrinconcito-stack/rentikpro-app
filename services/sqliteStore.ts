@@ -87,7 +87,8 @@ export class SQLiteStore implements IDataStore {
       throw new Error("initSqlJs not found. Ensure sql-wasm.js is loaded.");
     }
     this.SQL = await initSqlJs({
-      locateFile: (file: string) => `https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/${file}`
+      // Keep SQLite fully local (works offline + Tauri dev/build)
+      locateFile: (file: string) => `/vendor/sqljs/${file}`
     });
     return this.SQL;
   }
@@ -167,6 +168,132 @@ export class SQLiteStore implements IDataStore {
       await this.finishInitialization();
     })();
     return this.initPromise;
+  }
+
+  // --- BOOTSTRAP / CORE QUERIES (P2) ---
+
+  /**
+   * Returns a minimal snapshot to boot the app offline:
+   * property + apartments + web config + pricing summary + reservations for a visible range.
+   */
+  async getBootstrap(params?: {
+    propertyId?: string;
+    from?: string; // YYYY-MM-DD (inclusive)
+    to?: string;   // YYYY-MM-DD (exclusive)
+    includeCancelled?: boolean;
+  }): Promise<any> {
+    const propertyId = params?.propertyId || (localStorage.getItem('activePropertyId') || 'prop_default');
+    const includeCancelled = !!params?.includeCancelled;
+
+    // Default range: current month [start, nextMonthStart)
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    const monthStart = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+    const nextMonth = new Date(Date.UTC(y, m + 1, 1));
+    const monthEndExclusive = `${nextMonth.getUTCFullYear()}-${String(nextMonth.getUTCMonth() + 1).padStart(2, '0')}-01`;
+
+    const from = params?.from || monthStart;
+    const to = params?.to || monthEndExclusive;
+
+    const [property, apartments, website, reservations, pricingSummary, assetsCount, inboxCount] = await Promise.all([
+      (async () => {
+        try {
+          const props = await this.getProperties();
+          return props.find(p => p.id === propertyId) || null;
+        } catch {
+          return null;
+        }
+      })(),
+      this.getApartments(propertyId).catch(() => []),
+      (async () => {
+        try {
+          const rows = await this.query('SELECT id FROM web_sites WHERE property_id = ? ORDER BY updated_at DESC LIMIT 1', [propertyId]);
+          const id = rows?.[0]?.id;
+          return id ? await this.loadWebsite(id) : await this.getMyWebsite();
+        } catch {
+          return await this.getMyWebsite();
+        }
+      })(),
+      this.queryReservationsByRange(null, from, to, { propertyId, includeCancelled }).catch(() => []),
+      (async () => {
+        try {
+          const defaultsCount = (await this.query('SELECT COUNT(*) as c FROM apartment_pricing_defaults'))?.[0]?.c ?? 0;
+          const nightlyCount = (await this.query('SELECT COUNT(*) as c FROM apartment_nightly_rates WHERE date >= ? AND date < ?', [from, to]))?.[0]?.c ?? 0;
+          return { defaultsCount: Number(defaultsCount) || 0, nightlyOverridesCount: Number(nightlyCount) || 0 };
+        } catch {
+          return { defaultsCount: 0, nightlyOverridesCount: 0 };
+        }
+      })(),
+      (async () => {
+        try {
+          const r = await this.query('SELECT COUNT(*) as c FROM media_assets');
+          return Number(r?.[0]?.c ?? 0) || 0;
+        } catch {
+          return 0;
+        }
+      })(),
+      (async () => {
+        try {
+          const r = await this.query("SELECT COUNT(*) as c FROM email_ingest WHERE status IN ('NEW','PARSED','NEEDS_MANUAL')");
+          return Number(r?.[0]?.c ?? 0) || 0;
+        } catch {
+          return 0;
+        }
+      })()
+    ]);
+
+    return {
+      propertyId,
+      range: { from, to },
+      property,
+      apartments,
+      web_config: website,
+      pricing: pricingSummary,
+      reservations,
+      assets: { count: assetsCount },
+      inbox: { count: inboxCount },
+    };
+  }
+
+  /**
+   * Range query by BUSINESS occupancy: [check_in, check_out) overlap with [from, to)
+   * If apartmentId is null, returns all apartments within property.
+   */
+  async queryReservationsByRange(
+    apartmentId: string | null,
+    from: string,
+    to: string,
+    opts?: { propertyId?: string; includeCancelled?: boolean }
+  ): Promise<Booking[]> {
+    const includeCancelled = !!opts?.includeCancelled;
+    const propertyId = opts?.propertyId;
+
+    // Overlap: check_in < to AND check_out > from
+    let sql = 'SELECT * FROM bookings WHERE 1=1';
+    const params: any[] = [];
+
+    if (propertyId) {
+      sql += ' AND property_id = ?';
+      params.push(propertyId);
+    }
+    if (apartmentId) {
+      sql += ' AND apartment_id = ?';
+      params.push(apartmentId);
+    }
+
+    sql += ' AND check_in < ? AND check_out > ?';
+    params.push(to, from);
+
+    if (!includeCancelled) {
+      sql += " AND status != 'cancelled'";
+    }
+    // Soft delete support
+    sql += ' AND (deleted_at IS NULL)';
+
+    sql += ' ORDER BY check_in ASC, check_out ASC';
+
+    return await this.query(sql, params);
   }
 
   private async finishInitialization() {
@@ -327,6 +454,8 @@ export class SQLiteStore implements IDataStore {
     await this.ensureColumn("accounting_movements", "property_id", "TEXT");
     await this.ensureColumn("bookings", "field_sources", "TEXT");
     await this.ensureColumn("bookings", "updated_at", "INTEGER");
+    await this.ensureColumn("bookings", "deleted_at", "INTEGER");
+    await this.ensureColumn("accounting_movements", "deleted_at", "INTEGER");
     await this.ensureColumn("accounting_movements", "check_in", "TEXT");
     await this.ensureColumn("accounting_movements", "check_out", "TEXT");
     await this.ensureColumn("accounting_movements", "guests", "INTEGER");
@@ -370,6 +499,13 @@ export class SQLiteStore implements IDataStore {
     await this.ensureColumn("coupons", "project_id", "TEXT");
     await this.ensureColumn("marketing_email_logs", "project_id", "TEXT");
     await this.ensureColumn("stays", "project_id", "TEXT");
+
+    // Base entities (timestamps + soft delete)
+    await this.ensureColumn("properties", "updated_at", "INTEGER");
+    await this.ensureColumn("properties", "deleted_at", "INTEGER");
+    await this.ensureColumn("apartments", "updated_at", "INTEGER");
+    await this.ensureColumn("apartments", "deleted_at", "INTEGER");
+    await this.ensureColumn("web_sites", "deleted_at", "INTEGER");
 
     await this.ensureWebSitesSchema();
     await this.ensureMediaAssetsSchema();
@@ -474,6 +610,14 @@ export class SQLiteStore implements IDataStore {
   }
 
   async runMigrations() {
+    await this.execute(`CREATE TABLE IF NOT EXISTS project_meta (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      created_at INTEGER,
+      updated_at INTEGER,
+      deleted_at INTEGER
+    );`);
+
     await this.execute("CREATE TABLE IF NOT EXISTS properties (id TEXT PRIMARY KEY, name TEXT, description TEXT, color TEXT, created_at INTEGER);");
     await this.execute("CREATE TABLE IF NOT EXISTS apartments (id TEXT PRIMARY KEY, property_id TEXT, name TEXT, color TEXT, created_at INTEGER);");
     await this.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);");
@@ -1569,6 +1713,16 @@ export class SQLiteStore implements IDataStore {
     this.onWriteHook?.();
   }
 
+  async softDeleteReservation(id: string): Promise<void> {
+    const now = Date.now();
+    await this.ensureInitialized();
+    await this.executeWithParams(
+      "UPDATE bookings SET deleted_at = ?, updated_at = ? WHERE id = ?",
+      [now, now, id]
+    );
+    this.onWriteHook?.();
+  }
+
   async getCounts(): Promise<any> {
     const projectId = localStorage.getItem('active_project_id');
     const [t, s, b, m, p, ab] = await Promise.all([
@@ -2498,6 +2652,15 @@ export class SQLiteStore implements IDataStore {
     );
   }
 
+  async softDeletePayment(id: string): Promise<void> {
+    const now = Date.now();
+    await this.ensureInitialized();
+    await this.executeWithParams(
+      "UPDATE accounting_movements SET deleted_at = ?, updated_at = ? WHERE id = ?",
+      [now, now, id]
+    );
+  }
+
   async getBookingByKey(key: string): Promise<Booking | null> {
     const r = await this.query("SELECT * FROM bookings WHERE booking_key = ?", [key]);
     if (!r[0]) return null;
@@ -3039,15 +3202,16 @@ export class SQLiteStore implements IDataStore {
     });
   }
   async saveApartment(a: Apartment) {
+    const now = Date.now();
     await this.executeWithParams(
       `INSERT OR REPLACE INTO apartments (
-        id, property_id, name, color, created_at, is_active, 
+        id, property_id, name, color, created_at, updated_at, is_active, deleted_at,
         ical_export_token, ical_last_publish, ical_event_count,
         public_base_price, currency
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         a.id, a.property_id, a.name || 'Unidad', a.color || '#4F46E5',
-        a.created_at || Date.now(), a.is_active !== false ? 1 : 0,
+        a.created_at || now, (a as any).updated_at || now, a.is_active !== false ? 1 : 0, (a as any).deleted_at || null,
         a.ical_export_token || null, a.ical_last_publish || null, a.ical_event_count || null,
         a.publicBasePrice ?? null, a.currency || 'EUR'
       ]
@@ -3055,6 +3219,15 @@ export class SQLiteStore implements IDataStore {
   }
   async deleteApartment(id: string) {
     await this.executeWithParams("DELETE FROM apartments WHERE id=?", [id]);
+  }
+
+  async softDeleteApartment(id: string): Promise<void> {
+    const now = Date.now();
+    await this.ensureInitialized();
+    await this.executeWithParams(
+      "UPDATE apartments SET deleted_at = ?, updated_at = ? WHERE id = ?",
+      [now, now, id]
+    );
   }
 
   // --- PRICING STUDIO METHODS ---

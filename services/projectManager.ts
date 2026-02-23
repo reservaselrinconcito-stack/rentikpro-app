@@ -7,6 +7,7 @@ import { APP_VERSION, SCHEMA_VERSION } from '../src/version';
 import { projectPersistence } from './projectPersistence';
 import { demoGenerator } from './demoGenerator';
 import { ProjectFileProvider } from './projectFileProvider';
+import { syncCoordinator } from './syncCoordinator';
 
 export class ProjectManager {
   public store: SQLiteStore;
@@ -36,6 +37,13 @@ export class ProjectManager {
   // --- INITIALIZATION ---
 
   async initialize(): Promise<void> {
+    const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+    if (isTauri) {
+      // Desktop folder-based projects are opened explicitly via ProjectFolderManager.
+      // Avoid confusing auto-load via active_project_id (IDB).
+      return;
+    }
+
     // Check if we should auto-load a project
     const activeId = localStorage.getItem('active_project_id');
     const activeMode = localStorage.getItem('active_project_mode') as 'real' | 'demo';
@@ -139,6 +147,13 @@ export class ProjectManager {
 
   async loadProject(id: string): Promise<boolean> {
     try {
+      const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+
+      // 1. Pre-load sync: check if there is a newer version in WebDAV
+      // We do this by temporarily setting the ID so syncCoordinator knows which project to check
+      this.currentProjectId = id;
+      await syncCoordinator.syncDown().catch(e => logger.warn("[ProjectManager] SyncDown failed during load", e));
+
       const record = await projectPersistence.loadProject(id);
       if (!record) return false;
 
@@ -153,6 +168,15 @@ export class ProjectManager {
 
       this.setActiveContext(record.id, record.mode);
       this.startAutoSave();
+
+      // In desktop mode, treat legacy IDB projects as read-only persistence.
+      // Users should migrate to a folder-based project instead.
+      if (isTauri) {
+        if (this.autoSaveInterval) {
+          clearInterval(this.autoSaveInterval);
+          this.autoSaveInterval = null;
+        }
+      }
 
       // DEBUG 2: Snapshot after load
       const debugBookingId = localStorage.getItem('debug_revert_booking_id');
@@ -174,6 +198,32 @@ export class ProjectManager {
     }
   }
 
+  async loadLegacyIdbProjectReadOnly(id: string): Promise<boolean> {
+    try {
+      const record = await projectPersistence.loadProject(id);
+      if (!record) return false;
+
+      await this.store.load(record.data);
+      this.currentProjectId = record.id;
+      this.currentProjectMode = record.mode;
+      this.lastSyncedAt = Date.now();
+
+      const counts = await this.store.getCounts();
+      this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
+
+      if (this.autoSaveInterval) {
+        clearInterval(this.autoSaveInterval);
+        this.autoSaveInterval = null;
+      }
+      // Do NOT set active_project_id and do NOT persist back to IDB.
+      notifyDataChanged('all');
+      return true;
+    } catch (e) {
+      logger.error('[ProjectManager] loadLegacyIdbProjectReadOnly failed', e);
+      return false;
+    }
+  }
+
   async exitDemo(): Promise<void> {
     if (this.currentProjectMode !== 'demo') return;
     await this.closeProject();
@@ -183,6 +233,44 @@ export class ProjectManager {
   async resetDemo(): Promise<void> {
     await projectPersistence.deleteProject('demo_project');
     await this.createDemoProject();
+  }
+
+  async closeProject(): Promise<void> {
+    try {
+      // Auto-sync UP on close if real project
+      if (this.currentProjectId && this.currentProjectMode === 'real') {
+        await syncCoordinator.syncUp().catch(e => logger.warn("[ProjectManager] Final SyncUp failed", e));
+      }
+
+      if (this.autoSaveInterval) {
+        clearInterval(this.autoSaveInterval);
+        this.autoSaveInterval = null;
+      }
+      if (this.fileAutoSaveTimer) {
+        clearTimeout(this.fileAutoSaveTimer);
+        this.fileAutoSaveTimer = null;
+      }
+
+      this.fileProvider.clearHandle();
+
+      this.currentProjectId = null;
+      this.currentProjectMode = 'real';
+      this.lastSyncedAt = null;
+      this.currentCounts = { bookings: 0, accounting: 0 };
+
+      try {
+        localStorage.removeItem('active_project_id');
+        localStorage.removeItem('active_project_mode');
+      } catch (_) { }
+
+      // Reset store to a fresh DB instance
+      this.store = new SQLiteStore();
+      this.store.setWriteHook(() => this.scheduleAutoSaveFile());
+
+      notifyDataChanged('all');
+    } catch (e) {
+      logger.warn('[ProjectManager] closeProject failed', e);
+    }
   }
 
   private setActiveContext(id: string, mode: 'real' | 'demo') {
@@ -254,6 +342,11 @@ export class ProjectManager {
       this.currentCounts.accounting
     );
     console.log("[SAVE:PM] persisted_ok");
+
+    // Trigger remote sync
+    if (this.currentProjectMode === 'real') {
+      syncCoordinator.syncUp().catch(e => logger.warn("[ProjectManager] Async SyncUp failed", e));
+    }
   }
 
   getProjectStats() {
@@ -529,6 +622,61 @@ export class ProjectManager {
     }
 
     logger.log(`[Deserialize] Load complete (setAsActive=${setAsActive})`);
+  }
+
+  /**
+   * Loads a project from raw SQLite bytes (db.sqlite) without going through IDB.
+   * Intended for desktop folder-based projects (Tauri).
+   */
+  async loadProjectFromSqliteBytes(
+    dbBytes: Uint8Array,
+    ctx: {
+      projectId: string;
+      name: string;
+      mode: 'real' | 'demo';
+      setAsActive?: boolean;
+      startAutoSave?: boolean;
+      persistToIdb?: boolean;
+    }
+  ): Promise<void> {
+    const {
+      projectId,
+      name,
+      mode,
+      setAsActive = false,
+      startAutoSave = false,
+      persistToIdb = false,
+    } = ctx;
+
+    await this.store.load(dbBytes);
+    this.currentProjectId = projectId;
+    this.currentProjectMode = mode;
+    this.lastSyncedAt = Date.now();
+
+    const counts = await this.store.getCounts();
+    this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
+
+    if (setAsActive) {
+      this.setActiveContext(projectId, mode);
+    }
+    if (persistToIdb) {
+      try {
+        await this.persistCurrentProject(name);
+      } catch (e) {
+        logger.warn('[ProjectManager] Could not persist external project metadata to IDB', e);
+      }
+    }
+
+    if (startAutoSave) {
+      this.startAutoSave();
+    } else {
+      if (this.autoSaveInterval) {
+        clearInterval(this.autoSaveInterval);
+        this.autoSaveInterval = null;
+      }
+    }
+
+    notifyDataChanged('all');
   }
 
   // --- FILE-MODE OPERATIONS (Chrome/Edge only — Safari falls back to IDB) ---

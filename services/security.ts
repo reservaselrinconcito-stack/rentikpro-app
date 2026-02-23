@@ -41,7 +41,7 @@ export class SecurityService {
     const safeConfig = { ...config };
     // Lista de campos a cifrar
     const sensitiveFields = ['password', 'encrypted_password', 'access_token', 'client_secret', 'api_key'];
-    
+
     for (const field of sensitiveFields) {
       if (safeConfig[field] && !safeConfig[field].startsWith('ENC::')) {
         safeConfig[field] = `ENC::${xorEncrypt(safeConfig[field])}`;
@@ -57,7 +57,7 @@ export class SecurityService {
     try {
       const config = JSON.parse(jsonConfig);
       const sensitiveFields = ['password', 'encrypted_password', 'access_token', 'client_secret', 'api_key'];
-      
+
       for (const field of sensitiveFields) {
         if (config[field] && typeof config[field] === 'string' && config[field].startsWith('ENC::')) {
           const cipherText = config[field].substring(5); // Remove ENC::
@@ -69,6 +69,12 @@ export class SecurityService {
       console.error("Error parsing secure config", e);
       return {};
     }
+  }
+
+  async sha256(data: Uint8Array): Promise<string> {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data as any);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
 }
 

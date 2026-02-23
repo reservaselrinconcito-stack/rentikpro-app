@@ -17,12 +17,19 @@
     // --- Helpers ---
     const validateConfig = (config) => {
         if (!config) throw new Error("Configuración vacía");
-        if (!config.slug) throw new Error("Configuración inválida: falta slug");
-        // Fallbacks
+        // Support both old 'slug' and new 'property.id'
+        const slug = config.slug || (config.property && config.property.id);
+        if (!slug && !config.version) throw new Error("Configuración inválida: falta identificación");
+
+        // Normalize new schema towards a common UI model
+        config.title = config.brand?.name || config.property?.name || config.title || "RentikPro Site";
+
+        // Unified items list
+        config._items = config.apartments || config.properties || [];
+        config.brand = config.brand || config.property || {};
+
         config.theme = config.theme || {};
-        config.properties = Array.isArray(config.properties) ? config.properties : [];
         config.integrations = config.integrations || {};
-        config.brand = config.brand || {};
         return config;
     };
 
@@ -165,32 +172,59 @@
     };
 
     const renderHome = (config) => {
-        updateSEO(config); // Reset SEO to home
+        updateSEO(config);
         const container = document.createElement('div');
         container.className = 'container';
+
+        if (config._items.length === 0) {
+            container.innerHTML = `
+                <div style="text-align:center; padding: 4rem 2rem; background: #f8fafc; border-radius: 2rem; border: 2px dashed #e2e8f0; margin-top: 2rem;">
+                    <div style="font-size: 3rem; margin-bottom: 1rem;">🏠</div>
+                    <h2>Sitio en construcción</h2>
+                    <p style="color:var(--text-muted); max-width: 400px; margin: 0 auto 2rem;">Aún no se han publicado apartamentos. Vuelve pronto o contacta con nosotros.</p>
+                    <button class="btn btn-primary" onclick="location.hash='#/contacto'">Contactar</button>
+                    ${config.version ? '' : '<p style="font-size: 10px; margin-top: 2rem; opacity: 0.5;">Prop Tip: Publica tus apartamentos desde el Editor de RentikPro</p>'}
+                </div>
+            `;
+            return container;
+        }
+
         container.innerHTML = `
             <h1>Nuestros Alojamientos</h1>
             <p style="color:var(--text-muted)">Elige el espacio perfecto para tu estancia.</p>
             <div class="grid">
-                ${config.properties.map(p => `
-                    <a href="#/a/${p.id}" class="card">
-                        <div style="margin-bottom:1rem;">
-                           ${renderImage(p.photos?.[0], p.name)}
-                        </div>
-                        <h3 style="margin:0 0 0.5rem 0">${p.name}</h3>
-                        <p style="font-size:0.875rem; color:var(--text-muted); margin:0">${p.description || ''}</p>
-                    </a>
-                `).join('')}
+                ${config._items.map(p => {
+            const price = p.publicBasePrice || p.basePrice;
+            const priceDisplay = price
+                ? `<span style="font-weight:900; color:var(--primary)">Desde ${new Intl.NumberFormat('es-ES', { style: 'currency', currency: p.currency || 'EUR' }).format(price)}</span>`
+                : `<span style="font-weight:700; color:var(--text-muted)">Consultar precio</span>`;
+
+            return `
+                        <a href="#/a/${p.id}" class="card">
+                            <div style="margin-bottom:1rem;">
+                               ${renderImage(p.photos?.[0]?.url || p.photos?.[0], p.name)}
+                            </div>
+                            <h3 style="margin:0 0 0.5rem 0">${p.name}</h3>
+                            <div style="margin-bottom:0.5rem; font-size:0.9rem;">${priceDisplay}</div>
+                            <p style="font-size:0.875rem; color:var(--text-muted); margin:0">${p.description || ''}</p>
+                        </a>
+                    `;
+        }).join('')}
             </div>
         `;
         return container;
     };
 
     const renderApartment = (config, id) => {
-        const prop = config.properties.find(p => p.id === id);
-        if (!prop) return renderError('Extravío', 'El alojamiento solicitado no existe.');
+        const prop = config._items.find(p => p.id === id);
+        if (!prop) return renderHome(config); // Silent fallback instead of error screen
 
-        updateSEO(config, prop.name); // Specific SEO
+        updateSEO(config, prop.name);
+
+        const price = prop.publicBasePrice || prop.basePrice;
+        const priceDisplay = price
+            ? `<div style="font-size:1.5rem; font-weight:900; color:var(--primary); margin-bottom:0.5rem;">${new Intl.NumberFormat('es-ES', { style: 'currency', currency: prop.currency || 'EUR' }).format(price)} <span style="font-size:0.8rem; font-weight:600; color:var(--text-muted)">/ noche</span></div>`
+            : `<div style="font-size:1.2rem; font-weight:700; color:var(--text-muted); margin-bottom:1rem;">Consultar precio</div>`;
 
         const container = document.createElement('div');
         container.className = 'container';
@@ -200,15 +234,16 @@
             <div style="display:grid; grid-template-columns: 2fr 1fr; gap:2rem; margin-top:2rem;">
                 <div>
                     <div>
-                        ${renderImage(prop.photos?.[0], prop.name + ' Main', '400px')}
+                        ${renderImage(prop.photos?.[0]?.url || prop.photos?.[0], prop.name + ' Main', '400px')}
                     </div>
                     <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap:0.5rem; margin-top:1rem;">
-                        ${(prop.photos || []).slice(1, 5).map(photo => renderImage(photo, prop.name, '80px')).join('')}
+                        ${(prop.photos || []).slice(1, 5).map(photo => renderImage(photo.url || photo, prop.name, '80px')).join('')}
                     </div>
-                    <p style="margin-top:2rem; line-height:1.7;">${prop.description || 'Sin descripción disponible.'}</p>
+                    <p style="margin-top:2rem; line-height:1.7;">${prop.description || 'Consulta los detalles de este alojamiento contactando con nosotros.'}</p>
                 </div>
                 <div>
-                    <div class="card" style="background:#f8fafc; border-style:dashed;">
+                    <div class="card" style="background:#f8fafc; border-style:dashed; position:sticky; top:2rem;">
+                        ${priceDisplay}
                         <h3 style="margin-top:0">Reservar Ahora</h3>
                         <p style="font-size:0.875rem;">Consulta disponibilidad y reserva al mejor precio garantizado.</p>
                         <button class="btn btn-primary" style="width:100%" onclick="location.hash='#/contacto'">Consultar disponibilidad</button>

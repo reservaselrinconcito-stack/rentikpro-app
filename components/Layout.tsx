@@ -11,7 +11,8 @@ import { APP_VERSION } from '../src/version';
 import { AppVersion } from '../src/components/AppVersion';
 import { ICalDebugPanel } from './ICalDebugPanel';
 import { ProjectSwitcherModal } from './ProjectSwitcherModal';
-import { CheckCircle, AlertCircle } from 'lucide-react';
+import { CheckCircle, AlertCircle, Cloud, CloudOff } from 'lucide-react';
+import { syncCoordinator } from '../services/syncCoordinator';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -85,6 +86,22 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
         title={fileDisplayName}>
         {icon}
         <span className="truncate max-w-[140px]">{label}</span>
+      </div>
+    );
+  };
+
+  // Sync Status
+  const [isSyncing, setIsSyncing] = useState(false);
+  useEffect(() => {
+    return syncCoordinator.subscribe(setIsSyncing);
+  }, []);
+
+  const SyncStatusBadge = () => {
+    if (!isSyncing) return null;
+    return (
+      <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest px-2 py-1.5 rounded-lg border text-indigo-600 bg-indigo-50 border-indigo-100 animate-pulse">
+        <RefreshCw size={11} className="animate-spin" />
+        <span>Nube Sync...</span>
       </div>
     );
   };
@@ -300,6 +317,10 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
                 <FileSaveBadge />
               </div>
             )}
+
+            <div className="mt-3 px-2">
+              <SyncStatusBadge />
+            </div>
           </div>
           <nav className="flex-1 px-4 pb-6 space-y-1.5 overflow-y-auto custom-scrollbar">
             <NavContent />
