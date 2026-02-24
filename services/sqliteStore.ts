@@ -43,6 +43,39 @@ const DEFAULT_POLICY: BookingPolicy = {
 
 declare const initSqlJs: any;
 
+// ===== DB READY GATE =====
+// Lightweight global gate used by UI to avoid querying a not-yet-initialized DB.
+// Resolves once per app session when the store finishes init/load successfully.
+
+let __dbInstance: any | null = null;
+
+let __readyResolve: ((db: any) => void) | null = null;
+let __readyReject: ((err: any) => void) | null = null;
+
+const __readyPromise: Promise<any> = new Promise((resolve, reject) => {
+  __readyResolve = resolve;
+  __readyReject = reject;
+});
+
+export function isDbReady() {
+  return !!__dbInstance;
+}
+
+export async function getDbReady(): Promise<any> {
+  return __readyPromise;
+}
+
+// LLAMAR AL FINAL DEL INIT REAL
+export function __markDbReady(db: any) {
+  __dbInstance = db;
+  __readyResolve?.(db);
+}
+
+// SI FALLA INIT
+export function __markDbFailed(err: any) {
+  __readyReject?.(err);
+}
+
 export class SQLiteStore implements IDataStore {
   public db: any = null;
   private SQL: any = null;
@@ -102,11 +135,16 @@ export class SQLiteStore implements IDataStore {
 
   async load(data: Uint8Array) {
     this.initPromise = (async () => {
-      const SQL = await this.getSQL();
-      this.db = new SQL.Database(data);
-      // New DB loaded: invalidate cached schema.
-      this.columnInfoCache.clear();
-      await this.finishInitialization();
+      try {
+        const SQL = await this.getSQL();
+        this.db = new SQL.Database(data);
+        // New DB loaded: invalidate cached schema.
+        this.columnInfoCache.clear();
+        await this.finishInitialization();
+      } catch (e) {
+        __markDbFailed(e);
+        throw e;
+      }
     })();
     return this.initPromise;
   }
@@ -167,10 +205,15 @@ export class SQLiteStore implements IDataStore {
     if (this.initPromise && this.db) return this.initPromise;
     console.log("[DB] Starting initialization...");
     this.initPromise = (async () => {
-      const SQL = await this.getSQL();
-      this.db = new SQL.Database();
-      this.columnInfoCache.clear();
-      await this.finishInitialization();
+      try {
+        const SQL = await this.getSQL();
+        this.db = new SQL.Database();
+        this.columnInfoCache.clear();
+        await this.finishInitialization();
+      } catch (e) {
+        __markDbFailed(e);
+        throw e;
+      }
     })();
     return this.initPromise;
   }
@@ -362,6 +405,9 @@ export class SQLiteStore implements IDataStore {
     }
 
     this.initialized = true;
+
+    // Signal global DB gate.
+    __markDbReady(this.db);
   }
 
   private async getDbSchemaVersion(): Promise<number> {
