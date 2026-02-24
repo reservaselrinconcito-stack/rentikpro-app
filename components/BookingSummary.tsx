@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { BookingPolicy } from '../services/sqliteStore'; // Actually types, but let's correct import
 import { BookingPolicy as IBookingPolicy } from '../types';
 import { CheckoutService, checkoutService, BookingDraft, CheckoutResult } from '../services/checkoutService';
 import { CreditCard, Wallet, Banknote, CalendarCheck, AlertCircle } from 'lucide-react';

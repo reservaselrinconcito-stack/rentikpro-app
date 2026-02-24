@@ -3,7 +3,7 @@ import { ChannelConnection, CalendarEvent } from '../types';
 import { dateFormat } from '../services/dateFormat';
 import {
     X, Globe, Calendar, Link, Activity, Clock, ShieldCheck,
-    AlertTriangle, FileText, CheckCircle2, XCircle, Clock4
+    AlertTriangle, FileText, CheckCircle2, XCircle, Clock4, ShieldAlert, RefreshCw
 } from 'lucide-react';
 
 interface ChannelDetailsModalProps {

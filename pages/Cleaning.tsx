@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { IDataStore, CleaningTask, CleaningTemplate, Apartment, MaintenanceIssue, Property } from '../types';
 import { CleaningService } from '../services/cleaningService';
 import { CleaningTaskDetail } from '../components/CleaningTaskDetail';
+import { MaintenanceIssueDetail } from '../components/MaintenanceIssueDetail';
 
 interface Props {
     store: IDataStore;

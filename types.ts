@@ -1041,7 +1041,7 @@ export interface IDataStore {
   getCleaningTaskById(id: string): Promise<CleaningTask | null>;
   saveCleaningTask(task: CleaningTask): Promise<void>;
 
-  getCleaningTemplates(propertyId: string): Promise<CleaningTemplate[]>;
+  getCleaningTemplates(propertyId?: string): Promise<CleaningTemplate[]>;
   saveCleaningTemplate(tmpl: CleaningTemplate): Promise<void>;
 
   // Maintenance

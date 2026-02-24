@@ -191,7 +191,7 @@ export const MaintenanceIssueDetail: React.FC<Props> = ({ issue, onSave, onClose
                                     type="text" className="w-full border border-green-200 rounded p-2"
                                     value={signature} onChange={e => setSignature(e.target.value)}
                                     placeholder="Tu nombre"
-                                    disabled={issue.status === 'RESOLVED' && issue.signature_name}
+                                    disabled={issue.status === 'RESOLVED' && !!issue.signature_name}
                                 />
                             </div>
                         </div>

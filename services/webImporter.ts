@@ -137,13 +137,19 @@ export const importWebFromBlob = async (file: File): Promise<Partial<WebSite>> =
         id: crypto.randomUUID(),
         name: `Import: ${name}`,
         subdomain: name.toLowerCase().replace(/[^a-z0-9]/g, '-') + '-' + Date.now().toString(36).slice(-4),
+        template_slug: 'import',
+        plan_type: 'basic',
+        public_token: crypto.randomUUID(),
+        is_published: false,
         status: 'draft',
-        theme_config: { primary_color: '#000000' }, // Default
+        theme_config: JSON.stringify({ primary_color: '#000000' }), // Default
         seo_title,
         seo_description,
         sections_json: JSON.stringify(sections, null, 2),
-        booking_config: {},
+        booking_config: JSON.stringify({}),
         property_ids_json: '[]',
+        allowed_origins_json: '[]',
+        features_json: '{}',
         created_at: Date.now(),
         updated_at: Date.now()
     };
