@@ -23,6 +23,7 @@ Branch: `nightly/harden-20260224`
 - Cleaning templates: allow `getCleaningTemplates()` without a `propertyId` (returns all).
 - UI type hardening: missing icon imports, boolean `disabled` prop fix.
 - Web importer: ensure `WebSite` JSON fields are strings and required fields have safe defaults.
+- Tauri build hardening: `src-tauri/icons/icon.png` normalized to RGBA (Tauri codegen requires alpha channel).
 
 ## Temp Workspace (Safety)
 - Created for testing: `/tmp/rentikpro-workspaces-nightly-20260224`
