@@ -31,3 +31,11 @@ Result: OK
 == Build (tauri) ==
 Command: npm run build:tauri
 Result: OK
+
+== Tauri Backend ==
+Command: cargo check (src-tauri)
+Result: OK
+
+== Tauri Dev Smoke ==
+Command: npm run tauri:dev
+Result: OK (compiled + launched; process intentionally stopped)
