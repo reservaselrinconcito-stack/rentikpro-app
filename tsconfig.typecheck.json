@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "playwright-report",
+    "test-results",
+    "src-tauri/**",
+    "worker-availability/**",
+    "worker-public-availability/**",
+    "scripts/**",
+    "vitest.config.ts",
+    "vite.config.ts",
+    "worker_ical_export.ts",
+    "components/CreateBookingModal.tsx",
+    "components/HoldTimerBanner.tsx",
+    "components/QuickWebWizard.tsx"
+  ]
+}

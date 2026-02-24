@@ -26,5 +26,15 @@
     "allowImportingTsExtensions": true,
     "esModuleInterop": true,
     "noEmit": true
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "playwright-report",
+    "test-results",
+    "src-tauri/target",
+    "src-tauri/target/**",
+    "worker-availability/**",
+    "worker-public-availability/**"
+  ]
 }
