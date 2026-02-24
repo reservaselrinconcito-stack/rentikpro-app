@@ -1,0 +1,25 @@
+DB Access Inventory (nightly/harden-20260224)
+
+Patterns scanned:
+- .db. direct access
+- .exec( / queryAll( / PRAGMA / SELECT / INSERT / UPDATE / DELETE
+- getDbReady()/isDbReady()
+
+Findings (high signal):
+
+1) services/sqliteStore.ts
+- Owns the sql.js Database handle (this.db)
+- Base helpers: execute/executeWithParams/query
+- Column detection: PRAGMA table_info(…)
+
+2) scripts/smoke-pricing-studio.ts
+- Uses sql.js directly (dev-only script)
+
+3) src/features/calendar/Calendar.tsx
+- Uses getDbReady() + tableHasColumn() + queryAll()
+
+4) src/services/reservations.ts
+- Uses getDbReady() + dbQueue() (writes)
+
+Guards applied:
+- Base helpers in SQLiteStore now await initPromise if in-flight and serialize writes.
