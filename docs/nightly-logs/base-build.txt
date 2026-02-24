@@ -1,0 +1,33 @@
+Nightly Hardening Baseline
+Date: 2026-02-24
+Branch: nightly/harden-20260224
+Repo: /Users/tonigutierrez/Desktop/rentikpro funciona
+
+== Install ==
+Command: npm ci
+Result: OK
+Notes:
+- npm warnings about deprecated packages (sourcemap-codec/source-map/glob)
+- npm audit: 4 vulnerabilities (2 moderate, 2 high)
+
+== Typecheck ==
+Command: npx tsc -p tsconfig.typecheck.json --noEmit
+Result: OK
+Notes:
+- Full-repo tsc is not currently green due to legacy/worker/config files.
+  Nightly uses a constrained config to validate the shipped desktop/runtime code.
+
+== Tests ==
+Command: npm test --silent
+Result: OK
+Summary:
+- Test Files: 9 passed
+- Tests: 46 passed
+
+== Build (web) ==
+Command: npm run build
+Result: OK
+
+== Build (tauri) ==
+Command: npm run build:tauri
+Result: OK
