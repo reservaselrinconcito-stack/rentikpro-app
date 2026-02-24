@@ -65,10 +65,40 @@ export async function getDbReady(): Promise<any> {
   return __readyPromise;
 }
 
+function adaptDb(db: any): any {
+  if (!db) return db;
+  if (typeof db.queryAll === 'function') return db;
+
+  // sql.js Database
+  if (typeof db.exec === 'function') {
+    return {
+      exec: (sql: string, params?: any[]) => db.exec(sql, params),
+      run: (sql: string, params?: any[]) => (typeof db.run === 'function' ? db.run(sql, params) : undefined),
+      close: () => (typeof db.close === 'function' ? db.close() : undefined),
+      queryAll: async (sql: string, params: any[] = []) => {
+        const res = db.exec(sql, params);
+        if (!res || res.length === 0) return [];
+        const columns: string[] = res[0].columns;
+        const values: any[][] = res[0].values;
+        return values.map((row) => {
+          const obj: any = {};
+          columns.forEach((col, i) => {
+            obj[col] = row[i];
+          });
+          return obj;
+        });
+      },
+      __raw: db,
+    };
+  }
+
+  return db;
+}
+
 // LLAMAR AL FINAL DEL INIT REAL
 export function __markDbReady(db: any) {
-  __dbInstance = db;
-  __readyResolve?.(db);
+  __dbInstance = adaptDb(db);
+  __readyResolve?.(__dbInstance);
 }
 
 // SI FALLA INIT
