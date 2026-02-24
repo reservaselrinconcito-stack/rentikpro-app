@@ -48,6 +48,7 @@ export class SQLiteStore implements IDataStore {
   private SQL: any = null;
   public initialized = false;
   private initPromise: Promise<void> | null = null;
+  private columnInfoCache: Map<string, Set<string>> = new Map();
   private schemaFlags = {
     bookings_event_kind: false,
     bookings_event_state: false,
@@ -103,6 +104,8 @@ export class SQLiteStore implements IDataStore {
     this.initPromise = (async () => {
       const SQL = await this.getSQL();
       this.db = new SQL.Database(data);
+      // New DB loaded: invalidate cached schema.
+      this.columnInfoCache.clear();
       await this.finishInitialization();
     })();
     return this.initPromise;
@@ -161,13 +164,47 @@ export class SQLiteStore implements IDataStore {
   }
 
   async init(customPath?: string): Promise<void> {
-    if (this.initPromise) return this.initPromise;
+    if (this.initPromise && this.db) return this.initPromise;
+    console.log("[DB] Starting initialization...");
     this.initPromise = (async () => {
       const SQL = await this.getSQL();
       this.db = new SQL.Database();
+      this.columnInfoCache.clear();
       await this.finishInitialization();
     })();
     return this.initPromise;
+  }
+
+  public isReady(): boolean {
+    return !!this.db && this.initialized;
+  }
+
+  public async waitForReady(attempts: number = 10, delayMs: number = 100): Promise<boolean> {
+    for (let i = 0; i < attempts; i++) {
+      if (this.isReady()) return true;
+      await new Promise(r => setTimeout(r, delayMs));
+    }
+    return this.isReady();
+  }
+
+  public async hasColumn(table: string, column: string): Promise<boolean> {
+    // Hard guard: avoid SQL injection via table name.
+    if (!/^[a-zA-Z0-9_]+$/.test(table)) {
+      throw new Error('Invalid table name');
+    }
+    const cached = this.columnInfoCache.get(table);
+    if (cached) return cached.has(column);
+
+    const tableExists = await this.query("SELECT name FROM sqlite_master WHERE type='table' AND name=?", [table]);
+    if (tableExists.length === 0) {
+      this.columnInfoCache.set(table, new Set());
+      return false;
+    }
+
+    const info = await this.query(`PRAGMA table_info(${table})`);
+    const set = new Set<string>((info || []).map((c: any) => String(c.name || '')));
+    this.columnInfoCache.set(table, set);
+    return set.has(column);
   }
 
   // --- BOOTSTRAP / CORE QUERIES (P2) ---
@@ -264,10 +301,11 @@ export class SQLiteStore implements IDataStore {
     apartmentId: string | null,
     from: string,
     to: string,
-    opts?: { propertyId?: string; includeCancelled?: boolean }
+    opts?: { propertyId?: string; includeCancelled?: boolean; excludeDeleted?: boolean }
   ): Promise<Booking[]> {
     const includeCancelled = !!opts?.includeCancelled;
     const propertyId = opts?.propertyId;
+    const excludeDeleted = opts?.excludeDeleted !== false;
 
     // Overlap: check_in < to AND check_out > from
     let sql = 'SELECT * FROM bookings WHERE 1=1';
@@ -288,8 +326,13 @@ export class SQLiteStore implements IDataStore {
     if (!includeCancelled) {
       sql += " AND status != 'cancelled'";
     }
-    // Soft delete support
-    sql += ' AND (deleted_at IS NULL)';
+    // Soft delete support (backwards compatible)
+    if (excludeDeleted) {
+      const hasDeletedAt = await this.hasColumn('bookings', 'deleted_at').catch(() => false);
+      if (hasDeletedAt) {
+        sql += ' AND (deleted_at IS NULL)';
+      }
+    }
 
     sql += ' ORDER BY check_in ASC, check_out ASC';
 
@@ -300,11 +343,6 @@ export class SQLiteStore implements IDataStore {
     if (!this.db) return;
     this.db.run("PRAGMA foreign_keys = ON;");
     await this.runMigrations();
-
-    await this.ensureMigrations();
-
-    await this.ensureSettings();
-    await this.seedMarketingEmailTemplates();
     await this.ensureSettings();
     await this.seedMarketingEmailTemplates();
     await this.detectSchema();
@@ -618,10 +656,10 @@ export class SQLiteStore implements IDataStore {
       deleted_at INTEGER
     );`);
 
-    await this.execute("CREATE TABLE IF NOT EXISTS properties (id TEXT PRIMARY KEY, name TEXT, description TEXT, color TEXT, created_at INTEGER);");
-    await this.execute("CREATE TABLE IF NOT EXISTS apartments (id TEXT PRIMARY KEY, property_id TEXT, name TEXT, color TEXT, created_at INTEGER);");
+    await this.execute("CREATE TABLE IF NOT EXISTS properties (id TEXT PRIMARY KEY, name TEXT, description TEXT, color TEXT, created_at INTEGER, updated_at INTEGER, project_id TEXT, is_active INTEGER DEFAULT 1, timezone TEXT DEFAULT 'Europe/Madrid', currency TEXT DEFAULT 'EUR', web_calendar_enabled INTEGER DEFAULT 0, public_token TEXT, allowed_origins_json TEXT, show_prices INTEGER DEFAULT 0, max_range_days INTEGER DEFAULT 365, last_published_at INTEGER, location TEXT, logo TEXT, phone TEXT, email TEXT);");
+    await this.execute("CREATE TABLE IF NOT EXISTS apartments (id TEXT PRIMARY KEY, property_id TEXT, name TEXT, color TEXT, created_at INTEGER, updated_at INTEGER, project_id TEXT, is_active INTEGER DEFAULT 1, deleted_at INTEGER, ical_export_token TEXT, ical_out_url TEXT, ical_last_publish INTEGER, ical_event_count INTEGER, public_base_price REAL, currency TEXT DEFAULT 'EUR');");
     await this.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);");
-    await this.execute("CREATE TABLE IF NOT EXISTS travelers (id TEXT PRIMARY KEY, nombre TEXT, apellidos TEXT, tipo_documento TEXT, documento TEXT, fecha_nacimiento TEXT, telefono TEXT, email TEXT, nacionalidad TEXT, provincia TEXT, cp TEXT, localidad TEXT, direccion TEXT, created_at INTEGER, updated_at INTEGER);");
+    await this.execute("CREATE TABLE IF NOT EXISTS travelers (id TEXT PRIMARY KEY, nombre TEXT, apellidos TEXT, tipo_documento TEXT, documento TEXT, fecha_nacimiento TEXT, telefono TEXT, email TEXT, nacionalidad TEXT, provincia TEXT, cp TEXT, localidad TEXT, direccion TEXT, created_at INTEGER, updated_at INTEGER, project_id TEXT, traveler_key TEXT, needs_document INTEGER DEFAULT 0, total_stays INTEGER DEFAULT 0, last_checkout TEXT);");
 
     // Simple migration for existing travelers table
     try {
@@ -630,6 +668,22 @@ export class SQLiteStore implements IDataStore {
       await this.execute("ALTER TABLE travelers ADD COLUMN localidad TEXT;");
       await this.execute("ALTER TABLE travelers ADD COLUMN direccion TEXT;");
     } catch (e) { /* columns might already exist */ }
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN project_id TEXT");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN traveler_key TEXT");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN needs_document INTEGER DEFAULT 0");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN total_stays INTEGER DEFAULT 0");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN last_checkout TEXT");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN project_id TEXT");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN updated_at INTEGER");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN is_active INTEGER DEFAULT 1");
+    await this.safeMigration("ALTER TABLE apartments ADD COLUMN project_id TEXT");
+    await this.safeMigration("ALTER TABLE apartments ADD COLUMN updated_at INTEGER");
+    await this.safeMigration("ALTER TABLE apartments ADD COLUMN is_active INTEGER DEFAULT 1");
+    await this.safeMigration("ALTER TABLE apartments ADD COLUMN deleted_at INTEGER");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN project_id TEXT");
+    await this.safeMigration("ALTER TABLE properties ADD COLUMN project_id TEXT");
+    await this.safeMigration("ALTER TABLE apartments ADD COLUMN project_id TEXT");
+    await this.safeMigration("ALTER TABLE apartments ADD COLUMN updated_at INTEGER");
     await this.execute(`CREATE TABLE IF NOT EXISTS calendar_events (
       id TEXT PRIMARY KEY,
       connection_id TEXT,
@@ -654,9 +708,86 @@ export class SQLiteStore implements IDataStore {
     );`);
     await this.safeMigration("CREATE INDEX IF NOT EXISTS idx_calendar_connection ON calendar_events(connection_id);");
     await this.safeMigration("CREATE INDEX IF NOT EXISTS idx_calendar_dates ON calendar_events(start_date, end_date);");
-    await this.execute("CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, property_id TEXT, apartment_id TEXT, traveler_id TEXT, check_in TEXT, check_out TEXT, status TEXT, total_price REAL, guests INTEGER DEFAULT 1, source TEXT, external_ref TEXT, created_at INTEGER, booking_key TEXT, project_id TEXT);");
-    await this.execute("CREATE TABLE IF NOT EXISTS stays (id TEXT PRIMARY KEY, traveler_id TEXT, apartment_id TEXT, check_in TEXT, check_out TEXT, source TEXT, import_batch_id TEXT, created_at INTEGER, project_id TEXT);");
-    await this.execute("CREATE TABLE IF NOT EXISTS accounting_movements (id TEXT PRIMARY KEY, date TEXT, type TEXT, category TEXT, concept TEXT, apartment_id TEXT, reservation_id TEXT, traveler_id TEXT, platform TEXT, supplier TEXT, amount_gross REAL, commission REAL, vat REAL, amount_net REAL, payment_method TEXT, accounting_bucket TEXT, import_hash TEXT, import_batch_id TEXT, created_at INTEGER, updated_at INTEGER, movement_key TEXT, project_id TEXT);");
+
+    await this.execute(`CREATE TABLE IF NOT EXISTS bookings (
+      id TEXT PRIMARY KEY, 
+      property_id TEXT, 
+      apartment_id TEXT, 
+      traveler_id TEXT, 
+      check_in TEXT, 
+      check_out TEXT, 
+      status TEXT, 
+      total_price REAL, 
+      guests INTEGER DEFAULT 1, 
+      source TEXT, 
+      external_ref TEXT, 
+      created_at INTEGER, 
+      updated_at INTEGER,
+      conflict_detected INTEGER DEFAULT 0,
+      linked_event_id TEXT,
+      rate_plan_id TEXT,
+      summary TEXT,
+      guest_name TEXT,
+      booking_key TEXT, 
+      project_id TEXT,
+      ota TEXT,
+      locator TEXT
+    );`);
+
+    // Harden older/restored DBs: ensure critical columns exist.
+    await this.ensureMigrations();
+
+    await this.execute(`CREATE TABLE IF NOT EXISTS stays (
+      id TEXT PRIMARY KEY, 
+      traveler_id TEXT, 
+      apartment_id TEXT, 
+      check_in TEXT, 
+      check_out TEXT, 
+      source TEXT, 
+      import_batch_id TEXT, 
+      created_at INTEGER, 
+      project_id TEXT
+    );`);
+
+    await this.execute(`CREATE TABLE IF NOT EXISTS accounting_movements (
+      id TEXT PRIMARY KEY, 
+      date TEXT, 
+      type TEXT, 
+      category TEXT, 
+      concept TEXT, 
+      apartment_id TEXT, 
+      reservation_id TEXT, 
+      traveler_id TEXT, 
+      platform TEXT, 
+      supplier TEXT, 
+      amount_gross REAL, 
+      commission REAL, 
+      vat REAL, 
+      amount_net REAL, 
+      payment_method TEXT, 
+      accounting_bucket TEXT, 
+      import_hash TEXT, 
+      import_batch_id TEXT, 
+      receipt_blob TEXT,
+      created_at INTEGER, 
+      updated_at INTEGER, 
+      movement_key TEXT, 
+      project_id TEXT,
+      property_id TEXT,
+      check_in TEXT,
+      check_out TEXT,
+      guests INTEGER,
+      pax_adults INTEGER,
+      pax_children INTEGER,
+      pax_infants INTEGER,
+      payment_id TEXT,
+      source_event_type TEXT,
+      event_state TEXT,
+      ical_uid TEXT,
+      connection_id TEXT,
+      raw_summary TEXT,
+      raw_description TEXT
+    );`);
 
     // Safe Migrations for existing DBs (A4)
     await this.safeMigration("ALTER TABLE bookings ADD COLUMN booking_key TEXT", "Add booking_key to bookings");
@@ -730,24 +861,103 @@ export class SQLiteStore implements IDataStore {
       business_description TEXT,
       fiscal_name TEXT,
       fiscal_id TEXT,
+      fiscal_type TEXT,
       fiscal_address TEXT,
       fiscal_city TEXT,
       fiscal_postal_code TEXT,
       fiscal_country TEXT DEFAULT 'España',
+      owners_json TEXT,
       contact_email TEXT,
+      accountant_email TEXT,
+      technical_channel_email TEXT,
       contact_phone TEXT,
       contact_website TEXT,
+      social_instagram TEXT,
+      social_facebook TEXT,
+      social_tiktok TEXT,
+      social_x TEXT,
+      social_youtube TEXT,
       default_currency TEXT DEFAULT 'EUR',
       default_timezone TEXT DEFAULT 'Europe/Madrid',
       date_format TEXT DEFAULT 'DD/MM/YYYY',
+      personal_email TEXT,
+      technical_reservations_email TEXT,
+      allow_manual_completion INTEGER DEFAULT 1,
+      enable_minimal_bookings_from_ical INTEGER DEFAULT 0,
+      require_details_to_close INTEGER DEFAULT 0,
+      hold_minutes INTEGER DEFAULT 15,
+      email_outgoing_from TEXT,
+      smtp_host TEXT,
+      smtp_port INTEGER,
+      smtp_user TEXT,
+      smtp_pass TEXT,
+      smtp_secure INTEGER DEFAULT 0,
+      marketing_send_mode TEXT DEFAULT 'manual',
       ui_scale REAL DEFAULT 1.0,
+      cloudflare_worker_url TEXT,
+      cloudflare_admin_api_key TEXT,
+      webdav_url TEXT,
+      webdav_user TEXT,
+      webdav_pass TEXT,
+      webdav_sync_enabled INTEGER DEFAULT 0,
       created_at INTEGER,
       updated_at INTEGER
     );`);
 
+    // Safe Migrations for User Settings (Block 11+)
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN fiscal_type TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN owners_json TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN accountant_email TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN technical_channel_email TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN social_instagram TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN social_facebook TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN social_tiktok TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN social_x TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN social_youtube TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN personal_email TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN technical_reservations_email TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN allow_manual_completion INTEGER DEFAULT 1");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN enable_minimal_bookings_from_ical INTEGER DEFAULT 0");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN require_details_to_close INTEGER DEFAULT 0");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN hold_minutes INTEGER DEFAULT 15");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN email_outgoing_from TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN smtp_host TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN smtp_port INTEGER");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN smtp_user TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN smtp_pass TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN smtp_secure INTEGER DEFAULT 0");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN marketing_send_mode TEXT DEFAULT 'manual'");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN cloudflare_worker_url TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN cloudflare_admin_api_key TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN webdav_url TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN webdav_user TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN webdav_pass TEXT");
+    await this.safeMigration("ALTER TABLE user_settings ADD COLUMN webdav_sync_enabled INTEGER DEFAULT 0");
+
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN ota TEXT", "Add ota to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN locator TEXT", "Add locator to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN conflict_detected INTEGER DEFAULT 0", "Add conflict_detected to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN linked_event_id TEXT", "Add linked_event_id to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN rate_plan_id TEXT", "Add rate_plan_id to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN summary TEXT", "Add summary to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN guest_name TEXT", "Add guest_name to bookings");
     await this.safeMigration("ALTER TABLE bookings ADD COLUMN payments_json TEXT", "Add payments_json to bookings");
     await this.safeMigration("ALTER TABLE bookings ADD COLUMN field_sources TEXT", "Add field_sources to bookings");
     await this.safeMigration("ALTER TABLE bookings ADD COLUMN updated_at INTEGER", "Add updated_at to bookings");
+
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN property_id TEXT", "Add property_id to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN check_in TEXT", "Add check_in to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN check_out TEXT", "Add check_out to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN guests INTEGER", "Add guests to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN pax_adults INTEGER", "Add pax_adults to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN pax_children INTEGER", "Add pax_children to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN pax_infants INTEGER", "Add pax_infants to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN source_event_type TEXT", "Add source_event_type to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN event_state TEXT", "Add event_state to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN ical_uid TEXT", "Add ical_uid to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN connection_id TEXT", "Add connection_id to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN raw_summary TEXT", "Add raw_summary to accounting_movements");
+    await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN raw_description TEXT", "Add raw_description to accounting_movements");
     await this.safeMigration("ALTER TABLE accounting_movements ADD COLUMN payment_id TEXT", "Add payment_id to accounting_movements");
 
     // Booking Policies (Inheritable)
@@ -1317,13 +1527,14 @@ export class SQLiteStore implements IDataStore {
     const needsDoc = t.needs_document ? 1 : 0;
 
     await this.executeWithParams(
-      "INSERT OR REPLACE INTO travelers (id, nombre, apellidos, tipo_documento, documento, fecha_nacimiento, telefono, email, nacionalidad, provincia, cp, localidad, direccion, created_at, updated_at, needs_document, project_id, traveler_key) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT OR REPLACE INTO travelers (id, nombre, apellidos, tipo_documento, documento, fecha_nacimiento, telefono, email, nacionalidad, provincia, cp, localidad, direccion, created_at, updated_at, needs_document, project_id, traveler_key, total_stays, last_checkout) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [
         t.id, t.nombre, t.apellidos, t.tipo_documento || 'DNI', t.documento || null,
         t.fecha_nacimiento || null, t.telefono || null, t.email || null,
         t.nacionalidad || null,
         t.provincia || null, t.cp || null, t.localidad || null, t.direccion || null,
-        t.created_at || Date.now(), t.updated_at || Date.now(), needsDoc, projectId, t.traveler_key || null
+        t.created_at || Date.now(), t.updated_at || Date.now(), needsDoc, projectId,
+        t.traveler_key || null, t.total_stays || 0, t.last_checkout || null
       ]
     );
   }
@@ -2465,36 +2676,73 @@ export class SQLiteStore implements IDataStore {
 
   async saveSettings(s: UserSettings): Promise<void> {
     const updated = { ...s, updated_at: Date.now() };
+    const columns = [
+      'id', 'business_name', 'business_description', 'fiscal_name', 'fiscal_id',
+      'fiscal_type', 'fiscal_address', 'fiscal_city', 'fiscal_postal_code', 'fiscal_country',
+      'owners_json', 'contact_email', 'accountant_email', 'technical_channel_email',
+      'contact_phone', 'contact_website', 'social_instagram', 'social_facebook',
+      'social_tiktok', 'social_x', 'social_youtube', 'default_currency',
+      'default_timezone', 'date_format', 'personal_email', 'technical_reservations_email',
+      'allow_manual_completion', 'enable_minimal_bookings_from_ical', 'require_details_to_close',
+      'hold_minutes', 'email_outgoing_from', 'smtp_host', 'smtp_port', 'smtp_user',
+      'smtp_pass', 'smtp_secure', 'marketing_send_mode', 'ui_scale',
+      'cloudflare_worker_url', 'cloudflare_admin_api_key', 'webdav_url',
+      'webdav_user', 'webdav_pass', 'webdav_sync_enabled', 'created_at', 'updated_at'
+    ];
+
+    const placeholders = columns.map(() => '?').join(',');
+    const values = [
+      updated.id || 'default',
+      updated.business_name || null,
+      updated.business_description || null,
+      updated.fiscal_name || null,
+      updated.fiscal_id || null,
+      updated.fiscal_type || null,
+      updated.fiscal_address || null,
+      updated.fiscal_city || null,
+      updated.fiscal_postal_code || null,
+      updated.fiscal_country || 'España',
+      updated.owners ? JSON.stringify(updated.owners) : null,
+      updated.contact_email || null,
+      updated.accountant_email || null,
+      updated.technical_channel_email || null,
+      updated.contact_phone || null,
+      updated.contact_website || null,
+      updated.social_instagram || null,
+      updated.social_facebook || null,
+      updated.social_tiktok || null,
+      updated.social_x || null,
+      updated.social_youtube || null,
+      updated.default_currency || 'EUR',
+      updated.default_timezone || 'Europe/Madrid',
+      updated.date_format || 'DD/MM/YYYY',
+      updated.personal_email || null,
+      updated.technical_reservations_email || null,
+      updated.allow_manual_completion !== false ? 1 : 0,
+      updated.enable_minimal_bookings_from_ical ? 1 : 0,
+      updated.require_details_to_close ? 1 : 0,
+      updated.hold_minutes || 15,
+      updated.email_outgoing_from || null,
+      updated.smtp_host || null,
+      updated.smtp_port || null,
+      updated.smtp_user || null,
+      updated.smtp_pass || null,
+      updated.smtp_secure ? 1 : 0,
+      updated.marketing_send_mode || 'manual',
+      updated.ui_scale || 1.0,
+      updated.cloudflare_worker_url || null,
+      updated.cloudflare_admin_api_key || null,
+      updated.webdav_url || null,
+      updated.webdav_user || null,
+      updated.webdav_pass || null,
+      updated.webdav_sync_enabled ? 1 : 0,
+      updated.created_at || Date.now(),
+      updated.updated_at
+    ];
+
     await this.executeWithParams(
-      `INSERT OR REPLACE INTO user_settings (
-        id, business_name, business_description, fiscal_name, fiscal_id,
-        fiscal_address, fiscal_city, fiscal_postal_code, fiscal_country,
-        contact_email, contact_phone, contact_website, default_currency,
-        default_timezone, date_format, ui_scale, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        updated.id || 'default',
-        updated.business_name,
-        updated.business_description,
-        updated.fiscal_name,
-        updated.fiscal_id,
-        updated.fiscal_address,
-        updated.fiscal_city,
-        updated.fiscal_postal_code,
-        updated.fiscal_country,
-        updated.technical_reservations_email,
-        updated.allow_manual_completion !== false ? 1 : 0,
-        updated.contact_email,
-        updated.contact_phone,
-        updated.contact_website,
-        updated.default_currency,
-        updated.default_timezone,
-        updated.date_format,
-        updated.ui_scale || 1.0,
-        updated.enable_minimal_bookings_from_ical ? 1 : 0,
-        updated.created_at || Date.now(),
-        updated.updated_at
-      ]
+      `INSERT OR REPLACE INTO user_settings (${columns.join(', ')}) VALUES (${placeholders})`,
+      values
     );
   }
 
@@ -3125,14 +3373,15 @@ export class SQLiteStore implements IDataStore {
     }));
   }
   async saveProperty(p: Property) {
+    const projectId = localStorage.getItem('active_project_id');
     await this.executeWithParams(
-      "INSERT OR REPLACE INTO properties (id, name, description, color, created_at, updated_at, is_active, timezone, currency, web_calendar_enabled, public_token, allowed_origins_json, show_prices, max_range_days, last_published_at, location, logo, phone, email) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      "INSERT OR REPLACE INTO properties (id, name, description, color, created_at, updated_at, is_active, timezone, currency, web_calendar_enabled, public_token, allowed_origins_json, show_prices, max_range_days, last_published_at, location, logo, phone, email, project_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       [
         p.id, p.name, p.description || '', p.color || null, p.created_at, p.updated_at || Date.now(),
         p.is_active !== false ? 1 : 0, p.timezone || 'Europe/Madrid', p.currency || 'EUR',
         p.web_calendar_enabled ? 1 : 0, p.public_token || null, p.allowed_origins_json || '[]',
         p.show_prices ? 1 : 0, p.max_range_days || 365, p.last_published_at || null,
-        p.location || '', p.logo || '', p.phone || '', p.email || ''
+        p.location || '', p.logo || '', p.phone || '', p.email || '', projectId
       ]
     );
   }
@@ -3194,26 +3443,27 @@ export class SQLiteStore implements IDataStore {
         );
 
       return ({
-      ...a,
-      is_active: a.is_active !== 0,
-      publicBasePrice,
-      currency: a.currency || 'EUR'
+        ...a,
+        is_active: a.is_active !== 0,
+        publicBasePrice,
+        currency: a.currency || 'EUR'
       });
     });
   }
   async saveApartment(a: Apartment) {
     const now = Date.now();
+    const projectId = localStorage.getItem('active_project_id');
     await this.executeWithParams(
       `INSERT OR REPLACE INTO apartments (
         id, property_id, name, color, created_at, updated_at, is_active, deleted_at,
         ical_export_token, ical_last_publish, ical_event_count,
-        public_base_price, currency
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        public_base_price, currency, project_id
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         a.id, a.property_id, a.name || 'Unidad', a.color || '#4F46E5',
         a.created_at || now, (a as any).updated_at || now, a.is_active !== false ? 1 : 0, (a as any).deleted_at || null,
         a.ical_export_token || null, a.ical_last_publish || null, a.ical_event_count || null,
-        a.publicBasePrice ?? null, a.currency || 'EUR'
+        a.publicBasePrice ?? null, a.currency || 'EUR', projectId
       ]
     );
   }

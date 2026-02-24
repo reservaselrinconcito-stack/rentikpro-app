@@ -103,6 +103,11 @@ const CalendarContent: React.FC = () => {
     console.debug(`[Calendar] query_source=ACCOUNTING_TRUTH project_id=${activeProjectId} selected_prop=${selectedPropertyId}`);
 
     try {
+      // Race hardening: during boot/restore, the store can exist but still be initializing.
+      // Calendar should not crash or throw unhandled rejections.
+      const ready = await store.waitForReady(10, 100);
+      if (!ready) return;
+
       const computeRange = () => {
         if (viewMode === 'weekly') {
           const ws = startOfWeekMonday(currentDate);
@@ -127,8 +132,12 @@ const CalendarContent: React.FC = () => {
       const { from, to } = computeRange();
       const propertyId = selectedPropertyId !== 'all' ? selectedPropertyId : undefined;
 
+      // Backwards compatible DBs: some restores may not have bookings.deleted_at.
+      // Detect once and pass into the range query to avoid crashing the Calendar.
+      const hasDeletedAt = await store.hasColumn('bookings', 'deleted_at').catch(() => false);
+
       const [rangeBookings, pList, tList, aList] = await Promise.all([
-        store.queryReservationsByRange(null, from, to, { propertyId, includeCancelled: true } as any),
+        store.queryReservationsByRange(null, from, to, { propertyId, includeCancelled: true, excludeDeleted: hasDeletedAt } as any),
         store.getProperties(),
         store.getTravelers(),
         store.getAllApartments()

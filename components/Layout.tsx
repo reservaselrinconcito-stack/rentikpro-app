@@ -13,6 +13,7 @@ import { ICalDebugPanel } from './ICalDebugPanel';
 import { ProjectSwitcherModal } from './ProjectSwitcherModal';
 import { CheckCircle, AlertCircle, Cloud, CloudOff } from 'lucide-react';
 import { syncCoordinator } from '../services/syncCoordinator';
+import { isTauri } from '../utils/isTauri';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -50,7 +51,21 @@ const NavItem = ({ to, icon: Icon, label, external, onClick }: { to: string; ico
 };
 
 export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => {
-  const projectName = projectManager.getProjectName();
+  const isTauriRuntime = isTauri();
+  const hasWorkspace = (() => {
+    if (!isTauriRuntime) return false;
+    try { return !!localStorage.getItem('rp_workspace_path'); } catch { return false; }
+  })();
+  const projectName = (() => {
+    if (hasWorkspace) {
+      try {
+        return localStorage.getItem('rp_workspace_name') || 'Workspace';
+      } catch {
+        return 'Workspace';
+      }
+    }
+    return projectManager.getProjectName();
+  })();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
@@ -129,18 +144,31 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
 
   // Load and Apply UI Scale
   useEffect(() => {
+    let cancelled = false;
     const loadSettings = async () => {
       try {
-        const settings = await projectManager.store.getSettings();
+        const store = projectManager.getStore();
+
+        // Race hardening: DB might not be ready yet during boot/restore.
+        const ready = await store.waitForReady(10, 100);
+        if (!ready) return;
+        if (cancelled) return;
+
+        const settings = await store.getSettings();
+        if (cancelled) return;
         if (settings.ui_scale) {
           setUiScale(settings.ui_scale);
           document.documentElement.style.setProperty('--ui-scale', settings.ui_scale.toString());
         }
       } catch (e) {
-        console.error("Error loading UI scale:", e);
+        // Degrade gracefully (defaults) without unhandled rejections.
+        console.warn('[Layout] UI scale load skipped:', e);
       }
     };
     loadSettings();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const updateScale = async (newScale: number) => {
@@ -150,10 +178,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
 
     // Persist
     try {
-      const settings = await projectManager.store.getSettings();
-      await projectManager.store.saveSettings({ ...settings, ui_scale: clamped });
+      const store = projectManager.getStore();
+      const ready = await store.waitForReady(10, 100);
+      if (!ready) return;
+      const settings = await store.getSettings();
+      await store.saveSettings({ ...settings, ui_scale: clamped });
     } catch (e) {
-      console.error("Error saving UI scale:", e);
+      console.warn('[Layout] UI scale save skipped:', e);
     }
   };
 
@@ -282,13 +313,16 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
             )}
 
             <button
-              onClick={() => setSwitcherOpen(true)}
-              className="w-full text-left bg-white/40 backdrop-blur-sm p-4 rounded-2xl border border-white/60 shadow-sm flex items-center gap-4 group hover:bg-white/60 hover:border-indigo-200 transition-all active:scale-[0.98]"
+              onClick={() => {
+                if (!hasWorkspace) setSwitcherOpen(true);
+              }}
+              disabled={hasWorkspace}
+              className={`w-full text-left bg-white/40 backdrop-blur-sm p-4 rounded-2xl border border-white/60 shadow-sm flex items-center gap-4 group transition-all active:scale-[0.98] ${hasWorkspace ? 'opacity-60 cursor-default' : 'hover:bg-white/60 hover:border-indigo-200'}`}
             >
               <div className="bg-emerald-500/10 p-2.5 rounded-xl text-emerald-600 group-hover:scale-110 transition-transform"><Database size={20} /></div>
               <div className="overflow-hidden flex-1">
                 <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest leading-none mb-1 opacity-70 flex justify-between">
-                  <span>PROYECTO</span>
+                  <span>{hasWorkspace ? 'WORKSPACE' : 'PROYECTO'}</span>
                   <span className="font-mono opacity-50 uppercase">{projectManager.getCurrentProjectId()?.substring(0, 8)}...</span>
                 </p>
                 <p className="text-sm font-black text-slate-700 truncate">{projectName}</p>
@@ -354,15 +388,16 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
                 </div>
                 <button
                   onClick={() => {
-                    setSwitcherOpen(true);
+                    if (!hasWorkspace) setSwitcherOpen(true);
                     setMobileMenuOpen(false);
                   }}
-                  className="w-full text-left bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3 active:scale-95 transition-all"
+                  disabled={hasWorkspace}
+                  className={`w-full text-left bg-white p-3 rounded-2xl border border-slate-200 shadow-sm flex items-center gap-3 active:scale-95 transition-all ${hasWorkspace ? 'opacity-60 cursor-default' : ''}`}
                 >
                   <div className="bg-emerald-100 p-2 rounded-lg text-emerald-600"><Database size={16} /></div>
                   <div className="overflow-hidden flex-1">
                     <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest leading-none mb-1 flex justify-between">
-                      <span>PROYECTO</span>
+                      <span>{hasWorkspace ? 'WORKSPACE' : 'PROYECTO'}</span>
                       <span className="font-mono text-[8px] opacity-40 uppercase">{projectManager.getCurrentProjectId()?.substring(0, 8)}...</span>
                     </p>
                     <p className="text-xs font-bold text-slate-700 truncate">{projectName}</p>
@@ -407,7 +442,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
       </div>
 
       <ICalDebugPanel isOpen={debugPanelOpen} onClose={() => setDebugPanelOpen(false)} />
-      <ProjectSwitcherModal isOpen={switcherOpen} onClose={() => setSwitcherOpen(false)} />
+      {!hasWorkspace && <ProjectSwitcherModal isOpen={switcherOpen} onClose={() => setSwitcherOpen(false)} />}
 
       {/* DEBUG OVERLAY (Global Errors) */}
       <DebugOverlay />
