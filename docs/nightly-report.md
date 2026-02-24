@@ -9,6 +9,7 @@ Branch: `nightly/harden-20260224`
 - `npm run build`: OK
 - `npm run build:tauri`: OK
 - Logs: `docs/nightly-logs/base-build.txt`
+- DB inventory: `docs/nightly-logs/db-inventory.txt`
 
 ## Guard Rails Added (Small/Reversible)
 - DB ready enforcement: global `getDbReady()` gate already in place; base helpers now await init if in-flight.
