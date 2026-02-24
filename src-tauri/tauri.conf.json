@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "RentikPro",
-  "version": "0.1.0",
-  "identifier": "com.rentikpro.app",
+  "version": "2.0.0",
+  "identifier": "com.rentikpro.rentikpro",
   "build": {
     "beforeDevCommand": "npm run dev -- --port 3000",
     "beforeBuildCommand": "npm run build",
@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "RentikPro",
         "width": 1080,
         "height": 720,

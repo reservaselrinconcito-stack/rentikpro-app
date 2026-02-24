@@ -17,6 +17,7 @@ import { projectManager } from './services/projectManager';
 import { syncScheduler } from './services/syncScheduler';
 import { Layout } from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { CORE_MODE } from './src/config/appMode';
 import { RescueMode } from './pages/RescueMode'; // [NEW]
 import { CleaningPage } from './pages/Cleaning';
 import { MaintenancePage } from './pages/Maintenance';
@@ -99,6 +100,15 @@ const App: React.FC = () => {
           // Don't auto-load; fall through to show StartupScreen
         } else if (projectManager.isProjectLoaded()) {
           setIsProjectOpen(true);
+        } else if (CORE_MODE) {
+          // CORE_MODE: always allow entering the app offline without login/licensing.
+          // If nothing is loaded, create a local blank project as a safe default.
+          try {
+            const ok = await projectManager.createBlankProject();
+            if (ok) setIsProjectOpen(true);
+          } catch (e) {
+            console.warn('[CORE_MODE] Failed creating blank project, showing StartupScreen', e);
+          }
         }
       } catch (e) {
         console.error("Initialization failed", e);
@@ -139,6 +149,11 @@ const App: React.FC = () => {
   // UseEffect for Project Context Updates
   useEffect(() => {
     try {
+      if (CORE_MODE) {
+        // Offline core mode: do not start background sync loops.
+        syncScheduler.stop();
+        return;
+      }
       if (isProjectOpen) {
         syncScheduler.start();
       } else {

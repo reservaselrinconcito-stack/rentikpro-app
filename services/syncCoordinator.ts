@@ -4,6 +4,7 @@ import { securityService } from './security';
 import { SyncState, UserSettings } from '../types';
 import { logger } from './logger';
 import { webdavSync } from './webdavSync';
+import { getLastOpenedProjectPath } from './projectFolderManager';
 
 export type SyncResult = {
     success: boolean;
@@ -84,7 +85,12 @@ export class SyncCoordinator {
 
         // Prefer Tauri backend sync (avoids CORS and supports local state.json + backups).
         if (this.isTauriRuntime()) {
+            const folderPath = getLastOpenedProjectPath();
             try {
+                if (!folderPath) {
+                    // No folder-based project context; fall back to web-based DAV (may be blocked by CORS depending on server).
+                    // This keeps legacy IDB/file projects functional inside Tauri.
+                } else {
                 const res = await webdavSync('up', {
                     url: settings.webdav_url || '',
                     user: settings.webdav_user || '',
@@ -96,6 +102,7 @@ export class SyncCoordinator {
                     return { success: false, error: res.error, conflict: { remoteState: res.remoteState, localState: res.localState } };
                 }
                 return { success: false, error: res.error || 'SyncUp failed' };
+                }
             } catch (e: any) {
                 return { success: false, error: e?.message || String(e) };
             }
@@ -183,7 +190,11 @@ export class SyncCoordinator {
         const settings = await projectManager.getStore().getSettings();
 
         if (this.isTauriRuntime()) {
+            const folderPath = getLastOpenedProjectPath();
             try {
+                if (!folderPath) {
+                    // No folder-based project context; fall back to web-based DAV (may be blocked by CORS depending on server).
+                } else {
                 const res = await webdavSync('down', {
                     url: settings.webdav_url || '',
                     user: settings.webdav_user || '',
@@ -195,6 +206,7 @@ export class SyncCoordinator {
                     return { success: false, error: res.error, conflict: { remoteState: res.remoteState, localState: res.localState } };
                 }
                 return { success: false, error: res.error || 'SyncDown failed' };
+                }
             } catch (e: any) {
                 return { success: false, error: e?.message || String(e) };
             }

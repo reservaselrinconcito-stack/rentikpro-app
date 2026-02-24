@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "prepare:sqljs": "node scripts/prepare-sqljs.js",
+    "sync:tauri-version": "node scripts/sync-tauri-version.js",
     "dev": "npm run prepare:sqljs && vite",
     "build": "npm run prepare:sqljs && node scripts/generate-version.js && vite build",
     "preview": "vite preview",
@@ -15,8 +16,8 @@
     "smoke": "npm run build && npx playwright test tests/smoke.spec.ts",
     "smoke:pricing": "tsx scripts/smoke-pricing-studio.ts",
     "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:dev": "npm run sync:tauri-version && tauri dev",
+    "tauri:build": "npm run sync:tauri-version && tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

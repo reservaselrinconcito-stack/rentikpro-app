@@ -31,6 +31,7 @@ type OpenProjectResult = {
 };
 
 const LAST_PROJECT_PATH_KEY = 'rp_last_project_path';
+const LAST_PROJECT_JSON_KEY = 'rp_last_project_json';
 
 function isTauriRuntime(): boolean {
   return typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
@@ -88,6 +89,7 @@ export async function openProject(path: string): Promise<ProjectContext> {
 
   // Store path early (needed for syncDown to locate the folder).
   localStorage.setItem(LAST_PROJECT_PATH_KEY, path);
+  localStorage.setItem(LAST_PROJECT_JSON_KEY, res.project_json);
 
   let projectName = 'Proyecto';
   let projectId = '';
@@ -119,6 +121,8 @@ export async function openProject(path: string): Promise<ProjectContext> {
       db_base64: res.db_base64,
       overwrite: true,
     } as any);
+
+    localStorage.setItem(LAST_PROJECT_JSON_KEY, updatedJson);
   }
 
   // Load DB into the app's store (do NOT set active_project_id; path is the desktop source-of-truth).
@@ -127,13 +131,14 @@ export async function openProject(path: string): Promise<ProjectContext> {
     name: projectName,
     mode: 'real',
     setAsActive: false,
-    startAutoSave: false,
+    startAutoSave: true,
   });
 
   // Best-effort auto sync DOWN on open (if enabled in settings).
   try {
     const { syncCoordinator } = await import('./syncCoordinator');
-    await syncCoordinator.syncDown().catch(() => null);
+    // Never block UI on network.
+    syncCoordinator.syncDown().catch(() => null);
   } catch {
     // ignore
   }
@@ -171,6 +176,8 @@ export async function createProject(path: string, meta: ProjectFolderMeta): Prom
     db_base64: bytesToBase64(dbBytes),
     overwrite: false,
   } as any);
+
+  localStorage.setItem(LAST_PROJECT_JSON_KEY, projectJson);
 
   return openProject(path);
 }

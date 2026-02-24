@@ -25,10 +25,81 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error:', error, errorInfo);
+    try {
+      console.groupCollapsed('[ErrorBoundary] Uncaught React error');
+      console.error(error);
+      console.log('componentStack:', errorInfo.componentStack);
+      console.groupEnd();
+    } catch {
+      console.error('[ErrorBoundary] Uncaught error:', error, errorInfo);
+    }
     if (this.props.onError) {
       this.props.onError(error);
     }
+  }
+
+  private handleWindowError = (event: ErrorEvent) => {
+    if (this.state.hasError) return;
+    const err = (event as any).error instanceof Error
+      ? (event as any).error
+      : new Error(event.message || 'Unhandled window error');
+    console.error('[ErrorBoundary] window.error', err);
+    this.setState({ hasError: true, error: err });
+  };
+
+  private handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+    if (this.state.hasError) return;
+    const reason = (event as any).reason;
+    const err = reason instanceof Error ? reason : new Error(String(reason || 'Unhandled promise rejection'));
+    console.error('[ErrorBoundary] unhandledrejection', err);
+    this.setState({ hasError: true, error: err });
+  };
+
+  public componentDidMount() {
+    // Catch async boot errors too (not captured by React error boundaries).
+    window.addEventListener('error', this.handleWindowError);
+    window.addEventListener('unhandledrejection', this.handleUnhandledRejection);
+  }
+
+  public componentWillUnmount() {
+    window.removeEventListener('error', this.handleWindowError);
+    window.removeEventListener('unhandledrejection', this.handleUnhandledRejection);
+  }
+
+  private async recover() {
+    try {
+      console.warn('[Recover] Resetting boot state and reloading...');
+      localStorage.removeItem('active_project_id');
+      localStorage.removeItem('active_project_mode');
+      localStorage.removeItem('rp_last_project_path');
+      localStorage.removeItem('rp_last_project_json');
+      // Sync tracking keys are safe to drop; they will be re-created.
+      for (const k of Object.keys(localStorage)) {
+        if (k.startsWith('sync_state_')) localStorage.removeItem(k);
+      }
+    } catch (e) {
+      console.warn('[Recover] localStorage reset failed', e);
+    }
+
+    // Best effort: clear SW/caches to avoid stale assets causing a blank screen after updates.
+    try {
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map(r => r.unregister().catch(() => false)));
+      }
+    } catch (e) {
+      console.warn('[Recover] serviceWorker cleanup failed', e);
+    }
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k).catch(() => false)));
+      }
+    } catch (e) {
+      console.warn('[Recover] caches cleanup failed', e);
+    }
+
+    window.location.reload();
   }
 
   public render() {
@@ -54,6 +125,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                 className="flex items-center gap-2 px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition-colors"
               >
                 <Home size={16} /> Ir al Inicio
+              </button>
+              <button
+                onClick={() => this.recover()}
+                className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white rounded-xl font-bold text-xs hover:bg-slate-800 transition-colors shadow-lg shadow-slate-200"
+                title="Limpia el estado de arranque y recarga"
+              >
+                Recuperar
               </button>
               <button
                 onClick={() => window.location.reload()}

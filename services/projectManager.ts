@@ -8,6 +8,7 @@ import { projectPersistence } from './projectPersistence';
 import { demoGenerator } from './demoGenerator';
 import { ProjectFileProvider } from './projectFileProvider';
 import { syncCoordinator } from './syncCoordinator';
+import { invoke } from '@tauri-apps/api/core';
 
 export class ProjectManager {
   public store: SQLiteStore;
@@ -38,13 +39,48 @@ export class ProjectManager {
 
   async initialize(): Promise<void> {
     const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+
+    // Priority 1: Desktop folder-based project (Tauri) — auto-open last folder if available.
     if (isTauri) {
-      // Desktop folder-based projects are opened explicitly via ProjectFolderManager.
-      // Avoid confusing auto-load via active_project_id (IDB).
-      return;
+      const lastFolder = (() => {
+        try { return localStorage.getItem('rp_last_project_path'); } catch { return null; }
+      })();
+      if (lastFolder) {
+        try {
+          const pfm = await import('./projectFolderManager');
+          const v = await pfm.validateProject(lastFolder);
+          if (v.ok) {
+            await pfm.openProject(lastFolder);
+            logger.log(`[ProjectManager] Auto-opened folder project: ${lastFolder}`);
+            return;
+          }
+          logger.warn('[ProjectManager] Last folder project invalid, falling back to IDB', v.error);
+        } catch (e) {
+          logger.warn('[ProjectManager] Failed to auto-open last folder project, falling back to IDB', e);
+        }
+      }
     }
 
-    // Check if we should auto-load a project
+    // Priority 2: File System Access (FSA) — restore last linked file handle if permission is granted.
+    if (!isTauri && this.fileProvider.supportsFileSystemAccess()) {
+      try {
+        const restored = await this.fileProvider.restoreLastHandle();
+        if (restored) {
+          const perm = await this.fileProvider.queryPermission('read');
+          if (perm === 'granted') {
+            const ok = await this.openLinkedFileProject().catch((e) => {
+              logger.warn('[ProjectManager] Failed to auto-open linked file project', e);
+              return false;
+            });
+            if (ok) return;
+          }
+        }
+      } catch (e) {
+        logger.warn('[ProjectManager] FSA restore check failed, continuing with IDB', e);
+      }
+    }
+
+    // Priority 3: IndexedDB auto-load via active_project_id.
     const activeId = localStorage.getItem('active_project_id');
     const activeMode = localStorage.getItem('active_project_mode') as 'real' | 'demo';
 
@@ -52,10 +88,63 @@ export class ProjectManager {
       logger.log(`[ProjectManager] Auto-loading active project: ${activeId} (${activeMode})`);
       const success = await this.loadProject(activeId);
       if (!success) {
-        logger.warn("[ProjectManager] Failed to auto-load active project. Needs user action.");
+        logger.warn('[ProjectManager] Failed to auto-load active project. Needs user action.');
         localStorage.removeItem('active_project_id');
         localStorage.removeItem('active_project_mode');
       }
+    }
+  }
+
+  private async openLinkedFileProject(): Promise<boolean> {
+    // Requires an already linked file handle (restored or chosen).
+    if (!this.fileProvider.hasOpenFile()) return false;
+
+    try {
+      const zipBytes = await this.fileProvider.readOpenProjectFileBytes();
+      if (!zipBytes) return false;
+
+      // Extract database.sqlite from the ZIP (same format as exportFullBackupZip)
+      const zip = await JSZip.loadAsync(zipBytes);
+      const dbFile = zip.file('database.sqlite');
+      if (!dbFile) {
+        throw new Error("El archivo no contiene 'database.sqlite'. ¿Es un archivo .rentikpro válido?");
+      }
+      const dbBytes = await dbFile.async('uint8array');
+
+      await this.store.load(dbBytes);
+
+      const fileName = this.fileProvider.getProjectDisplayName();
+      const projectId = `proj_file_${btoa(fileName).replace(/[^a-z0-9]/gi, '').substring(0, 16)}`;
+      this.currentProjectId = projectId;
+      this.currentProjectMode = 'real';
+      this.lastSyncedAt = Date.now();
+
+      const counts = await this.store.getCounts();
+      this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
+
+      this.setActiveContext(projectId, 'real');
+      this.storageMode = 'file';
+
+      // Persist metadata+snapshot to IDB as fallback.
+      try {
+        await this.persistCurrentProject(fileName);
+      } catch (e) {
+        logger.warn('[FileMode] Could not persist project metadata to IDB', e);
+      }
+
+      this.startAutoSave();
+      notifyDataChanged('all');
+      return true;
+    } catch (e: any) {
+      // Permission lost or handle revoked: drop back to IDB.
+      const msg = String(e?.name || e?.message || e);
+      logger.warn('[FileMode] Failed to open linked file project', msg);
+      try {
+        await this.fileProvider.clearPersistedHandle();
+      } catch { }
+      this.fileProvider.clearHandle();
+      this.storageMode = 'idb';
+      return false;
     }
   }
 
@@ -149,11 +238,6 @@ export class ProjectManager {
     try {
       const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
 
-      // 1. Pre-load sync: check if there is a newer version in WebDAV
-      // We do this by temporarily setting the ID so syncCoordinator knows which project to check
-      this.currentProjectId = id;
-      await syncCoordinator.syncDown().catch(e => logger.warn("[ProjectManager] SyncDown failed during load", e));
-
       const record = await projectPersistence.loadProject(id);
       if (!record) return false;
 
@@ -168,6 +252,11 @@ export class ProjectManager {
 
       this.setActiveContext(record.id, record.mode);
       this.startAutoSave();
+
+      // Non-blocking WebDAV pull (never blocks UI). If remote changes apply, SyncCoordinator will call store.load() + notify.
+      if (!isTauri && this.currentProjectMode === 'real') {
+        syncCoordinator.syncDown().catch(e => logger.warn('[ProjectManager] SyncDown failed (non-blocking)', e));
+      }
 
       // In desktop mode, treat legacy IDB projects as read-only persistence.
       // Users should migrate to a folder-based project instead.
@@ -301,6 +390,30 @@ export class ProjectManager {
   async saveProject(): Promise<void> {
     console.log('[SAVE:PM] begin', { projectId: this.currentProjectId });
     if (!this.store || !this.currentProjectId) return;
+    const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+    const folderPath = isTauri ? (localStorage.getItem('rp_last_project_path') || '') : '';
+
+    // Desktop folder-based projects: persist to the selected folder (project.json + db.sqlite).
+    // Always also snapshot to IndexedDB as a fallback.
+    if (isTauri && folderPath) {
+      await this.persistCurrentProjectToFolder(folderPath);
+
+      try {
+        const cached = localStorage.getItem('rp_last_project_json');
+        const nameFromJson = cached ? (JSON.parse(cached)?.name as string | undefined) : undefined;
+        const name = nameFromJson || `Proyecto ${new Date().toLocaleDateString()}`;
+        await this.snapshotCurrentProjectToIdb(name);
+      } catch (e) {
+        logger.warn('[ProjectManager] IDB snapshot failed (folder mode)', e);
+      }
+
+      this.lastSyncedAt = Date.now();
+      if (this.currentProjectMode === 'real') {
+        syncCoordinator.syncUp().catch(e => logger.warn('[ProjectManager] Async SyncUp failed', e));
+      }
+      return;
+    }
+
     const name = this.currentProjectMode === 'demo' ? 'DEMO RentikPro' : `Proyecto ${new Date().toLocaleDateString()}`;
     await this.persistCurrentProject(name);
     this.lastSyncedAt = Date.now();
@@ -310,6 +423,77 @@ export class ProjectManager {
     if (this.storageMode === 'file' && !this.isSavingToFile) {
       this.scheduleAutoSaveFile();
     }
+  }
+
+  private async snapshotCurrentProjectToIdb(name: string): Promise<void> {
+    if (!this.currentProjectId) return;
+
+    const data = this.store.export();
+    const counts = await this.store.getCounts();
+    this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
+
+    await projectPersistence.saveProject(
+      this.currentProjectId,
+      name,
+      data,
+      this.currentProjectMode,
+      this.currentCounts.bookings,
+      this.currentCounts.accounting
+    );
+  }
+
+  private bytesToBase64(bytes: Uint8Array): string {
+    let bin = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(bin);
+  }
+
+  private async persistCurrentProjectToFolder(folderPath: string): Promise<void> {
+    if (!this.currentProjectId) return;
+
+    // Refresh counts for UI stats.
+    const counts = await this.store.getCounts();
+    this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
+
+    const dbBytes = this.store.export();
+    const dbBase64 = this.bytesToBase64(dbBytes);
+
+    // Reuse the last project.json we opened/created (cached by ProjectFolderManager).
+    const cached = localStorage.getItem('rp_last_project_json');
+    let projectJson: any = null;
+    if (cached) {
+      try { projectJson = JSON.parse(cached); } catch { projectJson = null; }
+    }
+
+    if (!projectJson || typeof projectJson !== 'object') {
+      projectJson = {
+        schema: 1,
+        id: this.currentProjectId,
+        name: 'Proyecto',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        appVersion: APP_VERSION,
+        dbFile: 'db.sqlite',
+      };
+    }
+
+    // Keep stable id/name; only bump updatedAt/appVersion.
+    projectJson.id = (projectJson.id || this.currentProjectId);
+    projectJson.updatedAt = Date.now();
+    projectJson.appVersion = APP_VERSION;
+
+    const projectJsonStr = JSON.stringify(projectJson, null, 2);
+    localStorage.setItem('rp_last_project_json', projectJsonStr);
+
+    await invoke<any>('write_project_folder', {
+      path: folderPath,
+      project_json: projectJsonStr,
+      db_base64: dbBase64,
+      overwrite: true,
+    } as any);
   }
 
   async waitForFileSave(): Promise<void> {
@@ -885,6 +1069,22 @@ export class ProjectManager {
       } catch (e) {
         this.fileSaveState = 'error';
         logger.error('[FileMode AutoSave] Failed', e);
+
+        // If we lost permissions or the handle became invalid, fall back to IDB snapshots.
+        const name = (e as any)?.name || '';
+        const msg = String((e as any)?.message || e);
+        const isPermission = name === 'NotAllowedError' || name === 'SecurityError' || msg.toLowerCase().includes('permission');
+        if (isPermission) {
+          try {
+            await this.fileProvider.clearPersistedHandle();
+          } catch { }
+          this.fileProvider.clearHandle();
+          this.storageMode = 'idb';
+          try {
+            localStorage.setItem('rp_fsa_last_error', msg.slice(0, 400));
+          } catch { }
+          notifyDataChanged('all');
+        }
       } finally {
         this.isSavingToFile = false;
       }

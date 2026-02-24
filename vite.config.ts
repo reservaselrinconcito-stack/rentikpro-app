@@ -7,6 +7,7 @@ import packageJson from './package.json';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   const buildDate = new Date().toISOString().split('T')[0];
+  const isTauriBuild = !!process.env.TAURI_PLATFORM || !!process.env.TAURI_FAMILY;
 
   return {
     server: {
@@ -15,7 +16,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       react(),
-      VitePWA({
+      !isTauriBuild && VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
         manifest: {
@@ -76,7 +77,7 @@ export default defineConfig(({ mode }) => {
           ]
         }
       })
-    ],
+    ].filter(Boolean) as any,
     define: {
       // Usar convención de Vite con VITE_ prefix
       'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),

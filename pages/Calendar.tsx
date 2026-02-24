@@ -15,7 +15,9 @@ import { isConfirmedBooking, isProvisionalBlock, isCovered } from '../utils/book
 import { getBookingDisplayName } from '../utils/bookingDisplay';
 import { DayIndex, formatDay } from '../utils/day';
 import { assignLanes, LaneAssigned } from '../utils/assignLanes';
-import { ReservationLike, getRenderInterval } from '../utils/reservationIntervals';
+import { ReservationLike } from '../utils/reservationIntervals';
+import { buildMonthGrid, MonthGridDay } from '../utils/monthGrid';
+import { buildMonthlyReservationSegmentsWithLanes, MonthlyWeekSegment } from '../utils/monthlyReservationSegments';
 
 type ViewMode = 'monthly' | 'weekly' | 'yearly';
 
@@ -116,13 +118,9 @@ const CalendarContent: React.FC = () => {
         }
 
         // Monthly grid = 6 weeks (Mon..Sun)
-        const y = currentDate.getFullYear();
-        const m = currentDate.getMonth();
-        const firstOfMonth = new Date(y, m, 1);
-        const gridStart = startOfWeekMonday(firstOfMonth);
-        const startIdx = dayIndexFromLocalDate(gridStart);
-        const from = formatDay(startIdx);
-        const to = formatDay(startIdx + (6 * 7)); // 42 days, exclusive
+        const grid = buildMonthGrid(currentDate);
+        const from = formatDay(grid.startDay);
+        const to = formatDay(grid.endDayExclusive); // exclusive
         return { from, to };
       };
 
@@ -226,7 +224,7 @@ const CalendarContent: React.FC = () => {
     });
   };
 
-  type VisibleDay = { dayIndex: DayIndex; dateStr: string; inMonth: boolean };
+  type VisibleDay = MonthGridDay;
 
   const visibleWeeks = useMemo((): VisibleDay[][] => {
     if (viewMode === 'weekly') {
@@ -241,24 +239,7 @@ const CalendarContent: React.FC = () => {
     }
 
     if (viewMode === 'monthly') {
-      const year = currentDate.getFullYear();
-      const month = currentDate.getMonth();
-      const firstOfMonth = new Date(year, month, 1);
-      const gridStart = startOfWeekMonday(firstOfMonth);
-      const gridStartIdx = dayIndexFromLocalDate(gridStart);
-
-      const weeks: VisibleDay[][] = [];
-      for (let w = 0; w < 6; w++) {
-        const week: VisibleDay[] = [];
-        for (let d = 0; d < 7; d++) {
-          const idx = gridStartIdx + (w * 7) + d;
-          const dt = new Date(idx * MS_PER_DAY);
-          const inMonth = dt.getUTCFullYear() === year && dt.getUTCMonth() === month;
-          week.push({ dayIndex: idx, dateStr: formatDay(idx), inMonth });
-        }
-        weeks.push(week);
-      }
-      return weeks;
+      return buildMonthGrid(currentDate).weeks;
     }
 
     return [];
@@ -559,48 +540,33 @@ const CalendarContent: React.FC = () => {
       );
     }
 
-    type WeekSegment = {
-      id: string;
-      segStartDay: DayIndex;
-      segEndDayInclusive: DayIndex;
-      laneIndex: number;
-      reservation: BookingReservation;
-    };
-
     const LANE_H = 22;
     const todayIdx = dayIndexFromLocalDate(new Date());
 
-    const assignWeekLanes = (segments: Array<Omit<WeekSegment, 'laneIndex'>>): WeekSegment[] => {
-      const sorted = [...segments].sort((a, b) => {
-        if (a.segStartDay !== b.segStartDay) return a.segStartDay - b.segStartDay;
-        if (a.segEndDayInclusive !== b.segEndDayInclusive) return a.segEndDayInclusive - b.segEndDayInclusive;
-        return String(a.id).localeCompare(String(b.id));
+    const weekStarts = useMemo((): DayIndex[] => {
+      return visibleWeeks
+        .map(w => w[0]?.dayIndex)
+        .filter((d): d is DayIndex => typeof d === 'number');
+    }, [visibleWeeks]);
+
+    const segments = useMemo((): MonthlyWeekSegment<BookingReservation>[] => {
+      if (!visibleRangeInclusive) return [];
+      return buildMonthlyReservationSegmentsWithLanes(reservationsForGrid, {
+        visibleRangeInclusive,
+        weekStarts,
+        includeCancelled: false,
       });
+    }, [reservationsForGrid, visibleRangeInclusive, weekStarts]);
 
-      const lanes: Array<{ lastEndInclusiveDay: DayIndex }> = [];
-      const out: WeekSegment[] = [];
-
-      for (const seg of sorted) {
-        let laneIndex = -1;
-        for (let i = 0; i < lanes.length; i++) {
-          // Strictly ">" because overlap is inclusive.
-          if (seg.segStartDay > lanes[i].lastEndInclusiveDay) {
-            laneIndex = i;
-            lanes[i].lastEndInclusiveDay = Math.max(lanes[i].lastEndInclusiveDay, seg.segEndDayInclusive);
-            break;
-          }
-        }
-
-        if (laneIndex === -1) {
-          laneIndex = lanes.length;
-          lanes.push({ lastEndInclusiveDay: seg.segEndDayInclusive });
-        }
-
-        out.push({ ...seg, laneIndex });
+    const segmentsByWeek = useMemo(() => {
+      const m = new Map<DayIndex, MonthlyWeekSegment<BookingReservation>[]>();
+      for (const s of segments) {
+        const list = m.get(s.weekStart) || [];
+        list.push(s);
+        m.set(s.weekStart, list);
       }
-
-      return out;
-    };
+      return m;
+    }, [segments]);
 
     return (
       <div className="w-full overflow-x-auto custom-scrollbar pb-4 -mb-4 touch-pan-x">
@@ -616,24 +582,8 @@ const CalendarContent: React.FC = () => {
               {visibleWeeks.map((week) => {
                 if (week.length !== 7) return null;
                 const weekStart = week[0].dayIndex;
-                const weekEnd = week[6].dayIndex;
-
-                const rawSegments: Array<Omit<WeekSegment, 'laneIndex'>> = [];
-                for (const r of reservationsForGrid) {
-                  const [s, e] = getRenderInterval(r);
-                  const segStartDay = Math.max(s, weekStart);
-                  const segEndDayInclusive = Math.min(e, weekEnd);
-                  if (segStartDay > segEndDayInclusive) continue;
-                  rawSegments.push({
-                    id: `${weekStart}-${r.id}`,
-                    segStartDay,
-                    segEndDayInclusive,
-                    reservation: r,
-                  });
-                }
-
-                const segments = assignWeekLanes(rawSegments);
-                const laneCount = segments.length ? (Math.max(...segments.map(s => s.laneIndex)) + 1) : 0;
+                const segs = segmentsByWeek.get(weekStart) || [];
+                const laneCount = segs.length ? (Math.max(...segs.map(s => s.laneIndex)) + 1) : 0;
                 const laneRows = Math.max(1, laneCount);
 
                 return (
@@ -687,7 +637,7 @@ const CalendarContent: React.FC = () => {
                         );
                       })}
 
-                      {segments.map((seg) => {
+                      {segs.map((seg) => {
                         const r = seg.reservation;
                         const b = r.booking;
                         const traveler = travelers.find(t => t.id === b.traveler_id);
@@ -721,7 +671,7 @@ const CalendarContent: React.FC = () => {
 
                         return (
                           <div
-                            key={seg.id}
+                            key={seg.key}
                             onClick={(e) => { e.stopPropagation(); openEventDetail(b); }}
                             className={`z-10 px-2 text-[10px] font-black flex items-center rounded-md shadow-sm cursor-pointer hover:brightness-110 transition-all overflow-hidden whitespace-nowrap ${isConflict ? 'animate-pulse' : ''} ${isBlock ? 'opacity-70 grayscale-[0.5]' : ''}`}
                             style={style as any}
