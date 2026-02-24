@@ -112,6 +112,8 @@ export class SQLiteStore implements IDataStore {
   public initialized = false;
   private initPromise: Promise<void> | null = null;
   private columnInfoCache: Map<string, Set<string>> = new Map();
+  private writeChain: Promise<void> = Promise.resolve();
+  private inWrite = false;
   private schemaFlags = {
     bookings_event_kind: false,
     bookings_event_state: false,
@@ -2288,8 +2290,9 @@ export class SQLiteStore implements IDataStore {
   }
 
   // --- WEBSITES ---
-  async getMessages(): Promise<any[]> {
-    return []; // Satisfy IDataStore
+  // Backwards compat alias for IDataStore interface.
+  async getMessages(conversationId: string): Promise<Message[]> {
+    return await this.getConversationMessages(conversationId);
   }
 
 
@@ -3390,30 +3393,59 @@ export class SQLiteStore implements IDataStore {
 
 
   // --- BASE HELPERS ---
-  async execute(sql: string) {
-    if (!this.db) {
-      console.error("[DB] EXECUTE FAILED: DB not initialized or closed", sql);
-      throw new Error("DB not ready/closed");
+  private async ensureDbOrThrow(op: string, sql: string) {
+    if (this.db) return;
+    if (this.initPromise) {
+      try {
+        await this.initPromise;
+      } catch {
+        // init failure already handled by caller; fall through and throw below
+      }
     }
-    this.db.run(sql);
+    if (!this.db) {
+      console.error(`[DB] ${op} FAILED: DB not initialized or closed`, sql);
+      throw new Error('DB not ready/closed');
+    }
+  }
+
+  private async queueWrite<T>(fn: () => Promise<T> | T): Promise<T> {
+    // Prevent self-deadlock when internal code calls execute multiple times
+    // within the same queued write task.
+    if (this.inWrite) {
+      return await fn();
+    }
+
+    const run = async () => {
+      this.inWrite = true;
+      try {
+        return await fn();
+      } finally {
+        this.inWrite = false;
+      }
+    };
+
+    const next = this.writeChain.then(run, run);
+    this.writeChain = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  async execute(sql: string) {
+    await this.ensureDbOrThrow('EXECUTE', sql);
+    await this.queueWrite(() => {
+      this.db.run(sql);
+    });
   }
   async executeWithParams(sql: string, params: any[]) {
-    if (!this.db) {
-      console.error("[DB] EXECUTE_PARAMS FAILED: DB not initialized or closed", sql);
-      throw new Error("DB not ready/closed");
-    }
+    await this.ensureDbOrThrow('EXECUTE_PARAMS', sql);
     const sanitized = this.sanitizeParams(params);
-    this.db.run(sql, sanitized);
+    await this.queueWrite(() => {
+      this.db.run(sql, sanitized);
+    });
   }
 
   // Generic query method
   public async query(sql: string, params: any[] = []): Promise<any[]> {
-    if (!this.db) {
-      // In query we default to empty array if not ready, but arguably query should also throw if critical.
-      // For now, let's throw to be strict as requested.
-      console.error("[DB] QUERY FAILED: DB not initialized or closed", sql);
-      throw new Error("DB not ready/closed");
-    }
+    await this.ensureDbOrThrow('QUERY', sql);
     const sanitized = this.sanitizeParams(params);
 
     const res = this.db?.exec(sql, sanitized);
@@ -3937,7 +3969,10 @@ export class SQLiteStore implements IDataStore {
     );
   }
 
-  async getCleaningTemplates(propertyId: string): Promise<CleaningTemplate[]> {
+  async getCleaningTemplates(propertyId?: string): Promise<CleaningTemplate[]> {
+    if (!propertyId) {
+      return await this.query("SELECT * FROM cleaning_templates");
+    }
     return await this.query("SELECT * FROM cleaning_templates WHERE property_id = ?", [propertyId]);
   }
 
