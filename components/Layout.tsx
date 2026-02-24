@@ -14,6 +14,7 @@ import { ProjectSwitcherModal } from './ProjectSwitcherModal';
 import { CheckCircle, AlertCircle, Cloud, CloudOff } from 'lucide-react';
 import { syncCoordinator } from '../services/syncCoordinator';
 import { isTauri } from '../utils/isTauri';
+import { getDbReady, isDbReady } from '../services/sqliteStore';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -69,6 +70,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+
+  const [booted, setBooted] = useState(() => isDbReady());
+  const [bootError, setBootError] = useState<any>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -109,6 +113,24 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   const [isSyncing, setIsSyncing] = useState(false);
   useEffect(() => {
     return syncCoordinator.subscribe(setIsSyncing);
+  }, []);
+
+  // DB readiness gate: avoid crashes from querying before init.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        await getDbReady();
+        if (!cancelled) setBooted(true);
+      } catch (e) {
+        if (!cancelled) setBootError(e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const SyncStatusBadge = () => {
@@ -267,6 +289,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
     </>
   );
 
+  if (bootError) {
+    return <div>Startup error</div>;
+  }
+
+  if (!booted) {
+    return <div>Initializing...</div>;
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-[#f8fafc] bg-none text-slate-900 relative">
       {/* Background Orbs */}
@@ -280,7 +310,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
         </button>
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3 text-indigo-600">
-            <div className="bg-indigo-600 p-1.5 rounded-xl text-white shadow-lg shadow-indigo-200"><Building2 size={24} /></div>
+            <div className="p-1 rounded-xl shadow-lg shadow-indigo-200 overflow-hidden bg-indigo-600">
+              <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
+            </div>
             <div className="text-xl font-black leading-none">RentikPro</div>
           </div>
           <AppVersion />
@@ -296,7 +328,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
           <div className="p-8">
             <div className="flex flex-col gap-2 mb-10">
               <div className="flex items-center gap-4 text-indigo-600">
-                <div className="bg-indigo-600 p-2 rounded-2xl text-white shadow-xl shadow-indigo-200/50"><Building2 size={28} /></div>
+                <div className="p-1.5 rounded-2xl shadow-xl shadow-indigo-200/50 overflow-hidden bg-indigo-600">
+                  <img src="/logo.png" alt="Logo" className="w-9 h-9 object-contain" />
+                </div>
                 <div className="text-2xl font-black tracking-tight leading-none">RentikPro</div>
               </div>
               <AppVersion />
@@ -377,7 +411,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-3 text-indigo-600">
-                      <div className="bg-indigo-600 p-1.5 rounded-lg text-white"><Building2 size={24} /></div>
+                      <div className="p-1 rounded-lg shadow-md overflow-hidden bg-indigo-600">
+                        <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
+                      </div>
                       <span className="text-xl font-black tracking-tight">RentikPro</span>
                     </div>
                     <AppVersion />
