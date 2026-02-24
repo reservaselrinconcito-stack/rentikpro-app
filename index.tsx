@@ -1,4 +1,7 @@
 
+import './src/polyfills';
+import './src/main';
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -6,6 +9,18 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { wrapFetchForCoreMode } from './src/core/coreModeGuards';
 
 wrapFetchForCoreMode();
+
+// PWA: only register Service Worker on http/https (never on tauri://).
+const canRegisterSW =
+  (location.protocol === 'http:' || location.protocol === 'https:') &&
+  !(window as any).__TAURI__ &&
+  !(window as any).__TAURI_INTERNALS__;
+
+if (canRegisterSW && 'serviceWorker' in navigator) {
+  import('virtual:pwa-register')
+    .then(({ registerSW }) => registerSW({ immediate: true }))
+    .catch((e) => console.warn('[PWA] SW registration module load failed', e));
+}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -40,7 +55,7 @@ try {
         <h1 style="margin:0 0 8px 0;font-size:20px;font-weight:800;color:#0f172a;">RentikPro encontró un error crítico</h1>
         <p style="margin:0 0 16px 0;color:#475569;">La app no pudo renderizar. Revisa la consola y usa “Recuperar”.</p>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button onclick="(function(){try{localStorage.removeItem('active_project_id');localStorage.removeItem('active_project_mode');localStorage.removeItem('rp_last_project_path');localStorage.removeItem('rp_last_project_json');Object.keys(localStorage).filter(k=>k.startsWith('sync_state_')).forEach(k=>localStorage.removeItem(k));}catch(_){} location.reload();})()" style="padding:10px 14px;border-radius:14px;border:1px solid #cbd5e1;background:#0f172a;color:#fff;font-weight:800;cursor:pointer;">Recuperar</button>
+          <button onclick="(function(){try{localStorage.removeItem('active_project_id');localStorage.removeItem('active_project_mode');localStorage.removeItem('rp_last_project_path');localStorage.removeItem('rp_last_project_json');localStorage.removeItem('rp_workspace_path');localStorage.removeItem('rp_workspace_project_id');localStorage.removeItem('rp_workspace_name');Object.keys(localStorage).filter(function(k){return k.startsWith('sync_state_');}).forEach(function(k){localStorage.removeItem(k);});}catch(_){} location.reload();})()" style="padding:10px 14px;border-radius:14px;border:1px solid #cbd5e1;background:#0f172a;color:#fff;font-weight:800;cursor:pointer;">Recuperar</button>
           <button onclick="location.reload()" style="padding:10px 14px;border-radius:14px;border:1px solid #cbd5e1;background:#2563eb;color:#fff;font-weight:800;cursor:pointer;">Recargar</button>
         </div>
       </div>
