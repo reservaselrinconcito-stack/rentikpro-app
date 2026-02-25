@@ -11,7 +11,11 @@ import {
 import { PolicyEditor } from '../components/PolicyEditor';
 import { smtpService } from '../services/smtpService';
 import { toast } from 'sonner';
+import { copyToClipboard } from '../utils/clipboard';
 import { publishAvailability, generatePublicToken } from '../services/publicWebSync';
+import { isTauri } from '../utils/isTauri';
+import { workspaceManager } from '../services/workspaceManager';
+import { getActiveWorkspacePath, isCloudPath, revealInFinder } from '../src/services/workspaceInfo';
 
 import { useStore } from '../hooks/useStore';
 
@@ -44,6 +48,12 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
     const [exporting, setExporting] = useState(false);
     const [lastBackupBlobUrl, setLastBackupBlobUrl] = useState<string | null>(null);
     const [lastBackupFilename, setLastBackupFilename] = useState<string | null>(null);
+
+    const tauri = isTauri();
+    const activeWorkspacePath = tauri ? getActiveWorkspacePath() : null;
+    const workspaceBadge = activeWorkspacePath
+        ? (isCloudPath(activeWorkspacePath) ? 'iCloud' : 'Local')
+        : null;
 
     useEffect(() => {
         loadSettings();
@@ -1033,6 +1043,88 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                         </div>
                     </div>
 
+                    {tauri && (
+                        <div className="p-6 bg-slate-50 border border-slate-200 rounded-3xl space-y-3">
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                        <h4 className="font-black text-slate-800">Ubicación del Workspace</h4>
+                                        {workspaceBadge && (
+                                            <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border ${workspaceBadge === 'iCloud' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                                                {workspaceBadge}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="mt-2 font-mono text-[11px] text-slate-600 break-all bg-white border border-slate-200 rounded-2xl p-3">
+                                        {activeWorkspacePath || 'No hay workspace activo (elige uno al iniciar).'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 pt-2">
+                                <button
+                                    onClick={async () => {
+                                        if (!activeWorkspacePath) return;
+                                        try {
+                                            await revealInFinder(activeWorkspacePath);
+                                        } catch (e: any) {
+                                            console.error('[Settings][Workspace] reveal failed', e);
+                                            toast.error(e?.message || String(e));
+                                        }
+                                    }}
+                                    disabled={!activeWorkspacePath}
+                                    className="px-4 py-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Abrir carpeta
+                                </button>
+
+                                <button
+                                    onClick={async () => {
+                                        const tid = toast.loading('Cambiando ubicación del workspace...');
+                                        try {
+                                            const dialog = await import('@tauri-apps/plugin-dialog');
+                                            const picked = await dialog.open({
+                                                directory: true,
+                                                multiple: false,
+                                                title: 'Cambiar ubicación del workspace',
+                                            });
+                                            if (!picked) {
+                                                toast.dismiss(tid);
+                                                return;
+                                            }
+                                            const newPath = Array.isArray(picked) ? (picked[0] || '') : picked;
+                                            if (!newPath) {
+                                                toast.dismiss(tid);
+                                                return;
+                                            }
+
+                                            if (!confirm('Cambiar el workspace recargará la app. Si eliges una carpeta vacía se creará un workspace nuevo. ¿Continuar?')) {
+                                                toast.dismiss(tid);
+                                                return;
+                                            }
+
+                                            await workspaceManager.setActiveWorkspace(newPath);
+                                            toast.dismiss(tid);
+                                            toast.success('Workspace actualizado. Reiniciando...');
+                                            setTimeout(() => window.location.reload(), 600);
+                                        } catch (e: any) {
+                                            toast.dismiss(tid);
+                                            console.error('[Settings][Workspace] switch failed', e);
+                                            toast.error(e?.message || String(e));
+                                        }
+                                    }}
+                                    className="px-4 py-2 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800"
+                                >
+                                    Cambiar ubicacion...
+                                </button>
+                            </div>
+
+                            <div className="text-[10px] text-slate-500 font-bold">
+                                macOS puede pedir confirmacion la primera vez si mueves la carpeta a iCloud Drive.
+                            </div>
+                        </div>
+                    )}
+
                     {!lastBackupBlobUrl ? (
                         <button
                             onClick={async () => {
@@ -1088,14 +1180,14 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                             </div>
                             <div className="text-left">
                                 <h4 className="text-xl font-black">{exporting ? 'Generando Backup...' : 'Preparar Backup Completo'}</h4>
-                                <p className="text-indigo-200 text-sm font-medium">Bases de datos, Configuración y Archivos (ZIP)</p>
+                                <p className="text-indigo-200 text-sm font-medium">Bases de datos, Configuración y Archivos (.rentikpro)</p>
                             </div>
                         </button>
                     ) : (
                         <div className="space-y-4">
                             <a
                                 href={lastBackupBlobUrl}
-                                download={lastBackupFilename || 'backup.zip'}
+                                download={lastBackupFilename || 'backup.rentikpro'}
                                 className="w-full p-8 bg-emerald-600 hover:bg-emerald-700 text-white rounded-3xl shadow-lg shadow-emerald-200 transition-all transform hover:scale-[1.02] flex items-center justify-center gap-4"
                                 onClick={() => {
                                     setTimeout(() => {
@@ -1157,15 +1249,22 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                         onChange={async (e) => {
                                             const file = e.target.files?.[0];
                                             if (!file) return;
-                                            const text = await file.text();
-                                            const loading = toast.loading("Importando datos...");
-                                            const res = await projectManager.importProjectDataOnly(text);
-                                            toast.dismiss(loading);
-                                            if (res.success) {
-                                                toast.success("Datos importados!");
-                                                setTimeout(() => window.location.reload(), 1000);
-                                            } else {
-                                                toast.error("Fallo la importación: " + res.errors?.general);
+                                            const loading = toast.loading('Importando datos...');
+                                            try {
+                                                const text = await file.text();
+                                                const res = await projectManager.importProjectDataOnly(text);
+                                                if (res.success) {
+                                                    toast.success('Datos importados!');
+                                                    setTimeout(() => window.location.reload(), 1000);
+                                                } else {
+                                                    toast.error('Fallo la importación: ' + (res.errors?.general || 'Error desconocido'));
+                                                }
+                                            } catch (err: any) {
+                                                console.error('[Settings][Backup] Import data failed', err);
+                                                toast.error('Error al importar: ' + (err?.message || String(err)));
+                                            } finally {
+                                                toast.dismiss(loading);
+                                                e.target.value = '';
                                             }
                                         }}
                                     />
@@ -1182,15 +1281,22 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                         onChange={async (e) => {
                                             const file = e.target.files?.[0];
                                             if (!file) return;
-                                            const text = await file.text();
-                                            const loading = toast.loading("Importando estructura...");
-                                            const res = await projectManager.importProjectStructureOnly(text);
-                                            toast.dismiss(loading);
-                                            if (res.success) {
-                                                toast.success("Estructura importada!");
-                                                setTimeout(() => window.location.reload(), 1000);
-                                            } else {
-                                                toast.error("Fallo la importación: " + res.error);
+                                            const loading = toast.loading('Importando estructura...');
+                                            try {
+                                                const text = await file.text();
+                                                const res = await projectManager.importProjectStructureOnly(text);
+                                                if (res.success) {
+                                                    toast.success('Estructura importada!');
+                                                    setTimeout(() => window.location.reload(), 1000);
+                                                } else {
+                                                    toast.error('Fallo la importación: ' + (res.error || 'Error desconocido'));
+                                                }
+                                            } catch (err: any) {
+                                                console.error('[Settings][Backup] Import structure failed', err);
+                                                toast.error('Error al importar: ' + (err?.message || String(err)));
+                                            } finally {
+                                                toast.dismiss(loading);
+                                                e.target.value = '';
                                             }
                                         }}
                                     />
@@ -1301,9 +1407,13 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                         <button
                                             onClick={async () => {
                                                 if (webConfig.public_token) {
-                                                    await navigator.clipboard.writeText(webConfig.public_token);
-                                                    setTokenCopied(true);
-                                                    setTimeout(() => setTokenCopied(false), 2000);
+                                                    const ok = await copyToClipboard(webConfig.public_token);
+                                                    if (ok) {
+                                                        setTokenCopied(true);
+                                                        setTimeout(() => setTokenCopied(false), 2000);
+                                                    } else {
+                                                        toast.error('No se pudo copiar el token (permiso denegado)');
+                                                    }
                                                 }
                                             }}
                                             className="px-4 py-2 bg-slate-100 text-slate-600 rounded-2xl font-bold text-sm hover:bg-slate-200 transition-colors flex items-center gap-2"

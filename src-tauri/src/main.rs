@@ -6,18 +6,403 @@
 use base64::Engine;
 use sha2::Digest;
 use chrono;
+use chrono::{Datelike, Timelike};
 
 fn main() {
   tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
+    .plugin(tauri_plugin_fs::init())
+    .plugin(tauri_plugin_shell::init())
     .invoke_handler(tauri::generate_handler![
       pick_project_folder,
       validate_project_folder,
       open_project_folder,
       write_project_folder,
+      setup_workspace,
+      open_workspace,
+      save_workspace,
+      create_backup,
+      list_backups,
+      restore_backup,
+      reset_workspace,
       webdav_sync
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
+}
+
+const WORKSPACE_JSON_NAME: &str = "workspace.json";
+const WORKSPACE_DB_NAME: &str = "database.sqlite";
+const WORKSPACE_BACKUPS_DIR: &str = "backups";
+const WORKSPACE_MEDIA_DIR: &str = "media";
+
+fn is_sqlite_bytes(bytes: &[u8]) -> bool {
+  // "SQLite format 3\0"
+  const MAGIC: [u8; 16] = [83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0];
+  if bytes.len() < 16 {
+    return false;
+  }
+  bytes[0..16] == MAGIC
+}
+
+fn workspace_paths(root: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
+  (
+    root.join(WORKSPACE_JSON_NAME),
+    root.join(WORKSPACE_DB_NAME),
+    root.join(WORKSPACE_BACKUPS_DIR),
+    root.join(WORKSPACE_MEDIA_DIR),
+  )
+}
+
+fn atomic_write(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+  let parent = path.parent().ok_or_else(|| "Invalid path (no parent)".to_string())?;
+  ensure_dir(parent)?;
+
+  let filename = path
+    .file_name()
+    .and_then(|s| s.to_str())
+    .ok_or_else(|| "Invalid path filename".to_string())?;
+  // Requirement: <name>.tmp (e.g. database.sqlite.tmp)
+  let tmp = parent.join(format!("{filename}.tmp"));
+  std::fs::write(&tmp, bytes).map_err(|e| format!("Failed writing temp {}: {e}", tmp.display()))?;
+
+  // On Windows, rename cannot overwrite an existing file.
+  #[cfg(target_os = "windows")]
+  {
+    if path.exists() {
+      std::fs::remove_file(path).map_err(|e| format!("Failed removing existing {}: {e}", path.display()))?;
+    }
+  }
+
+  std::fs::rename(&tmp, path).map_err(|e| format!("Failed renaming temp into {}: {e}", path.display()))?;
+  Ok(())
+}
+
+fn default_workspace_json() -> serde_json::Value {
+  serde_json::json!({
+    "schema": 1,
+    "kind": "workspace",
+    "id": format!("ws_{}", chrono::Utc::now().timestamp_millis()),
+    "createdAt": chrono::Utc::now().timestamp_millis(),
+    "updatedAt": chrono::Utc::now().timestamp_millis(),
+    "dbFile": WORKSPACE_DB_NAME,
+  })
+}
+
+#[derive(serde::Serialize)]
+struct OpenWorkspaceResult {
+  workspace_json: String,
+  db_base64: String,
+  workspace_json_path: String,
+  db_path: String,
+  backups_dir: String,
+}
+
+#[tauri::command]
+fn setup_workspace(path: String) -> Result<(), String> {
+  let root = std::path::PathBuf::from(&path);
+  if !root.exists() {
+    return Err("Workspace folder does not exist".to_string());
+  }
+  if !root.is_dir() {
+    return Err("Workspace path is not a folder".to_string());
+  }
+
+  let (wjson, _db, backups, media) = workspace_paths(&root);
+  ensure_dir(&backups)?;
+  ensure_dir(&media)?;
+
+  if !wjson.exists() {
+    write_json_file(&wjson, &default_workspace_json())?;
+  }
+
+  Ok(())
+}
+
+#[tauri::command]
+fn open_workspace(path: String) -> Result<OpenWorkspaceResult, String> {
+  let root = std::path::PathBuf::from(&path);
+  if !root.exists() {
+    return Err("Workspace folder does not exist".to_string());
+  }
+  if !root.is_dir() {
+    return Err("Workspace path is not a folder".to_string());
+  }
+
+  let (wjson, db, backups, media) = workspace_paths(&root);
+  ensure_dir(&backups)?;
+  ensure_dir(&media)?;
+
+  if !wjson.exists() {
+    write_json_file(&wjson, &default_workspace_json())?;
+  }
+  if !db.exists() {
+    return Err(format!("Missing {} in workspace", WORKSPACE_DB_NAME));
+  }
+
+  let db_bytes = std::fs::read(&db).map_err(|e| format!("Failed reading {}: {e}", db.display()))?;
+  if !is_sqlite_bytes(&db_bytes) {
+    return Err(format!("{} is not a valid SQLite database", WORKSPACE_DB_NAME));
+  }
+  let db_base64 = base64::engine::general_purpose::STANDARD.encode(db_bytes);
+
+  let workspace_json = std::fs::read_to_string(&wjson).unwrap_or_else(|_| "{}".to_string());
+
+  Ok(OpenWorkspaceResult {
+    workspace_json,
+    db_base64,
+    workspace_json_path: wjson.to_string_lossy().to_string(),
+    db_path: db.to_string_lossy().to_string(),
+    backups_dir: backups.to_string_lossy().to_string(),
+  })
+}
+
+#[tauri::command]
+fn save_workspace(path: String, db_b64: String) -> Result<(), String> {
+  let root = std::path::PathBuf::from(&path);
+  if !root.exists() {
+    return Err("Workspace folder does not exist".to_string());
+  }
+  if !root.is_dir() {
+    return Err("Workspace path is not a folder".to_string());
+  }
+
+  let (_wjson, db, backups, media) = workspace_paths(&root);
+  ensure_dir(&backups)?;
+  ensure_dir(&media)?;
+
+  let bytes = base64::engine::general_purpose::STANDARD
+    .decode(db_b64.as_bytes())
+    .map_err(|e| format!("Invalid db base64: {e}"))?;
+
+  if !is_sqlite_bytes(&bytes) {
+    return Err(format!("Refusing to write: {} is not valid SQLite bytes", WORKSPACE_DB_NAME));
+  }
+
+  atomic_write(&db, &bytes)
+}
+
+fn timestamp_backup_name(prefix: &str, ext: &str) -> String {
+  let now = chrono::Local::now();
+  format!(
+    "{prefix}{:04}{:02}{:02}_{:02}{:02}{:02}.{ext}",
+    now.year(),
+    now.month(),
+    now.day(),
+    now.hour(),
+    now.minute(),
+    now.second()
+  )
+}
+
+fn create_backup_internal(root: &std::path::Path, prefix: &str) -> Result<String, String> {
+  let (wjson, db, backups, _media) = workspace_paths(root);
+  ensure_dir(&backups)?;
+
+  if !db.exists() {
+    return Err(format!("Missing {} in workspace", WORKSPACE_DB_NAME));
+  }
+  let db_bytes = std::fs::read(&db).map_err(|e| format!("Failed reading {}: {e}", db.display()))?;
+  if !is_sqlite_bytes(&db_bytes) {
+    return Err(format!("{} is not a valid SQLite database", WORKSPACE_DB_NAME));
+  }
+
+  let workspace_json = std::fs::read_to_string(&wjson).unwrap_or_else(|_| "{}".to_string());
+  let metadata = serde_json::json!({
+    "app": "RentikPro",
+    "format": "rentikpro-workspace-backup",
+    "createdAt": chrono::Utc::now().timestamp_millis(),
+    "dbFile": WORKSPACE_DB_NAME,
+  });
+  let metadata_bytes = serde_json::to_vec_pretty(&metadata).map_err(|e| format!("Metadata encode failed: {e}"))?;
+
+  let filename = timestamp_backup_name(prefix, "rentikpro");
+  let backup_path = backups.join(&filename);
+
+  let f = std::fs::File::create(&backup_path).map_err(|e| format!("Failed creating backup {}: {e}", backup_path.display()))?;
+  let mut zip = zip::ZipWriter::new(f);
+  let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+  use std::io::Write;
+  zip
+    .start_file(WORKSPACE_DB_NAME, opts)
+    .map_err(|e| format!("ZIP start database.sqlite failed: {e}"))?;
+  zip
+    .write_all(&db_bytes)
+    .map_err(|e| format!("ZIP write database.sqlite failed: {e}"))?;
+
+  zip
+    .start_file(WORKSPACE_JSON_NAME, opts)
+    .map_err(|e| format!("ZIP start workspace.json failed: {e}"))?;
+  zip
+    .write_all(workspace_json.as_bytes())
+    .map_err(|e| format!("ZIP write workspace.json failed: {e}"))?;
+
+  zip
+    .start_file("metadata.json", opts)
+    .map_err(|e| format!("ZIP start metadata.json failed: {e}"))?;
+  zip
+    .write_all(&metadata_bytes)
+    .map_err(|e| format!("ZIP write metadata.json failed: {e}"))?;
+
+  zip.finish().map_err(|e| format!("ZIP finalize failed: {e}"))?;
+
+  Ok(filename)
+}
+
+#[tauri::command]
+fn create_backup(path: String) -> Result<String, String> {
+  let root = std::path::PathBuf::from(&path);
+  if !root.exists() {
+    return Err("Workspace folder does not exist".to_string());
+  }
+  if !root.is_dir() {
+    return Err("Workspace path is not a folder".to_string());
+  }
+  create_backup_internal(&root, "backup_")
+}
+
+#[tauri::command]
+fn list_backups(path: String) -> Result<Vec<String>, String> {
+  let root = std::path::PathBuf::from(&path);
+  if !root.exists() {
+    return Err("Workspace folder does not exist".to_string());
+  }
+  if !root.is_dir() {
+    return Err("Workspace path is not a folder".to_string());
+  }
+  let (_wjson, _db, backups, _media) = workspace_paths(&root);
+  ensure_dir(&backups)?;
+
+  let mut out: Vec<String> = vec![];
+  let entries = std::fs::read_dir(&backups).map_err(|e| format!("Failed listing backups: {e}"))?;
+  for ent in entries {
+    let ent = ent.map_err(|e| format!("Failed reading backup entry: {e}"))?;
+    let p = ent.path();
+    if !p.is_file() {
+      continue;
+    }
+    let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("").to_string();
+    if name.ends_with(".rentikpro") || name.ends_with(".zip") {
+      out.push(name);
+    }
+  }
+  out.sort_by(|a, b| b.cmp(a));
+  Ok(out)
+}
+
+fn extract_db_from_backup(backup_path: &std::path::Path) -> Result<Vec<u8>, String> {
+  let f = std::fs::File::open(backup_path).map_err(|e| format!("Failed opening backup {}: {e}", backup_path.display()))?;
+  let mut zip = zip::ZipArchive::new(f).map_err(|e| format!("Invalid ZIP: {e}"))?;
+
+  // Standard name first, then legacy.
+  let target_name = if zip.file_names().any(|n| n == WORKSPACE_DB_NAME) {
+    WORKSPACE_DB_NAME
+  } else if zip.file_names().any(|n| n == "db.sqlite") {
+    "db.sqlite"
+  } else {
+    return Err(format!("Backup ZIP does not contain '{}'", WORKSPACE_DB_NAME));
+  };
+
+  let mut file = zip
+    .by_name(target_name)
+    .map_err(|e| format!("Failed opening {target_name} in ZIP: {e}"))?;
+
+  use std::io::Read;
+  let mut bytes: Vec<u8> = vec![];
+  file.read_to_end(&mut bytes).map_err(|e| format!("Failed reading database from ZIP: {e}"))?;
+  if !is_sqlite_bytes(&bytes) {
+    return Err("database.sqlite extracted from backup is not valid SQLite bytes".to_string());
+  }
+  Ok(bytes)
+}
+
+#[tauri::command]
+fn restore_backup(path: String, backup_name: String) -> Result<String, String> {
+  let root = std::path::PathBuf::from(&path);
+  if !root.exists() {
+    return Err("Workspace folder does not exist".to_string());
+  }
+  if !root.is_dir() {
+    return Err("Workspace path is not a folder".to_string());
+  }
+  let (_wjson, _db, backups, _media) = workspace_paths(&root);
+  ensure_dir(&backups)?;
+
+  // Basic safety: do not allow path traversal in backup_name.
+  if backup_name.contains('/') || backup_name.contains('\\') || backup_name.contains("..") {
+    return Err("Invalid backup name".to_string());
+  }
+
+  // Auto-backup current state before overwriting.
+  create_backup_internal(&root, "autobackup_before_restore_").ok();
+
+  // Requirement: open <workspace>/backups/<backup_name>.rentikpro
+  let backup_file = if backup_name.ends_with(".rentikpro") {
+    backup_name.clone()
+  } else {
+    format!("{backup_name}.rentikpro")
+  };
+  let backup_path = backups.join(&backup_file);
+  if !backup_path.exists() {
+    return Err("Backup file not found".to_string());
+  }
+
+  // Extract ONLY database.sqlite (or legacy db.sqlite) from the ZIP
+  let bytes = extract_db_from_backup(&backup_path)?;
+
+  // Requirement: write EXACTLY to <workspace>/database.sqlite with atomic tmp+rename
+  let final_db = root.join(WORKSPACE_DB_NAME);
+  let tmp_db = root.join(format!("{WORKSPACE_DB_NAME}.tmp"));
+
+  std::fs::write(&tmp_db, &bytes)
+    .map_err(|e| format!("Failed writing temp {}: {e}", tmp_db.display()))?;
+
+  // On Windows, rename cannot overwrite an existing file.
+  #[cfg(target_os = "windows")]
+  {
+    if final_db.exists() {
+      std::fs::remove_file(&final_db)
+        .map_err(|e| format!("Failed removing existing {}: {e}", final_db.display()))?;
+    }
+  }
+
+  std::fs::rename(&tmp_db, &final_db)
+    .map_err(|e| format!("Failed renaming temp into {}: {e}", final_db.display()))?;
+
+  // Verification requirement
+  let ok = final_db.exists()
+    && std::fs::metadata(&final_db)
+      .map(|m| m.len() > 0)
+      .unwrap_or(false);
+  if !ok {
+    return Err("Restore failed: database not written".to_string());
+  }
+
+  // Log requirement
+  println!("Workspace database restored successfully");
+  Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+#[tauri::command]
+fn reset_workspace(path: String) -> Result<(), String> {
+  let root = std::path::PathBuf::from(&path);
+  if !root.exists() {
+    return Err("Workspace folder does not exist".to_string());
+  }
+  if !root.is_dir() {
+    return Err("Workspace path is not a folder".to_string());
+  }
+  let (_wjson, db, backups, _media) = workspace_paths(&root);
+  ensure_dir(&backups)?;
+
+  // Auto-backup current state before resetting.
+  create_backup_internal(&root, "autobackup_before_reset_").ok();
+
+  if db.exists() {
+    std::fs::remove_file(&db).map_err(|e| format!("Failed removing {}: {e}", db.display()))?;
+  }
+  Ok(())
 }
 
 #[derive(serde::Deserialize)]
