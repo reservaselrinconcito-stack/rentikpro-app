@@ -43,6 +43,23 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     const err = (event as any).error instanceof Error
       ? (event as any).error
       : new Error(event.message || 'Unhandled window error');
+
+    // Defensive: if a Tauri dialog permission is missing, do not crash the app.
+    if (String(err?.message || '').toLowerCase().includes('dialog.message not allowed')) {
+      try {
+        console.error('[dialog.message blocked]', err);
+        (event as any).preventDefault?.();
+      } catch {
+        // ignore
+      }
+      try {
+        window.alert('Ha ocurrido un error. Revisa logs.');
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
     console.error('[ErrorBoundary] window.error', err);
     this.setState({ hasError: true, error: err });
   };
@@ -51,6 +68,24 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     if (this.state.hasError) return;
     const reason = (event as any).reason;
     const err = reason instanceof Error ? reason : new Error(String(reason || 'Unhandled promise rejection'));
+
+    // Defensive: dialog.message can fail under Tauri permissions.
+    // Treat it as handled and fall back to alert/toast instead of crashing.
+    if (String(err?.message || '').toLowerCase().includes('dialog.message not allowed')) {
+      try {
+        console.error('[dialog.message blocked]', err);
+        event.preventDefault();
+      } catch {
+        // ignore
+      }
+      try {
+        window.alert('Ha ocurrido un error. Revisa logs.');
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
     console.error('[ErrorBoundary] unhandledrejection', err);
     this.setState({ hasError: true, error: err });
   };
