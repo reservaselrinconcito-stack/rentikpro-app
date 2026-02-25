@@ -9,6 +9,9 @@ import { isTauri as isTauriRuntime } from '../utils/isTauri';
 import { workspaceManager } from '../services/workspaceManager';
 import { toast } from 'sonner';
 import { openICloudDriveFolder } from '../services/workspaceInfo';
+import { waitForPathToExist } from '../src/services/workspaceManager';
+import { getWorkspaceBootState, setWorkspaceBootState } from '../services/workspaceBootState';
+import { chooseFolder, switchWorkspace, openWorkspaceFolder, isICloudWorkspace } from '../services/workspaceInfo';
 const joinPath = async (a: string, b: string): Promise<string> => {
     try {
         const mod = await import('@tauri-apps/api/path');
@@ -25,6 +28,105 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
     const [error, setError] = useState<string | null>(null);
     const [workspacePath, setWorkspacePath] = useState<string | null>(() => workspaceManager.getWorkspacePath());
     const mountedRef = useRef(true);
+    const [bootStateTick, setBootStateTick] = useState(0);
+
+    const boot = getWorkspaceBootState();
+    if (boot.state === 'MISSING') {
+        const path = boot.path;
+        return (
+            <div className="min-h-screen flex items-center justify-center p-6">
+                <div className="max-w-xl w-full bg-white border border-slate-200 rounded-3xl p-8 space-y-4">
+                    <h2 className="text-2xl font-black text-slate-800">Workspace no disponible</h2>
+                    <p className="text-slate-600 text-sm">{boot.message}</p>
+
+                    <div className="text-xs text-slate-500 font-bold">Ruta guardada:</div>
+                    <code className="block text-xs bg-slate-50 border border-slate-200 rounded-2xl p-3 break-all">{path}</code>
+
+                    <div className="flex flex-wrap gap-2 pt-2">
+                        <button
+                            className="px-4 py-2 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest"
+                            onClick={async () => {
+                                const ok = await waitForPathToExist(path, { retries: 20, delayMs: 500 });
+                                if (ok) {
+                                    setWorkspaceBootState({ state: 'OK' });
+                                    window.location.reload();
+                                } else {
+                                    try {
+                                        toast.error('Sigue sin aparecer. Abre iCloud Drive o elige otra carpeta.');
+                                    } catch {
+                                        // ignore
+                                    }
+                                }
+                            }}
+                        >
+                            Reintentar (10s)
+                        </button>
+
+                        {isICloudWorkspace(path) && (
+                            <button
+                                className="px-4 py-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest"
+                                onClick={async () => {
+                                    // Open iCloud Drive root to encourage lazy download.
+                                    await openICloudDriveFolder();
+                                }}
+                            >
+                                Abrir Finder (iCloud)
+                            </button>
+                        )}
+
+                        <button
+                            className="px-4 py-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest"
+                            onClick={async () => {
+                                try {
+                                    await openWorkspaceFolder(path);
+                                } catch {
+                                    // ignore
+                                }
+                            }}
+                        >
+                            Abrir carpeta guardada
+                        </button>
+
+                        <button
+                            className="px-4 py-2 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest"
+                            onClick={async () => {
+                                const dir = await chooseFolder();
+                                if (!dir) return;
+                                setWorkspaceBootState({ state: 'OK' });
+                                setBootStateTick((x) => x + 1);
+                                await switchWorkspace(dir);
+                            }}
+                        >
+                            Elegir otra carpeta...
+                        </button>
+                    </div>
+
+                    <div className="text-[10px] text-slate-400 font-bold pt-2">
+                        Tip: En iCloud Drive, si el workspace está “solo en la nube”, macOS tarda unos segundos en descargarlo.
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // If boot failed opening the saved workspace (moved/iCloud lazy), mark it so UI can recover.
+    useEffect(() => {
+        try {
+            const p = workspaceManager.getWorkspacePath();
+            const msg = localStorage.getItem('rp_workspace_boot_error') || '';
+            if (p && (msg.includes('Workspace folder does not exist') || msg.includes('Missing database.sqlite'))) {
+                setWorkspaceBootState({
+                    state: 'MISSING',
+                    path: p,
+                    message: 'La carpeta del workspace no está disponible (iCloud aún no la ha descargado o la ruta cambió).'
+                });
+                setBootStateTick((x) => x + 1);
+            }
+        } catch {
+            // ignore
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     useEffect(() => {
         mountedRef.current = true;
@@ -94,6 +196,12 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
             if (!mountedRef.current) return;
             setLoadingLog(`Reintentando workspace... (${i + 1}/${tries})`);
             try {
+                // If the folder is missing (moved/iCloud lazy), wait a bit before attempting open.
+                const existsNow = await waitForPathToExist(p, { retries: 1, delayMs: 1 });
+                if (!existsNow) {
+                    await new Promise(r => setTimeout(r, 400));
+                    continue;
+                }
                 await doOpenAndLoad(p);
                 notifyDataChanged('all');
                 onOpen();

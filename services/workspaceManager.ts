@@ -104,7 +104,18 @@ export class WorkspaceManager {
   async openWorkspace(path: string): Promise<WorkspaceOpenResult> {
     this.requireTauri();
     const { invoke } = await import('@tauri-apps/api/core');
-    const res = await invoke<OpenWorkspaceResultRaw>('open_workspace', { path });
+    let res: OpenWorkspaceResultRaw;
+    try {
+      res = await invoke<OpenWorkspaceResultRaw>('open_workspace', { path });
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      const err = new Error(msg);
+      (err as any).workspacePath = path;
+      if (msg.includes('Workspace folder does not exist') || msg.includes('Missing database.sqlite')) {
+        (err as any).code = 'WORKSPACE_MISSING';
+      }
+      throw err;
+    }
     const dbBytes = base64ToBytes(res.db_base64);
     if (!looksLikeSqlite(dbBytes)) {
       throw new Error("'database.sqlite' no es un SQLite valido (workspace corrupto)");
