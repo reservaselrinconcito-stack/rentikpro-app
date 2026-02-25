@@ -1,27 +1,37 @@
-import { isTauri } from "../../utils/isTauri";
-import { workspaceManager } from "../../services/workspaceManager";
+import { getActiveWorkspacePath, setActiveWorkspace } from "./workspaceManager";
 
-export function getActiveWorkspacePath(): string | null {
-  try {
-    return workspaceManager.getWorkspacePath();
-  } catch {
-    return null;
-  }
+export function getWorkspacePath(): string | null {
+  return getActiveWorkspacePath?.() ?? null;
 }
 
-export function isCloudPath(path: string): boolean {
+export function isICloudWorkspace(path?: string | null) {
+  if (!path) return false;
   return path.includes("Mobile Documents/com~apple~CloudDocs");
 }
 
-export async function revealInFinder(path: string): Promise<void> {
-  if (!isTauri()) {
-    throw new Error("Esta accion requiere Tauri (desktop).");
+export async function openWorkspaceFolder(path: string) {
+  try {
+    // We use plugin-shell here (revealItemInDir does not exist on plugin-fs v2).
+    const mod: any = await import("@tauri-apps/plugin-shell");
+    await mod.open(path);
+  } catch (e) {
+    console.error("Reveal failed", e);
   }
+}
 
-  // Uses plugin-shell to open the folder in Finder (macOS) / Explorer (Windows).
-  const mod: any = await import("@tauri-apps/plugin-shell");
-  if (typeof mod.open !== "function") {
-    throw new Error("Shell open no disponible.");
-  }
-  await mod.open(path);
+export async function chooseNewWorkspace(): Promise<string | null> {
+  const dialog: any = await import("@tauri-apps/plugin-dialog");
+  const dir = await dialog.open({
+    directory: true,
+    multiple: false,
+  });
+
+  if (!dir) return null;
+
+  return dir as string;
+}
+
+export async function switchWorkspace(path: string) {
+  await setActiveWorkspace(path);
+  window.location.reload();
 }

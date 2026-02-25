@@ -15,7 +15,7 @@ import { copyToClipboard } from '../utils/clipboard';
 import { publishAvailability, generatePublicToken } from '../services/publicWebSync';
 import { isTauri } from '../utils/isTauri';
 import { workspaceManager } from '../services/workspaceManager';
-import { getActiveWorkspacePath, isCloudPath, revealInFinder } from '../src/services/workspaceInfo';
+import { getWorkspacePath, isICloudWorkspace, openWorkspaceFolder, chooseNewWorkspace, switchWorkspace } from '../src/services/workspaceInfo';
 import { moveWorkspaceTo } from '../src/services/workspaceMover';
 
 import { useStore } from '../hooks/useStore';
@@ -51,9 +51,9 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
     const [lastBackupFilename, setLastBackupFilename] = useState<string | null>(null);
 
     const tauri = isTauri();
-    const activeWorkspacePath = tauri ? getActiveWorkspacePath() : null;
+    const activeWorkspacePath = tauri ? getWorkspacePath() : null;
     const workspaceBadge = activeWorkspacePath
-        ? (isCloudPath(activeWorkspacePath) ? 'iCloud' : 'Local')
+        ? (isICloudWorkspace(activeWorkspacePath) ? 'iCloud' : 'Local')
         : null;
 
     useEffect(() => {
@@ -1067,7 +1067,7 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                     onClick={async () => {
                                         if (!activeWorkspacePath) return;
                                         try {
-                                            await revealInFinder(activeWorkspacePath);
+                                            await openWorkspaceFolder(activeWorkspacePath);
                                         } catch (e: any) {
                                             console.error('[Settings][Workspace] reveal failed', e);
                                             toast.error(e?.message || String(e));
@@ -1083,17 +1083,7 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                     onClick={async () => {
                                         const tid = toast.loading('Cambiando ubicación del workspace...');
                                         try {
-                                            const dialog = await import('@tauri-apps/plugin-dialog');
-                                            const picked = await dialog.open({
-                                                directory: true,
-                                                multiple: false,
-                                                title: 'Cambiar ubicación del workspace',
-                                            });
-                                            if (!picked) {
-                                                toast.dismiss(tid);
-                                                return;
-                                            }
-                                            const newPath = Array.isArray(picked) ? (picked[0] || '') : picked;
+                                            const newPath = await chooseNewWorkspace();
                                             if (!newPath) {
                                                 toast.dismiss(tid);
                                                 return;
@@ -1104,10 +1094,10 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                                 return;
                                             }
 
-                                            await workspaceManager.setActiveWorkspace(newPath);
+                                            await switchWorkspace(newPath);
                                             toast.dismiss(tid);
                                             toast.success('Workspace actualizado. Reiniciando...');
-                                            setTimeout(() => window.location.reload(), 600);
+                                            // switchWorkspace triggers reload.
                                         } catch (e: any) {
                                             toast.dismiss(tid);
                                             console.error('[Settings][Workspace] switch failed', e);
