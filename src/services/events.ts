@@ -19,3 +19,8 @@ export function emit(event: string, payload?: any) {
     }
   }
 }
+
+// (Opcional) Nada obligatorio aqui.
+// Solo asegurese de que emit/on existen y funcionan.
+// Este patch es NO-OP si ya esta OK.
+export {};
