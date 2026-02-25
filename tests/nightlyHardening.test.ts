@@ -3,6 +3,7 @@ import { withRetry } from '../src/utils/async';
 import { dbQueue } from '../src/services/dbQueue';
 import { on, emit } from '../src/services/events';
 import { tableHasColumn } from '../src/services/schema';
+import { beginMaintenance, endMaintenance } from '../src/services/maintenance';
 
 describe('nightly hardening: async + dbQueue + events + schema', () => {
   it('withRetry retries and returns value', async () => {
@@ -64,5 +65,12 @@ describe('nightly hardening: async + dbQueue + events + schema', () => {
     };
     await expect(tableHasColumn(dbExec, 't', 'deleted_at')).resolves.toBe(true);
     await expect(tableHasColumn(dbExec, 't', 'missing')).resolves.toBe(false);
+  });
+
+  it('maintenance mode blocks dbQueue tasks', async () => {
+    beginMaintenance('restore');
+    await expect(dbQueue(async () => 123)).rejects.toThrow(/maintenance/i);
+    endMaintenance();
+    await expect(dbQueue(async () => 123)).resolves.toBe(123);
   });
 });
