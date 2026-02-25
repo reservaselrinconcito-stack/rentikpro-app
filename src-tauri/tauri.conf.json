@@ -2,14 +2,17 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "RentikPro",
   "version": "2.0.0",
-  "identifier": "com.rentikpro.rentikpro",
+  "identifier": "com.rentikpro.desktop",
   "build": {
-    "beforeDevCommand": "npm run dev -- --port 3000",
-    "beforeBuildCommand": "npm run build",
-    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "npm run dev:tauri",
+    "beforeBuildCommand": "npm run build:tauri",
+    "devUrl": "http://localhost:5173",
     "frontendDist": "../dist"
   },
   "app": {
+    "security": {
+      "csp": null
+    },
     "windows": [
       {
         "label": "main",
@@ -17,14 +20,19 @@
         "width": 1080,
         "height": 720,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "devtools": true
       }
     ]
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "icon": [
+      "icons/icon.icns",
       "icons/icon.png"
     ]
   }

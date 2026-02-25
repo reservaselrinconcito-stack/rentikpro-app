@@ -4,6 +4,11 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
+    "dev:web": "vite",
+    "build:web": "vite build",
+    "dev:tauri": "VITE_TARGET=tauri vite",
+    "build:tauri": "npm run prepare:sqljs && node scripts/generate-version.js && VITE_TARGET=tauri vite build",
+    "release:mac": "rm -rf dist && npm run build:tauri && bash scripts/check-tauri-build.sh && npm run tauri -- build",
     "prepare:sqljs": "node scripts/prepare-sqljs.js",
     "sync:tauri-version": "node scripts/sync-tauri-version.js",
     "dev": "npm run prepare:sqljs && vite",
@@ -17,10 +22,15 @@
     "smoke:pricing": "tsx scripts/smoke-pricing-studio.ts",
     "tauri": "tauri",
     "tauri:dev": "npm run sync:tauri-version && tauri dev",
-    "tauri:build": "npm run sync:tauri-version && tauri build"
+    "tauri:build": "npm run sync:tauri-version && tauri build",
+    "mac:build": "npm ci && npm run build && npx tauri build",
+    "mac:verify": "bash scripts/macos-verify.sh",
+    "mac:notarize": "bash scripts/macos-notarize.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.0.0",
+    "@tauri-apps/plugin-fs": "^2.0.0",
     "@types/jszip": "^3.4.0",
     "@vitejs/plugin-react": "^4.3.0",
     "jszip": "^3.10.1",
@@ -35,6 +45,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@playwright/test": "^1.42.0",
     "@tauri-apps/cli": "^2.0.0",
     "@testing-library/jest-dom": "^6.9.1",
