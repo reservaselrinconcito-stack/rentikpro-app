@@ -14,8 +14,13 @@ import { toast } from 'sonner';
 import { copyToClipboard } from '../utils/clipboard';
 import { publishAvailability, generatePublicToken } from '../services/publicWebSync';
 import { isTauri } from '../utils/isTauri';
-import { workspaceManager } from '../services/workspaceManager';
-import { getWorkspacePath, isICloudWorkspace, openWorkspaceFolder, chooseNewWorkspace, switchWorkspace } from '../src/services/workspaceInfo';
+import {
+    getWorkspacePath,
+    isICloudWorkspace,
+    openWorkspaceFolder,
+    chooseNewWorkspace,
+    switchWorkspace
+} from '../services/workspaceInfo';
 import { moveWorkspaceTo } from '../src/services/workspaceMover';
 
 import { useStore } from '../hooks/useStore';
@@ -51,9 +56,9 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
     const [lastBackupFilename, setLastBackupFilename] = useState<string | null>(null);
 
     const tauri = isTauri();
-    const activeWorkspacePath = tauri ? getWorkspacePath() : null;
-    const workspaceBadge = activeWorkspacePath
-        ? (isICloudWorkspace(activeWorkspacePath) ? 'iCloud' : 'Local')
+    const workspacePath = tauri ? getWorkspacePath() : null;
+    const workspaceBadge = workspacePath
+        ? (isICloudWorkspace(workspacePath) ? 'iCloud' : 'Local')
         : null;
 
     useEffect(() => {
@@ -1049,31 +1054,32 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                             <div className="flex items-center justify-between gap-4">
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <h4 className="font-black text-slate-800">Ubicación del Workspace</h4>
+                                        <h4 className="font-black text-slate-800">Workspace de datos</h4>
                                         {workspaceBadge && (
                                             <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border ${workspaceBadge === 'iCloud' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
                                                 {workspaceBadge}
                                             </span>
                                         )}
                                     </div>
-                                    <div className="mt-2 font-mono text-[11px] text-slate-600 break-all bg-white border border-slate-200 rounded-2xl p-3">
-                                        {activeWorkspacePath || 'No hay workspace activo (elige uno al iniciar).'}
-                                    </div>
+                                    <p className="text-[11px] text-slate-500 font-bold mt-2">Ubicación actual:</p>
+                                    <code className="mt-2 block font-mono text-[11px] text-slate-700 break-all bg-white border border-slate-200 rounded-2xl p-3">
+                                        {workspacePath || 'No hay workspace activo (elige uno al iniciar).'}
+                                    </code>
                                 </div>
                             </div>
 
                             <div className="flex flex-wrap gap-2 pt-2">
                                 <button
                                     onClick={async () => {
-                                        if (!activeWorkspacePath) return;
+                                        if (!workspacePath) return;
                                         try {
-                                            await openWorkspaceFolder(activeWorkspacePath);
+                                            await openWorkspaceFolder(workspacePath);
                                         } catch (e: any) {
                                             console.error('[Settings][Workspace] reveal failed', e);
                                             toast.error(e?.message || String(e));
                                         }
                                     }}
-                                    disabled={!activeWorkspacePath}
+                                    disabled={!workspacePath}
                                     className="px-4 py-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Abrir carpeta
@@ -1111,7 +1117,7 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
 
                                 <button
                                     onClick={async () => {
-                                        if (!activeWorkspacePath) {
+                                        if (!workspacePath) {
                                             toast.error('No hay workspace activo.');
                                             return;
                                         }
@@ -1158,7 +1164,7 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                             toast.error(e?.message || String(e));
                                         }
                                     }}
-                                    disabled={!activeWorkspacePath}
+                                    disabled={!workspacePath}
                                     className="px-4 py-2 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Mover workspace completo...
