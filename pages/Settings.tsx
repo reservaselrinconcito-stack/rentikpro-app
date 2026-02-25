@@ -21,7 +21,7 @@ import {
     chooseNewWorkspace,
     switchWorkspace
 } from '../services/workspaceInfo';
-import { chooseDestinationFolder, moveWorkspaceToFolder } from '../src/services/workspaceMover';
+import { chooseDestinationFolder, moveWorkspaceToFolder } from '../services/workspaceMover';
 
 import { useStore } from '../hooks/useStore';
 
@@ -1117,26 +1117,10 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
 
                                 <button
                                     onClick={async () => {
-                                        if (!workspacePath) {
-                                            toast.error('No hay workspace activo.');
-                                            return;
-                                        }
-
                                         try {
-                                            const dialog = await import('@tauri-apps/plugin-dialog');
-                                            const ok = await dialog.confirm(
-                                                'Esto copiara database.sqlite, workspace.json, backups/ y media/ al destino. Al final cambiara el workspace activo y recargara la app. El workspace antiguo NO se borrara. ¿Continuar?',
-                                                { title: 'Mover workspace completo' }
-                                            );
-                                            if (!ok) return;
-
-                                            const destDir = await chooseDestinationFolder();
-                                            if (!destDir) return;
-
-                                            const tid = toast.loading('Moviendo workspace...');
-                                            await moveWorkspaceToFolder(destDir);
-                                            toast.dismiss(tid);
-                                            toast.success('Workspace movido. Reiniciando...');
+                                            const destRoot = await chooseDestinationFolder();
+                                            if (!destRoot) return;
+                                            await moveWorkspaceToFolder(destRoot);
                                         } catch (e: any) {
                                             console.error('[Settings][WorkspaceMover] failed', e);
                                             toast.error(e?.message || String(e));
