@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { projectManager } from './projectManager';
 import { getLastOpenedProjectPath } from './projectFolderManager';
 import { notifyDataChanged } from './dataRefresher';
+import { isTauri as isTauriRuntime } from '../utils/isTauri';
 
 export type WebDavSyncMode = 'up' | 'down';
 
@@ -21,10 +22,6 @@ export type WebDavSyncResult = {
   conflictPaths?: { localCopy?: string; remoteCopy?: string };
   applied?: boolean;
 };
-
-function isTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
-}
 
 function bytesToBase64(bytes: Uint8Array): string {
   let bin = '';

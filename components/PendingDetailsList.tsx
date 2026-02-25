@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ProvisionalBooking, Apartment } from '../types';
 import { projectManager } from '../services/projectManager';
 import { AlertCircle, Copy, ExternalLink, Save, X, Check } from 'lucide-react';
+import { copyToClipboard as safeCopyToClipboard } from '../utils/clipboard';
 
 export const PendingDetailsList: React.FC = () => {
     const [pendingItems, setPendingItems] = useState<ProvisionalBooking[]>([]);
@@ -69,8 +70,9 @@ export const PendingDetailsList: React.FC = () => {
     };
 
     const copyToClipboard = (text: string) => {
-        navigator.clipboard.writeText(text);
-        alert('Copied to clipboard!');
+        void safeCopyToClipboard(text).then((ok) => {
+            alert(ok ? 'Copied to clipboard!' : 'Could not copy (permission denied)');
+        });
     };
 
     if (loading) return null;

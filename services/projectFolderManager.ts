@@ -1,8 +1,10 @@
-import { invoke } from '@tauri-apps/api/core';
+// Native imports moved to dynamic for web compatibility
+
 
 import { APP_VERSION } from '../src/version';
 import { projectManager } from './projectManager';
 import { SQLiteStore } from './sqliteStore';
+import { isTauri } from '../utils/isTauri';
 
 export type ProjectFolderMeta = {
   name: string;
@@ -34,7 +36,7 @@ const LAST_PROJECT_PATH_KEY = 'rp_last_project_path';
 const LAST_PROJECT_JSON_KEY = 'rp_last_project_json';
 
 function isTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+  return isTauri();
 }
 
 function base64ToBytes(base64: string): Uint8Array {
@@ -76,6 +78,7 @@ export async function validateProject(path: string): Promise<{ ok: boolean; erro
   if (!isTauriRuntime()) {
     return { ok: false, error: 'ProjectFolderManager requires Tauri runtime' };
   }
+  const { invoke } = await import('@tauri-apps/api/core');
   const res = await invoke<ValidateProjectResult>('validate_project_folder', { path });
   return res.ok ? { ok: true } : { ok: false, error: res.error || 'Invalid project folder' };
 }
@@ -84,6 +87,7 @@ export async function openProject(path: string): Promise<ProjectContext> {
   if (!isTauriRuntime()) {
     throw new Error('ProjectFolderManager requires Tauri runtime');
   }
+  const { invoke } = await import('@tauri-apps/api/core');
   const res = await invoke<OpenProjectResult>('open_project_folder', { path });
   const dbBytes = base64ToBytes(res.db_base64);
 
@@ -115,12 +119,13 @@ export async function openProject(path: string): Promise<ProjectContext> {
       dbFile: 'db.sqlite',
     };
     const updatedJson = JSON.stringify(updated, null, 2);
-    await invoke<ValidateProjectResult>('write_project_folder', {
-      path,
-      project_json: updatedJson,
-      db_base64: res.db_base64,
-      overwrite: true,
-    } as any);
+    const { invoke } = await import('@tauri-apps/api/core');
+     await invoke<ValidateProjectResult>('write_project_folder', {
+       path,
+       projectJson: updatedJson,
+       dbBase64: res.db_base64,
+       overwrite: true,
+     } as any);
 
     localStorage.setItem(LAST_PROJECT_JSON_KEY, updatedJson);
   }
@@ -170,10 +175,12 @@ export async function createProject(path: string, meta: ProjectFolderMeta): Prom
     dbFile: 'db.sqlite',
   }, null, 2);
 
+  const { invoke } = await import('@tauri-apps/api/core');
+
   await invoke<ValidateProjectResult>('write_project_folder', {
     path,
-    project_json: projectJson,
-    db_base64: bytesToBase64(dbBytes),
+    projectJson: projectJson,
+    dbBase64: bytesToBase64(dbBytes),
     overwrite: false,
   } as any);
 
@@ -184,8 +191,18 @@ export async function createProject(path: string, meta: ProjectFolderMeta): Prom
 
 export async function pickProjectFolder(): Promise<string | null> {
   if (!isTauriRuntime()) return null;
-  const p = await invoke<string | null>('pick_project_folder');
-  return p;
+
+  // Prefer Tauri dialog plugin for desktop apps.
+  // Returns a string path in most cases when directory=true and multiple=false.
+  const dialog = await import('@tauri-apps/plugin-dialog');
+  const picked = await dialog.open({
+    directory: true,
+    multiple: false,
+    title: 'Selecciona carpeta de proyecto',
+  });
+  if (!picked) return null;
+  if (Array.isArray(picked)) return picked[0] || null;
+  return picked;
 }
 
 export function getLastOpenedProjectPath(): string | null {

@@ -1,6 +1,8 @@
 import { isTauri } from '../utils/isTauri';
 import { SQLiteStore } from './sqliteStore';
 import { APP_VERSION } from '../src/version';
+import { exists } from "@tauri-apps/plugin-fs";
+import { setWorkspaceBootState } from "../src/services/workspaceBootState";
 
 const WORKSPACE_PATH_KEY = 'rp_workspace_path';
 
@@ -18,6 +20,17 @@ function base64ToBytes(base64: string): Uint8Array {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes;
+}
+
+async function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+function isICloudPath(p: string) { return p.includes("Mobile Documents/com~apple~CloudDocs"); }
+async function waitForExists(path: string, totalMs: number) {
+  const start = Date.now();
+  while (Date.now() - start < totalMs) {
+    try { if (await exists(path)) return true; } catch { }
+    await sleep(500);
+  }
+  return false;
 }
 
 function looksLikeSqlite(bytes: Uint8Array): boolean {
@@ -72,14 +85,24 @@ export class WorkspaceManager {
     if (!isTauri()) throw new Error('WorkspaceManager requiere Tauri runtime');
   }
 
+  private async ensureDirectoryPath(path: string): Promise<string> {
+    if (path.endsWith(".sqlite")) {
+      const { dirname } = await import('@tauri-apps/api/path');
+      return await dirname(path);
+    }
+    return path;
+  }
+
   async setupWorkspace(path: string): Promise<void> {
     this.requireTauri();
+    const wsPath = await this.ensureDirectoryPath(path);
+
     const { invoke } = await import('@tauri-apps/api/core');
-    await invoke<void>('setup_workspace', { path });
+    await invoke<void>('setup_workspace', { path: wsPath });
 
     // If a valid workspace already exists here, do not overwrite it.
     try {
-      await this.openWorkspace(path);
+      await this.openWorkspace(wsPath);
       return;
     } catch {
       // continue with fresh initialization
@@ -98,46 +121,109 @@ export class WorkspaceManager {
       currency: 'EUR',
     } as any);
     const dbBytes = store.export();
-    await this.saveWorkspace(path, dbBytes);
+    await this.saveWorkspace(wsPath, dbBytes);
   }
 
   async openWorkspace(path: string): Promise<WorkspaceOpenResult> {
     this.requireTauri();
-    const { invoke } = await import('@tauri-apps/api/core');
-    let res: OpenWorkspaceResultRaw;
-    try {
-      res = await invoke<OpenWorkspaceResultRaw>('open_workspace', { path });
-    } catch (e: any) {
-      const msg = e?.message || String(e);
-      const err = new Error(msg);
-      (err as any).workspacePath = path;
-      if (msg.includes('Workspace folder does not exist') || msg.includes('Missing database.sqlite')) {
-        (err as any).code = 'WORKSPACE_MISSING';
-      }
+
+    const wsPath = await this.ensureDirectoryPath(path);
+
+    // ── Phase 1: VALIDATE_PATH ──
+    setWorkspaceBootState({ state: "VALIDATE_PATH", path: wsPath });
+    console.warn("[WorkspaceManager] openWorkspace →", wsPath);
+
+    let pathExists = false;
+    try { pathExists = await exists(wsPath); } catch { pathExists = false; }
+
+    // ── Phase 2: WAITING_MATERIALIZATION (iCloud lazy download) ──
+    if (!pathExists && isICloudPath(wsPath)) {
+      const TIMEOUT_MS = 30_000;
+      setWorkspaceBootState({
+        state: "WAITING_MATERIALIZATION",
+        path: wsPath,
+        startedAt: Date.now(),
+        timeoutMs: TIMEOUT_MS,
+      });
+      console.warn("[WorkspaceManager] iCloud path not materialized. Waiting up to 30 s…", wsPath);
+      pathExists = await waitForExists(wsPath, TIMEOUT_MS);
+    }
+
+    if (!pathExists) {
+      console.warn("[WorkspaceManager] Path missing after validation:", wsPath);
+      setWorkspaceBootState({
+        state: "MISSING",
+        path: wsPath,
+        message: "La carpeta del workspace no existe o iCloud aún no la ha descargado.",
+      });
+      const err: any = new Error("Workspace folder does not exist");
+      err.code = "WORKSPACE_MISSING";
+      err.workspacePath = wsPath;
       throw err;
     }
-    const dbBytes = base64ToBytes(res.db_base64);
+
+    // ── Phase 3: OPENING_DB ──
+    setWorkspaceBootState({ state: "OPENING_DB", path: wsPath });
+
+    const { invoke } = await import("@tauri-apps/api/core");
+    let res: OpenWorkspaceResultRaw;
+
+    // Retry strategy: DB may be locked by another process (multi-device sync).
+    const MAX_RETRIES = 3;
+    let lastError: any = null;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        res = await invoke<OpenWorkspaceResultRaw>("open_workspace", { path: wsPath });
+        lastError = null;
+        break;
+      } catch (e: any) {
+        lastError = e;
+        const msg = e?.message || String(e);
+        console.warn(`[WorkspaceManager] open_workspace attempt ${attempt}/${MAX_RETRIES} failed:`, msg);
+
+        // Only retry on lock / busy errors, not on structural errors.
+        const isLock = msg.includes("database is locked") || msg.includes("SQLITE_BUSY");
+        if (!isLock || attempt === MAX_RETRIES) {
+          const err = new Error(msg);
+          (err as any).workspacePath = wsPath;
+          if (msg.includes("Workspace folder does not exist") || msg.includes("Missing database.sqlite")) {
+            (err as any).code = "WORKSPACE_MISSING";
+          }
+          throw err;
+        }
+        // Exponential backoff: 500ms, 1s, 2s
+        await sleep(500 * Math.pow(2, attempt - 1));
+      }
+    }
+
+    const dbBytes = base64ToBytes(res!.db_base64);
     if (!looksLikeSqlite(dbBytes)) {
       throw new Error("'database.sqlite' no es un SQLite valido (workspace corrupto)");
     }
-    this.setWorkspacePath(path);
+
+    // ── Phase 4: READY ──
+    this.setWorkspacePath(wsPath);
+    setWorkspaceBootState({ state: "READY", path: wsPath });
+
     return {
-      path,
+      path: wsPath,
       dbBytes,
-      workspaceJson: res.workspace_json,
-      dbPath: res.db_path,
-      workspaceJsonPath: res.workspace_json_path,
-      backupsDir: res.backups_dir,
+      workspaceJson: res!.workspace_json,
+      dbPath: res!.db_path,
+      workspaceJsonPath: res!.workspace_json_path,
+      backupsDir: res!.backups_dir,
     };
   }
+
 
   // Switch the active workspace path (Tauri).
   // This validates the folder and ensures required workspace files exist.
   async setActiveWorkspace(path: string): Promise<void> {
     this.requireTauri();
-    await this.setupWorkspace(path);
+    const wsPath = await this.ensureDirectoryPath(path);
+    await this.setupWorkspace(wsPath);
     // Validate workspace and persist rp_workspace_path.
-    await this.openWorkspace(path);
+    await this.openWorkspace(wsPath);
   }
 
   async saveWorkspace(path: string, dbBytes: Uint8Array): Promise<void> {
@@ -159,7 +245,7 @@ export class WorkspaceManager {
     await this.saveWorkspace(path, dbBytes);
   }
 
-  async createBackup(): Promise<{ filename: string }>{
+  async createBackup(): Promise<{ filename: string }> {
     this.requireTauri();
     const path = this.getWorkspacePath();
     if (!path) throw new Error('No hay workspace seleccionado');

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Logo/Icon Options</title>
+    <style>
+      :root {
+        --bg: #0b1220;
+        --panel: #0f1b33;
+        --text: #f4f1ea;
+        --muted: rgba(244, 241, 234, 0.72);
+        --stroke: rgba(244, 241, 234, 0.16);
+      }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+          Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: radial-gradient(1200px 600px at 15% 10%, #132957, transparent 60%),
+          radial-gradient(900px 520px at 85% 0%, #3a1e11, transparent 55%),
+          radial-gradient(800px 520px at 75% 95%, #0f3b66, transparent 58%),
+          var(--bg);
+        color: var(--text);
+      }
+      header {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 28px 18px 12px;
+      }
+      h1 {
+        font-size: 18px;
+        font-weight: 700;
+        margin: 0 0 6px;
+        letter-spacing: 0.2px;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 14px 18px 32px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 14px;
+      }
+      .card {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+        border: 1px solid var(--stroke);
+        border-radius: 16px;
+        padding: 14px;
+        backdrop-filter: blur(10px);
+      }
+      .thumb {
+        display: grid;
+        place-items: center;
+        aspect-ratio: 1 / 1;
+        border-radius: 14px;
+        border: 1px solid rgba(244, 241, 234, 0.12);
+        background: rgba(0, 0, 0, 0.12);
+        overflow: hidden;
+      }
+      img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+      .meta {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 10px;
+      }
+      .name {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.2px;
+      }
+      .file a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 12px;
+        border-bottom: 1px dotted rgba(244, 241, 234, 0.35);
+      }
+      .file a:hover {
+        color: var(--text);
+        border-bottom-color: rgba(244, 241, 234, 0.7);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>10 opciones de icono (SVG 1024x1024)</h1>
+      <p>
+        Abre este archivo en el navegador para previsualizar. Si me dices el nombre exacto
+        de la app y colores, ajusto el set a tu marca.
+      </p>
+    </header>
+    <main>
+      <div class="grid">
+        <div class="card">
+          <div class="thumb"><img src="option-01.svg" alt="Option 01" /></div>
+          <div class="meta"><div class="name">01 Monograma RP</div><div class="file"><a href="option-01.svg">SVG</a></div></div>
+        </div>
+        <div class="card">
+          <div class="thumb"><img src="option-02.svg" alt="Option 02" /></div>
+          <div class="meta"><div class="name">02 Tag</div><div class="file"><a href="option-02.svg">SVG</a></div></div>
+        </div>
+        <div class="card">
+          <div class="thumb"><img src="option-03.svg" alt="Option 03" /></div>
+          <div class="meta"><div class="name">03 Llave</div><div class="file"><a href="option-03.svg">SVG</a></div></div>
+        </div>
+        <div class="card">
+          <div class="thumb"><img src="option-04.svg" alt="Option 04" /></div>
+          <div class="meta"><div class="name">04 Pin + Keyhole</div><div class="file"><a href="option-04.svg">SVG</a></div></div>
+        </div>
+        <div class="card">
+          <div class="thumb"><img src="option-05.svg" alt="Option 05" /></div>
+          <div class="meta"><div class="name">05 Cubo</div><div class="file"><a href="option-05.svg">SVG</a></div></div>
+        </div>
+        <div class="card">
+          <div class="thumb"><img src="option-06.svg" alt="Option 06" /></div>
+          <div class="meta"><div class="name">06 Flechas + Tag</div><div class="file"><a href="option-06.svg">SVG</a></div></div>
+        </div>
+        <div class="card">
+          <div class="thumb"><img src="option-07.svg" alt="Option 07" /></div>
+          <div class="meta"><div class="name">07 Escudo + Check</div><div class="file"><a href="option-07.svg">SVG</a></div></div>
+        </div>
+        <div class="card">
+          <div class="thumb"><img src="option-08.svg" alt="Option 08" /></div>
+          <div class="meta"><div class="name">08 Calendario + Pin</div><div class="file"><a href="option-08.svg">SVG</a></div></div>
+        </div>
+        <div class="card">
+          <div class="thumb"><img src="option-09.svg" alt="Option 09" /></div>
+          <div class="meta"><div class="name">09 Handshake</div><div class="file"><a href="option-09.svg">SVG</a></div></div>
+        </div>
+        <div class="card">
+          <div class="thumb"><img src="option-10.svg" alt="Option 10" /></div>
+          <div class="meta"><div class="name">10 Badge R</div><div class="file"><a href="option-10.svg">SVG</a></div></div>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

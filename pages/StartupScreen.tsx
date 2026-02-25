@@ -8,10 +8,20 @@ import { createProject, openProject, pickProjectFolder, getLastOpenedProjectPath
 import { isTauri as isTauriRuntime } from '../utils/isTauri';
 import { workspaceManager } from '../services/workspaceManager';
 import { toast } from 'sonner';
-import { openICloudDriveFolder } from '../services/workspaceInfo';
+import { getWorkspaceBootState, setWorkspaceBootState } from "../services/workspaceBootState";
+import { chooseFolder, switchWorkspace, openWorkspaceFolder, isICloudWorkspace, openICloudDriveFolder } from "../services/workspaceInfo";
+import { exists } from "@tauri-apps/plugin-fs";
 import { waitForPathToExist } from '../src/services/workspaceManager';
-import { getWorkspaceBootState, setWorkspaceBootState } from '../services/workspaceBootState';
-import { chooseFolder, switchWorkspace, openWorkspaceFolder, isICloudWorkspace } from '../services/workspaceInfo';
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+async function waitForExists(path: string, totalMs: number) {
+    const start = Date.now();
+    while (Date.now() - start < totalMs) {
+        try { if (await exists(path)) return true; } catch { }
+        await sleep(500);
+    }
+    return false;
+}
+
 const joinPath = async (a: string, b: string): Promise<string> => {
     try {
         const mod = await import('@tauri-apps/api/path');
@@ -28,104 +38,13 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
     const [error, setError] = useState<string | null>(null);
     const [workspacePath, setWorkspacePath] = useState<string | null>(() => workspaceManager.getWorkspacePath());
     const mountedRef = useRef(true);
-    const [bootStateTick, setBootStateTick] = useState(0);
 
-    const boot = getWorkspaceBootState();
-    if (boot.state === 'MISSING') {
-        const path = boot.path;
-        return (
-            <div className="min-h-screen flex items-center justify-center p-6">
-                <div className="max-w-xl w-full bg-white border border-slate-200 rounded-3xl p-8 space-y-4">
-                    <h2 className="text-2xl font-black text-slate-800">Workspace no disponible</h2>
-                    <p className="text-slate-600 text-sm">{boot.message}</p>
+    // MISSING state is handled by the parent StartupScreen component.
+    // If we reach here, boot state is NOT "MISSING".
 
-                    <div className="text-xs text-slate-500 font-bold">Ruta guardada:</div>
-                    <code className="block text-xs bg-slate-50 border border-slate-200 rounded-2xl p-3 break-all">{path}</code>
-
-                    <div className="flex flex-wrap gap-2 pt-2">
-                        <button
-                            className="px-4 py-2 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest"
-                            onClick={async () => {
-                                const ok = await waitForPathToExist(path, { retries: 20, delayMs: 500 });
-                                if (ok) {
-                                    setWorkspaceBootState({ state: 'OK' });
-                                    window.location.reload();
-                                } else {
-                                    try {
-                                        toast.error('Sigue sin aparecer. Abre iCloud Drive o elige otra carpeta.');
-                                    } catch {
-                                        // ignore
-                                    }
-                                }
-                            }}
-                        >
-                            Reintentar (10s)
-                        </button>
-
-                        {isICloudWorkspace(path) && (
-                            <button
-                                className="px-4 py-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest"
-                                onClick={async () => {
-                                    // Open iCloud Drive root to encourage lazy download.
-                                    await openICloudDriveFolder();
-                                }}
-                            >
-                                Abrir Finder (iCloud)
-                            </button>
-                        )}
-
-                        <button
-                            className="px-4 py-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest"
-                            onClick={async () => {
-                                try {
-                                    await openWorkspaceFolder(path);
-                                } catch {
-                                    // ignore
-                                }
-                            }}
-                        >
-                            Abrir carpeta guardada
-                        </button>
-
-                        <button
-                            className="px-4 py-2 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest"
-                            onClick={async () => {
-                                const dir = await chooseFolder();
-                                if (!dir) return;
-                                setWorkspaceBootState({ state: 'OK' });
-                                setBootStateTick((x) => x + 1);
-                                await switchWorkspace(dir);
-                            }}
-                        >
-                            Elegir otra carpeta...
-                        </button>
-                    </div>
-
-                    <div className="text-[10px] text-slate-400 font-bold pt-2">
-                        Tip: En iCloud Drive, si el workspace está “solo en la nube”, macOS tarda unos segundos en descargarlo.
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    // If boot failed opening the saved workspace (moved/iCloud lazy), mark it so UI can recover.
+    // Clear any stale boot error flag on mount.
     useEffect(() => {
-        try {
-            const p = workspaceManager.getWorkspacePath();
-            const msg = localStorage.getItem('rp_workspace_boot_error') || '';
-            if (p && (msg.includes('Workspace folder does not exist') || msg.includes('Missing database.sqlite'))) {
-                setWorkspaceBootState({
-                    state: 'MISSING',
-                    path: p,
-                    message: 'La carpeta del workspace no está disponible (iCloud aún no la ha descargado o la ruta cambió).'
-                });
-                setBootStateTick((x) => x + 1);
-            }
-        } catch {
-            // ignore
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        try { localStorage.removeItem('rp_workspace_boot_error'); } catch { /* ignore */ }
     }, []);
 
     useEffect(() => {
@@ -985,5 +904,182 @@ const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
 
 export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
     const isTauri = isTauriRuntime();
+    const boot = getWorkspaceBootState();
+
+    if (boot.state === "MISSING") {
+        return <StartupRecoveryScreen path={boot.path} message={boot.message} onOpen={onOpen} />;
+    }
+
     return isTauri ? <StartupScreenTauri onOpen={onOpen} /> : <StartupScreenLegacy onOpen={onOpen} />;
+};
+
+// ─── Recovery Screen (deterministic, never freezes UI) ───────────────────────
+
+function pathBadge(p: string): { label: string; color: string } {
+    if (p.includes("Mobile Documents/com~apple~CloudDocs")) return { label: "iCloud", color: "bg-indigo-50 text-indigo-700 border-indigo-200" };
+    if (p.includes("Google Drive") || p.includes("GoogleDrive")) return { label: "Google Drive", color: "bg-amber-50 text-amber-700 border-amber-200" };
+    return { label: "Local", color: "bg-emerald-50 text-emerald-700 border-emerald-200" };
+}
+
+const StartupRecoveryScreen: React.FC<{
+    path: string;
+    message?: string;
+    onOpen: () => void;
+}> = ({ path, message, onOpen }) => {
+    const [retrying, setRetrying] = useState(false);
+    const [elapsed, setElapsed] = useState(0);
+    const [retryFailed, setRetryFailed] = useState(false);
+    const abortRef = useRef(false);
+
+    const badge = pathBadge(path);
+
+    // Live countdown during retry
+    useEffect(() => {
+        if (!retrying) return;
+        const start = Date.now();
+        const t = setInterval(() => {
+            setElapsed(Math.floor((Date.now() - start) / 1000));
+        }, 250);
+        return () => clearInterval(t);
+    }, [retrying]);
+
+    const handleRetry = async () => {
+        setRetrying(true);
+        setRetryFailed(false);
+        setElapsed(0);
+        abortRef.current = false;
+
+        // Wait up to 30 seconds, checking every 500 ms
+        const deadline = Date.now() + 30_000;
+        let found = false;
+        while (Date.now() < deadline && !abortRef.current) {
+            try {
+                if (await exists(path)) { found = true; break; }
+            } catch { /* ignore */ }
+            await new Promise(r => setTimeout(r, 500));
+        }
+
+        if (found && !abortRef.current) {
+            // Path materialized — try to actually open the workspace
+            try {
+                setWorkspaceBootState({ state: "OPENING_DB", path });
+                await projectManager.initialize();
+                if (projectManager.isProjectLoaded()) {
+                    setWorkspaceBootState({ state: "READY", path });
+                    onOpen();
+                    return;
+                }
+            } catch (e) {
+                console.warn("[Recovery] Re-init after materialization failed", e);
+            }
+        }
+
+        setRetrying(false);
+        if (!found) {
+            setRetryFailed(true);
+            toast.error("Sigue sin aparecer. Abre la carpeta en Finder o elige otra ubicación.");
+        }
+    };
+
+    const handleChooseFolder = async () => {
+        try {
+            const dir = await chooseFolder();
+            if (!dir) return;
+            await switchWorkspace(dir); // persists + reloads
+        } catch (e: any) {
+            console.error("[Recovery] chooseFolder failed", e);
+            toast.error(e?.message || "Error al cambiar workspace");
+        }
+    };
+
+    const handleOpenFinder = async () => {
+        try {
+            // Open the parent folder so the user can see the workspace (or its placeholder)
+            const { dirname } = await import("@tauri-apps/api/path");
+            const parent = await dirname(path);
+            await openWorkspaceFolder(parent);
+        } catch (e) {
+            try { await openWorkspaceFolder(path); } catch { /* best effort */ }
+        }
+    };
+
+    return (
+        <div className="min-h-screen flex items-center justify-center p-6 w-full">
+            <div className="max-w-xl w-full bg-white border border-slate-200 rounded-[2.5rem] shadow-2xl p-10 space-y-6">
+
+                {/* Icon */}
+                <div className="w-16 h-16 rounded-2xl flex items-center justify-center bg-rose-50 text-rose-600">
+                    <AlertCircle size={32} />
+                </div>
+
+                {/* Title + Badge */}
+                <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                        <h2 className="text-2xl font-black text-slate-800 tracking-tight">Workspace no disponible</h2>
+                        <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border shrink-0 ${badge.color}`}>
+                            {badge.label}
+                        </span>
+                    </div>
+                    <p className="text-slate-500 text-sm leading-relaxed">
+                        {message || "La ruta guardada no existe o aún no está descargada."}
+                    </p>
+                </div>
+
+                {/* Path */}
+                <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4">
+                    <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-2">Ruta guardada</div>
+                    <code className="block text-xs font-mono text-slate-600 break-all bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                        {path}
+                    </code>
+                </div>
+
+                {/* Retry progress */}
+                {retrying && (
+                    <div className="flex items-center gap-3 bg-indigo-50 p-4 rounded-2xl border border-indigo-100">
+                        <Loader2 size={18} className="animate-spin text-indigo-600" />
+                        <div>
+                            <p className="text-sm font-bold text-indigo-800">Esperando descarga…</p>
+                            <p className="text-xs text-indigo-500 font-mono tabular-nums">{elapsed}s / 30s</p>
+                        </div>
+                    </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <button
+                        disabled={retrying}
+                        className="px-4 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-2 disabled:opacity-50"
+                        onClick={handleRetry}
+                    >
+                        <RefreshCw size={16} className={retrying ? "animate-spin" : ""} />
+                        {retrying ? "Reintentando…" : "Reintentar (30s)"}
+                    </button>
+
+                    <button
+                        disabled={retrying}
+                        className="px-4 py-3 bg-white border border-slate-200 text-slate-700 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-50 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        onClick={handleOpenFinder}
+                    >
+                        <FolderOpen size={16} /> Abrir en Finder
+                    </button>
+
+                    <button
+                        disabled={retrying}
+                        className="px-4 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center justify-center gap-2 sm:col-span-2 disabled:opacity-50"
+                        onClick={handleChooseFolder}
+                    >
+                        <Database size={16} /> Elegir otra carpeta…
+                    </button>
+                </div>
+
+                {/* Helper notice */}
+                <div className="text-[10px] text-slate-400 font-bold flex items-center gap-2 opacity-70">
+                    <AlertCircle size={10} />
+                    {isICloudWorkspace(path)
+                        ? "Si el workspace está en iCloud, Finder puede tardar unos segundos en descargarlo."
+                        : "Si la carpeta fue movida o renombrada, selecciona la nueva ubicación."}
+                </div>
+            </div>
+        </div>
+    );
 };

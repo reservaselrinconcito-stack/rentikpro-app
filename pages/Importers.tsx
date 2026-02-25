@@ -1052,7 +1052,7 @@ export const Importers = () => {
                 <button onClick={handleFullExport} className="w-full py-5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-2xl shadow-lg shadow-indigo-200 hover:shadow-xl hover:shadow-indigo-300 transition-all font-black text-sm flex items-center justify-center gap-2 transform hover:scale-[1.02] active:scale-[0.98]">
                   <Package size={18} /> Exportar TODO ahora
                 </button>
-                <div className="text-[10px] text-center text-slate-400 -mt-2 mb-4 font-bold">Estructura + Datos + Configuración (.zip)</div>
+                <div className="text-[10px] text-center text-slate-400 -mt-2 mb-4 font-bold">Estructura + Datos + Configuración (.rentikpro / .zip)</div>
 
                 <div className="border-t border-slate-100 my-4"></div>
 

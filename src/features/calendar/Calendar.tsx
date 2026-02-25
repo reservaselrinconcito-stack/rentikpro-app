@@ -1,5 +1,8 @@
+import { useEffect } from "react";
 import { getDbReady } from "../../services/sqliteStore";
 import { tableHasColumn } from "../../services/schema";
+import { on } from "../../services/events";
+import { safeAsync } from "../../utils/async";
 
 export async function loadReservations(rangeStart: string, rangeEnd: string) {
   const db = await getDbReady();
@@ -18,4 +21,17 @@ export async function loadReservations(rangeStart: string, rangeEnd: string) {
   `;
 
   return db.queryAll(sql, [rangeEnd, rangeStart]);
+}
+
+export function useReservationsChanged(refreshCalendar: () => Promise<void>) {
+  useEffect(() => {
+    const off = on("reservations:changed", () => {
+      safeAsync(async () => {
+        await refreshCalendar(); // tu funcion real que llama loadReservations + setState
+      });
+    });
+    return () => {
+      off();
+    };
+  }, [refreshCalendar]);
 }

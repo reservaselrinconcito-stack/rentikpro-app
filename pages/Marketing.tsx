@@ -19,6 +19,7 @@ import { smtpService } from '../services/smtpService';
 import { renderTemplateSpecToEmailHtml } from '../services/emailRenderer';
 import { toast } from 'sonner';
 import { guestService } from '../services/guestService';
+import { copyToClipboard } from '../utils/clipboard';
 
 type Tab = 'CAMPAIGNS' | 'COUPONS' | 'BIRTHDAYS' | 'SEGMENTS' | 'TEMPLATES';
 
@@ -514,15 +515,20 @@ export const Marketing: React.FC = () => {
                            <div className="flex items-center gap-3 text-slate-600 font-bold text-xs">
                               <FileText size={16} /> Plantilla Visual
                            </div>
-                           <select
-                              className="bg-white border border-slate-200 rounded-lg text-xs font-bold px-2 py-1 outline-none max-w-[120px]"
-                              value={c.email_template_id || ''}
-                              onChange={async (e) => {
-                                 const updated = { ...c, email_template_id: e.target.value };
-                                 await projectManager.getStore().saveCampaign(updated);
-                                 loadData();
-                              }}
-                           >
+                            <select
+                               className="bg-white border border-slate-200 rounded-lg text-xs font-bold px-2 py-1 outline-none max-w-[120px]"
+                               value={c.email_template_id || ''}
+                               onChange={async (e) => {
+                                  try {
+                                     const updated = { ...c, email_template_id: e.target.value };
+                                     await projectManager.getStore().saveCampaign(updated);
+                                     loadData();
+                                  } catch (err: any) {
+                                     console.error('[Marketing] Failed updating campaign template', err);
+                                     toast.error('No se pudo guardar el cambio: ' + (err?.message || String(err)));
+                                  }
+                               }}
+                            >
                               <option value="">Seleccionar...</option>
                               {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                            </select>
@@ -602,7 +608,7 @@ export const Marketing: React.FC = () => {
                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Código Promocional</p>
                               <div className="flex items-center gap-3">
                                  <p className="text-2xl font-black text-slate-800 font-mono tracking-wider">{coupon.code}</p>
-                                 <button onClick={() => navigator.clipboard.writeText(coupon.code)} className="text-slate-300 hover:text-indigo-600"><Copy size={16} /></button>
+                                  <button onClick={() => void copyToClipboard(coupon.code)} className="text-slate-300 hover:text-indigo-600"><Copy size={16} /></button>
                               </div>
                            </div>
                            <div className="flex justify-between items-end mt-4">

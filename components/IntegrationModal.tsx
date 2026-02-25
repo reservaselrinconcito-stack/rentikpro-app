@@ -2,6 +2,7 @@
 import React, { useState } from 'react';
 import { X, Copy, Check, Globe, Code, ExternalLink } from 'lucide-react';
 import { WebSite } from '../types';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface IntegrationModalProps {
     isOpen: boolean;
@@ -26,7 +27,7 @@ export const IntegrationModal: React.FC<IntegrationModalProps> = ({ isOpen, onCl
     const buttonSnippet = `<a href="${bookingUrl}" style="background:#4F46E5;color:white;padding:12px 24px;text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;">Reservar Ahora</a>`;
 
     const handleCopy = (text: string, field: string) => {
-        navigator.clipboard.writeText(text);
+        void copyToClipboard(text);
         setCopiedField(field);
         setTimeout(() => setCopiedField(null), 2000);
     };

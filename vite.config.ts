@@ -7,17 +7,18 @@ import packageJson from './package.json';
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   const buildDate = new Date().toISOString().split('T')[0];
-  const isTauriBuild = !!process.env.TAURI_PLATFORM || !!process.env.TAURI_FAMILY;
+  const isTauri = process.env.VITE_TARGET === 'tauri';
 
   return {
     server: {
-      port: 3000,
+      port: 5173,
       host: '0.0.0.0',
     },
     plugins: [
       react(),
-      !isTauriBuild && VitePWA({
+      !isTauri && VitePWA({
         registerType: 'autoUpdate',
+        injectRegister: 'script',
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
         manifest: {
           name: 'RentikPro',
@@ -91,11 +92,15 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        ...(isTauri ? { 'virtual:pwa-register': path.resolve(__dirname, 'src/pwa-register-stub.ts') } : {}),
       }
     },
     build: {
       // Optimizaciones de bundle
       rollupOptions: {
+        // Tauri builds must not depend on vite-plugin-pwa virtual modules.
+        // We alias `virtual:pwa-register` to a stub when isTauri.
+        external: [],
         output: {
           manualChunks: {
             'vendor': ['react', 'react-dom', 'react-router-dom'],

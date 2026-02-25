@@ -6,7 +6,8 @@ import {
     Save, Building2, Wallet, Users, Globe, Mail, Phone, Calendar,
     ArrowLeft, Plus, Trash2, Instagram, Facebook, Youtube, Twitter, Video,
     Building, FileText, Settings as SettingsIcon, CheckCircle2, Download, Upload, Shield,
-    MailCheck, Server, Lock, Database, Wifi, RefreshCw, Eye, EyeOff, Copy, CheckCheck
+    MailCheck, Server, Lock, Database, Wifi, RefreshCw, Eye, EyeOff, Copy, CheckCheck,
+    FolderOpen, AlertCircle
 } from 'lucide-react';
 import { PolicyEditor } from '../components/PolicyEditor';
 import { smtpService } from '../services/smtpService';
@@ -1050,25 +1051,38 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                     </div>
 
                     {tauri && (
-                        <div className="p-6 bg-slate-50 border border-slate-200 rounded-3xl space-y-3">
+                        <div className="p-6 bg-slate-50 border border-slate-200 rounded-3xl space-y-4">
                             <div className="flex items-center justify-between gap-4">
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex-1">
                                     <div className="flex items-center gap-2">
-                                        <h4 className="font-black text-slate-800">Workspace de datos</h4>
+                                        <h4 className="font-black text-slate-800">Ubicación del Workspace</h4>
                                         {workspaceBadge && (
                                             <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md border ${workspaceBadge === 'iCloud' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
                                                 {workspaceBadge}
                                             </span>
                                         )}
                                     </div>
-                                    <p className="text-[11px] text-slate-500 font-bold mt-2">Ubicación actual:</p>
-                                    <code className="mt-2 block font-mono text-[11px] text-slate-700 break-all bg-white border border-slate-200 rounded-2xl p-3">
-                                        {workspacePath || 'No hay workspace activo (elige uno al iniciar).'}
-                                    </code>
+                                    <div className="mt-3 relative group">
+                                        <code className="block font-mono text-[11px] text-slate-700 break-all bg-white border border-slate-200 rounded-2xl p-4 pr-12 shadow-sm transition-all group-hover:border-slate-300">
+                                            {workspacePath || 'No hay workspace activo (elige uno al iniciar).'}
+                                        </code>
+                                        {workspacePath && (
+                                            <button
+                                                onClick={async () => {
+                                                    const ok = await copyToClipboard(workspacePath);
+                                                    if (ok) toast.success("Ruta copiada al portapapeles");
+                                                }}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-xl bg-slate-50 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 transition-all border border-transparent hover:border-indigo-100"
+                                                title="Copiar ruta"
+                                            >
+                                                <Copy size={14} />
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 
-                            <div className="flex flex-wrap gap-2 pt-2">
+                            <div className="flex flex-wrap gap-2 pt-1">
                                 <button
                                     onClick={async () => {
                                         if (!workspacePath) return;
@@ -1076,43 +1090,34 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                             await openWorkspaceFolder(workspacePath);
                                         } catch (e: any) {
                                             console.error('[Settings][Workspace] reveal failed', e);
-                                            toast.error(e?.message || String(e));
+                                            toast.error("No se pudo abrir la carpeta en Finder");
                                         }
                                     }}
                                     disabled={!workspacePath}
-                                    className="px-4 py-2 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-4 py-2.5 bg-white border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
-                                    Abrir carpeta
+                                    <FolderOpen size={14} className="text-slate-400" /> Abrir Finder
                                 </button>
 
                                 <button
                                     onClick={async () => {
-                                        const tid = toast.loading('Cambiando ubicación del workspace...');
                                         try {
                                             const newPath = await chooseFolder();
-                                            if (!newPath) {
-                                                toast.dismiss(tid);
-                                                return;
-                                            }
+                                            if (!newPath) return;
 
-                                            if (!confirm('Cambiar el workspace recargará la app. Si eliges una carpeta vacía se creará un workspace nuevo. ¿Continuar?')) {
-                                                toast.dismiss(tid);
+                                            if (!confirm('Cambiar el workspace cerrará el actual y recargará la aplicación. Si eliges una carpeta vacía, se creará un workspace nuevo allí. ¿Continuar?')) {
                                                 return;
                                             }
 
                                             await switchWorkspace(newPath);
-                                            toast.dismiss(tid);
-                                            toast.success('Workspace actualizado. Reiniciando...');
-                                            // switchWorkspace triggers reload.
                                         } catch (e: any) {
-                                            toast.dismiss(tid);
                                             console.error('[Settings][Workspace] switch failed', e);
-                                            toast.error(e?.message || String(e));
+                                            toast.error(e?.message || "Error al cambiar workspace");
                                         }
                                     }}
-                                    className="px-4 py-2 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800"
+                                    className="px-4 py-2.5 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2 shadow-lg shadow-slate-200"
                                 >
-                                    Cambiar ubicacion...
+                                    <Database size={14} /> Cambiar ubicación...
                                 </button>
 
                                 <button
@@ -1123,23 +1128,25 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
 
                                             const tid = toast.loading('Moviendo workspace...');
                                             await moveWorkspaceToFolder(destRoot);
-                                            // moveWorkspaceToFolder triggers reload.
                                             toast.dismiss(tid);
-                                            toast.success('Workspace movido. Reiniciando...');
                                         } catch (e: any) {
                                             console.error('[Settings][WorkspaceMover] failed', e);
-                                            toast.error(e?.message || String(e));
+                                            toast.error(e?.message || "Error al mover workspace");
                                         }
                                     }}
                                     disabled={!workspacePath}
-                                    className="px-4 py-2 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-4 py-2.5 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 transition-all disabled:opacity-50 flex items-center gap-2 shadow-lg shadow-indigo-100"
                                 >
-                                    Mover workspace a...
+                                    <RefreshCw size={14} /> Mover datos a...
                                 </button>
                             </div>
 
-                            <div className="text-[10px] text-slate-500 font-bold">
-                                macOS puede pedir confirmacion la primera vez si mueves la carpeta a iCloud Drive.
+                            <div className="flex items-start gap-2 bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100/50">
+                                <AlertCircle size={14} className="text-indigo-400 mt-0.5 shrink-0" />
+                                <div className="text-[10px] text-indigo-700 font-bold leading-relaxed">
+                                    Si eliges una ubicación en iCloud Drive, Finder gestionará la sincronización.
+                                    RentikPro esperará hasta 30 segundos si los archivos aún no se han descargado.
+                                </div>
                             </div>
                         </div>
                     )}

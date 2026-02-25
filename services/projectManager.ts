@@ -44,6 +44,12 @@ export class ProjectManager {
 
     // Priority 1 (Tauri): Single Workspace — auto-open last workspace if available.
     if (isTauri) {
+      // Emit boot state so UI shows "Leyendo configuración…"
+      try {
+        const { setWorkspaceBootState } = await import('../src/services/workspaceBootState');
+        setWorkspaceBootState({ state: "CHECK_CONFIG" });
+      } catch { /* best effort */ }
+
       const lastWorkspace = (() => {
         try { return localStorage.getItem('rp_workspace_path'); } catch { return null; }
       })();
@@ -69,12 +75,13 @@ export class ProjectManager {
           });
           logger.log(`[ProjectManager] Auto-opened workspace: ${lastWorkspace}`);
           return;
-        } catch (e) {
+        } catch (e: any) {
           // P0 hardening: do NOT fall back to IDB/file projects automatically.
           // If the workspace path is missing (moved/iCloud lazy download), we must show recovery UI.
+          console.warn("[ProjectManager] Auto-open failed:", e?.code, e?.workspacePath || lastWorkspace);
           logger.warn('[ProjectManager] Failed to auto-open workspace. Showing StartupScreen (no fallback).', e);
           try {
-            const msg = (e as any)?.message ? String((e as any).message) : String(e);
+            const msg = e?.message ? String(e.message) : String(e);
             localStorage.setItem('rp_workspace_boot_error', msg);
           } catch {
             // ignore

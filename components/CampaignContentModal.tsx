@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Copy, Download, Instagram, MessageCircle, Mail, Link as LinkIcon, FileText, Check } from 'lucide-react';
 import { MarketingCampaign, WebSite } from '../types';
 import JSZip from 'jszip';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface CampaignContentModalProps {
     isOpen: boolean;
@@ -47,7 +48,7 @@ export const CampaignContentModal: React.FC<CampaignContentModalProps> = ({ isOp
     ];
 
     const handleCopy = (text: string, id: string) => {
-        navigator.clipboard.writeText(text);
+        void copyToClipboard(text);
         setCopiedField(id);
         setTimeout(() => setCopiedField(null), 2000);
     };

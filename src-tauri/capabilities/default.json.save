@@ -1,0 +1,56 @@
+x{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability",
+  "remote": {
+    "urls": [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173"
+    ]
+  },
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:allow-open",
+    {
+      "identifier": "fs:allow-read-dir",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$HOME/Documents/**" },
+        { "path": "$HOME/Desktop/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-mkdir",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$HOME/Documents/**" },
+        { "path": "$HOME/Desktop/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$HOME/Documents/**" },
+        { "path": "$HOME/Desktop/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$HOME/Documents/**" },
+        { "path": "$HOME/Desktop/**" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-exists",
+      "allow": [
+        { "path": "$HOME/**" },
+        { "path": "$HOME/Documents/**" },
+        { "path": "$HOME/Desktop/**" }
+      ]
+    }
+  ]
+}

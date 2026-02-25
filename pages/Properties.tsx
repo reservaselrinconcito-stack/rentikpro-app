@@ -8,6 +8,7 @@ import {
   ChevronRight, Building2, LayoutGrid, Palette, ArrowLeft,
   Globe, Code, Copy, ExternalLink, MousePointer, Download, FileJson, RefreshCw
 } from 'lucide-react';
+import { copyToClipboard } from '../utils/clipboard';
 
 export const stableColorById = (id: string = '') => {
   if (!id) return '#4F46E5';
@@ -35,8 +36,8 @@ const BookingWidgetModal = ({ property, onClose }: { property: Property, onClose
   const publicUrl = `${baseUrl}/widget/${property.id}?color=${accentColor.replace('#', '')}&showTitle=${showTitle}`;
   const iframeCode = `<iframe src="${publicUrl}" width="100%" height="700" frameborder="0" style="border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);"></iframe>`;
 
-  const copyToClipboard = (text: string, type: 'LINK' | 'CODE') => {
-    navigator.clipboard.writeText(text);
+  const copyWidgetText = (text: string, type: 'LINK' | 'CODE') => {
+    void copyToClipboard(text);
     if (type === 'LINK') { setCopiedLink(true); setTimeout(() => setCopiedLink(false), 2000); }
     if (type === 'CODE') { setCopiedCode(true); setTimeout(() => setCopiedCode(false), 2000); }
   };
@@ -107,7 +108,7 @@ const BookingWidgetModal = ({ property, onClose }: { property: Property, onClose
               </div>
               <div className="flex gap-2">
                 <input readOnly value={publicUrl} className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-600 outline-none select-all" />
-                <button onClick={() => copyToClipboard(publicUrl, 'LINK')} className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors text-slate-500">
+                <button onClick={() => copyWidgetText(publicUrl, 'LINK')} className="p-2 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors text-slate-500">
                   <Copy size={16} />
                 </button>
               </div>
@@ -120,7 +121,7 @@ const BookingWidgetModal = ({ property, onClose }: { property: Property, onClose
                   <Code size={12} /> Código Iframe (Embed)
                 </label>
                 <button
-                  onClick={() => copyToClipboard(iframeCode, 'CODE')}
+                  onClick={() => copyWidgetText(iframeCode, 'CODE')}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${copiedCode ? 'bg-emerald-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
                 >
                   {copiedCode ? <CheckCircle2 size={12} /> : <Copy size={12} />}

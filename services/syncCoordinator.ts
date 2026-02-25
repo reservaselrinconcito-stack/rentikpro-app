@@ -5,6 +5,7 @@ import { SyncState, UserSettings } from '../types';
 import { logger } from './logger';
 import { webdavSync } from './webdavSync';
 import { getLastOpenedProjectPath } from './projectFolderManager';
+import { isTauri as isTauriRuntime } from '../utils/isTauri';
 
 export type SyncResult = {
     success: boolean;
@@ -50,7 +51,7 @@ export class SyncCoordinator {
     }
 
     private isTauriRuntime(): boolean {
-        return typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+        return isTauriRuntime();
     }
 
     private getRemotePath(): string {

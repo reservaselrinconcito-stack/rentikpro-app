@@ -12,6 +12,7 @@ import {
 import { APP_VERSION } from '../src/version';
 import { toast } from 'sonner';
 import { notifyDataChanged } from '../services/dataRefresher';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface DiagResult {
     label: string;
@@ -329,7 +330,7 @@ export const Diagnostics: React.FC = () => {
         }
     };
 
-    const copyReport = () => {
+    const copyReport = async () => {
         const report = {
             timestamp: new Date().toISOString(),
             app_version: APP_VERSION,
@@ -342,8 +343,9 @@ export const Diagnostics: React.FC = () => {
             tables,
             fix_logs: fixLogs
         };
-        navigator.clipboard.writeText(JSON.stringify(report, null, 2));
-        toast.success("Informe copiado al portapapeles");
+        const ok = await copyToClipboard(JSON.stringify(report, null, 2));
+        if (ok) toast.success('Informe copiado al portapapeles');
+        else toast.error('No se pudo copiar el informe (permiso denegado)');
     };
 
     // --- AUTO-FIX ACTIONS ---
@@ -626,8 +628,10 @@ export const Diagnostics: React.FC = () => {
                                         stayRules,
                                         publicSnapshot,
                                     };
-                                    navigator.clipboard.writeText(safeStringify(report));
-                                    toast.success('Copiado al portapapeles');
+                                    void copyToClipboard(safeStringify(report)).then((ok) => {
+                                        if (ok) toast.success('Copiado al portapapeles');
+                                        else toast.error('No se pudo copiar (permiso denegado)');
+                                    });
                                 }}
                                 className="px-6 py-3 bg-white border border-slate-200 rounded-2xl font-black text-xs"
                             >
@@ -649,8 +653,10 @@ export const Diagnostics: React.FC = () => {
                                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">defaults</p>
                                     <button
                                         onClick={() => {
-                                            navigator.clipboard.writeText(safeStringify(defaults));
-                                            toast.success('Defaults copiados');
+                                            void copyToClipboard(safeStringify(defaults)).then((ok) => {
+                                                if (ok) toast.success('Defaults copiados');
+                                                else toast.error('No se pudo copiar (permiso denegado)');
+                                            });
                                         }}
                                         className="text-[10px] font-black text-slate-500 hover:text-indigo-600"
                                     >
@@ -665,8 +671,10 @@ export const Diagnostics: React.FC = () => {
                                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">nightly overrides (raw store.getNightlyRates)</p>
                                     <button
                                         onClick={() => {
-                                            navigator.clipboard.writeText(safeStringify(nightlyOverridesRaw));
-                                            toast.success('Overrides copiados');
+                                            void copyToClipboard(safeStringify(nightlyOverridesRaw)).then((ok) => {
+                                                if (ok) toast.success('Overrides copiados');
+                                                else toast.error('No se pudo copiar (permiso denegado)');
+                                            });
                                         }}
                                         className="text-[10px] font-black text-slate-500 hover:text-indigo-600"
                                     >
@@ -681,8 +689,10 @@ export const Diagnostics: React.FC = () => {
                                     <p className="text-[10px] font-black uppercase tracking-widest text-slate-500">resolved overrides (pricingStudioStore.getNightlyRates)</p>
                                     <button
                                         onClick={() => {
-                                            navigator.clipboard.writeText(safeStringify(nightlyResolved));
-                                            toast.success('Resolved copiado');
+                                            void copyToClipboard(safeStringify(nightlyResolved)).then((ok) => {
+                                                if (ok) toast.success('Resolved copiado');
+                                                else toast.error('No se pudo copiar (permiso denegado)');
+                                            });
                                         }}
                                         className="text-[10px] font-black text-slate-500 hover:text-indigo-600"
                                     >
@@ -699,8 +709,10 @@ export const Diagnostics: React.FC = () => {
                                         <span className="text-[10px] font-black text-slate-400">slug: {publicSnapshotSlug || 'n/a'}</span>
                                         <button
                                             onClick={() => {
-                                                navigator.clipboard.writeText(safeStringify(publicSnapshot));
-                                                toast.success('Snapshot copiado');
+                                                void copyToClipboard(safeStringify(publicSnapshot)).then((ok) => {
+                                                    if (ok) toast.success('Snapshot copiado');
+                                                    else toast.error('No se pudo copiar (permiso denegado)');
+                                                });
                                             }}
                                             className="text-[10px] font-black text-slate-500 hover:text-indigo-600"
                                         >
@@ -722,8 +734,10 @@ export const Diagnostics: React.FC = () => {
                                 </div>
                                 <button
                                     onClick={() => {
-                                        navigator.clipboard.writeText(safeStringify(stayRules));
-                                        toast.success('Stay rules copiados');
+                                        void copyToClipboard(safeStringify(stayRules)).then((ok) => {
+                                            if (ok) toast.success('Stay rules copiados');
+                                            else toast.error('No se pudo copiar (permiso denegado)');
+                                        });
                                     }}
                                     className="text-[10px] font-black text-slate-500 hover:text-indigo-600"
                                 >

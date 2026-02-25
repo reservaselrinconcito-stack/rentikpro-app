@@ -4,6 +4,7 @@ import { projectPersistence, ProjectMetadata } from './projectPersistence';
 import { pickProjectFolder } from './projectFolderManager';
 import { invoke } from '@tauri-apps/api/core';
 import { SQLiteStore } from './sqliteStore';
+import { isTauri as isTauriRuntime } from '../utils/isTauri';
 
 type OpenProjectResult = {
   project_json: string;
@@ -22,10 +23,6 @@ type ValidateProjectResult = {
 declare const initSqlJs: any;
 
 const MIGRATION_PREF_KEY = 'rp_migration_v1_done';
-
-function isTauriRuntime(): boolean {
-  return typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
-}
 
 function base64ToBytes(base64: string): Uint8Array {
   const bin = atob(base64);
@@ -360,8 +357,8 @@ export async function migrateLegacyProjectToFolder(args: {
     const stamped = await stampMigrationOnDbBytes(rec.data, rec.id);
     await invoke<ValidateProjectResult>('write_project_folder', {
       path: folderPath,
-      project_json: projectJson,
-      db_base64: bytesToBase64(stamped),
+      projectJson: projectJson,
+      dbBase64: bytesToBase64(stamped),
       overwrite: false,
     } as any);
     markMigrationDone();
@@ -382,8 +379,8 @@ export async function migrateLegacyProjectToFolder(args: {
 
   await invoke<ValidateProjectResult>('write_project_folder', {
     path: folderPath,
-    project_json: projectJson,
-    db_base64: bytesToBase64(mergedBytes),
+    projectJson: projectJson,
+    dbBase64: bytesToBase64(mergedBytes),
     overwrite: true,
   } as any);
 

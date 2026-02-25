@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { ImageAsset } from '../types';
 import { Upload, X, Copy, Trash2, Edit2, Image as ImageIcon, AlertCircle } from 'lucide-react';
+import { copyToClipboard } from '../../../../utils/clipboard';
 
 interface AssetManagerProps {
     assets: ImageAsset[];
@@ -73,7 +74,7 @@ export const AssetManager: React.FC<AssetManagerProps> = ({ assets, onAssetsChan
 
     const handleCopyUrl = (url: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(url);
+        void copyToClipboard(url);
         // Toast indicator would be nice here
     };
 

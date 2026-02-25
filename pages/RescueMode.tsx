@@ -11,7 +11,7 @@ export const RescueMode: React.FC<RescueModeProps> = ({ error }) => {
     const handleCreateNew = async () => {
         try {
             if (confirm("Se creará un proyecto vacío en memoria. ¿Continuar?")) {
-                await projectManager.createNewProject();
+                await projectManager.createBlankProject();
                 window.location.hash = '/';
                 window.location.reload();
             }
@@ -46,13 +46,24 @@ export const RescueMode: React.FC<RescueModeProps> = ({ error }) => {
         const file = e.target.files?.[0];
         if (file) {
             try {
-                await projectManager.importProjectFromFile(file);
+                if (file.name.endsWith('.zip') || file.name.endsWith('.rentikpro')) {
+                    await projectManager.importFullBackupZip(file);
+                } else if (file.name.endsWith('.sqlite')) {
+                    await projectManager.importProjectFromFile(file);
+                } else {
+                    throw new Error('Formato no soportado. Usa .rentikpro, .zip o .sqlite');
+                }
                 alert("Proyecto restaurado. Recargando...");
                 window.location.hash = '/';
                 window.location.reload();
             } catch (err) {
                 alert("Error al restaurar: " + err);
             }
+        }
+        try {
+            e.target.value = '';
+        } catch {
+            // ignore
         }
     };
 
@@ -107,7 +118,7 @@ export const RescueMode: React.FC<RescueModeProps> = ({ error }) => {
                             <input
                                 id="rescue-upload"
                                 type="file"
-                                accept=".sqlite,.zip"
+                                accept=".sqlite,.rentikpro,.zip"
                                 className="hidden"
                                 onChange={handleFileChange}
                             />

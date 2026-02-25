@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Clipboard, Trash2, ShieldAlert, Bug, RefreshCw, Terminal } from 'lucide-react';
 import { iCalLogger, ICalLogEntry } from '../services/iCalLogger';
+import { copyToClipboard } from '../utils/clipboard';
 
 interface ICalDebugPanelProps {
     isOpen: boolean;
@@ -26,7 +27,7 @@ export const ICalDebugPanel: React.FC<ICalDebugPanelProps> = ({ isOpen, onClose 
     if (!isOpen) return null;
 
     const handleCopy = () => {
-        navigator.clipboard.writeText(iCalLogger.getReport());
+        void copyToClipboard(iCalLogger.getReport());
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };

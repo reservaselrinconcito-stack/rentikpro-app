@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect x="64" y="64" width="896" height="896" rx="220" fill="#0B1B2B"/>
+  <g fill="#F5F1E8">
+    <rect x="230" y="250" width="120" height="524" rx="60"/>
+    <path fill-rule="evenodd" d="M230 250h300c80 0 145 65 145 145s-65 145-145 145H230V250Zm120 105h170c24 0 44 20 44 44s-20 44-44 44H350V355Z"/>
+    <rect x="352" y="560" width="160" height="360" rx="80" transform="rotate(-28 432 740)"/>
+
+    <rect x="560" y="250" width="120" height="524" rx="60"/>
+    <path fill-rule="evenodd" d="M560 250h300c80 0 145 65 145 145s-65 145-145 145H560V250Zm120 105h170c24 0 44 20 44 44s-20 44-44 44H680V355Z"/>
+  </g>
+  <circle cx="848" cy="800" r="20" fill="#FFB000"/>
+</svg>

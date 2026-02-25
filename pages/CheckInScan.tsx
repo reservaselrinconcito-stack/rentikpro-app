@@ -12,6 +12,7 @@ import {
   Globe, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { copyToClipboard } from '../utils/clipboard';
 
 export const CheckInScan: React.FC = () => {
   const navigate = useNavigate();
@@ -129,8 +130,10 @@ export const CheckInScan: React.FC = () => {
   const handleCopyWhatsApp = (req: CheckInRequest) => {
     const link = checkinService.getPublicLink(req.token || '');
     const message = `Hola! Por favor, completa el registro de viajeros para tu estancia usando este enlace: ${link}`;
-    navigator.clipboard.writeText(message);
-    toast.success("Mensaje copiado al portapapeles para WhatsApp");
+    void copyToClipboard(message).then((ok) => {
+      if (ok) toast.success('Mensaje copiado al portapapeles para WhatsApp');
+      else toast.error('No se pudo copiar el mensaje (permiso denegado)');
+    });
     checkinService.markAsSent(req.id).then(() => loadAll());
   };
 

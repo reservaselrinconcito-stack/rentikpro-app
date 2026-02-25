@@ -1,16 +1,3 @@
-<div style={{
-  position: "fixed",
-  top: 10,
-  left: 10,
-  zIndex: 999999,
-  background: "red",
-  color: "white",
-  padding: "8px 12px",
-  borderRadius: 10,
-  fontWeight: 900
-}}>
-  ✅ RUNNING: rentikpro funciona
-</div>
 import React, { useState, useEffect, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { projectManager } from './services/projectManager';
@@ -67,8 +54,58 @@ const EmailBookings = lazyWithRetry(() => import('./pages/EmailBookings').then(m
 
 import { Toaster } from 'sonner';
 import { VersionChecker } from './components/VersionChecker';
+import { isTauri } from './utils/isTauri';
 
-// Loading component
+// Boot-aware loading component — subscribes to the workspace state machine
+// so users always see exactly what is happening.
+import { getWorkspaceBootState, onBootStateChange, type WorkspaceBootState } from './src/services/workspaceBootState';
+
+const phaseLabels: Record<string, string> = {
+  CHECK_CONFIG: "Leyendo configuración…",
+  VALIDATE_PATH: "Validando workspace…",
+  WAITING_MATERIALIZATION: "Esperando descarga de iCloud…",
+  OPENING_DB: "Abriendo base de datos…",
+  READY: "Listo",
+  MISSING: "Workspace no disponible",
+};
+
+const BootProgress: React.FC = () => {
+  const [boot, setBoot] = React.useState<WorkspaceBootState>(getWorkspaceBootState);
+  const [elapsed, setElapsed] = React.useState(0);
+
+  React.useEffect(() => onBootStateChange(setBoot), []);
+
+  // Live countdown when waiting for materialization
+  React.useEffect(() => {
+    if (boot.state !== "WAITING_MATERIALIZATION") { setElapsed(0); return; }
+    const t = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - boot.startedAt) / 1000));
+    }, 250);
+    return () => clearInterval(t);
+  }, [boot]);
+
+  const label = phaseLabels[boot.state] || "Iniciando…";
+  const showCountdown = boot.state === "WAITING_MATERIALIZATION";
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full gap-4 select-none animate-in fade-in">
+      <div className="animate-spin rounded-full h-10 w-10 border-[3px] border-slate-200 border-t-indigo-600" />
+      <p className="text-sm font-bold text-slate-500 tracking-wide">{label}</p>
+      {showCountdown && (
+        <p className="text-xs text-slate-400 font-mono tabular-nums">
+          {elapsed}s / {Math.round((boot as any).timeoutMs / 1000)}s
+        </p>
+      )}
+      {"path" in boot && (
+        <code className="text-[10px] text-slate-300 font-mono max-w-md truncate" title={(boot as any).path}>
+          {(boot as any).path}
+        </code>
+      )}
+    </div>
+  );
+};
+
+// Loading component for lazy routes (NOT for boot)
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
@@ -103,11 +140,18 @@ const App: React.FC = () => {
         } else if (CORE_MODE) {
           // CORE_MODE: always allow entering the app offline without login/licensing.
           // If nothing is loaded, create a local blank project as a safe default.
-          try {
-            const ok = await projectManager.createBlankProject();
-            if (ok) setIsProjectOpen(true);
-          } catch (e) {
-            console.warn('[CORE_MODE] Failed creating blank project, showing StartupScreen', e);
+          // EXCEPTION (Tauri): do NOT fall back to IDB projects automatically.
+          // If the workspace is missing/moved/iCloud-lazy, StartupScreen must handle recovery.
+          const tauri = isTauri();
+          if (tauri) {
+            // fall through: show StartupScreen
+          } else {
+            try {
+              const ok = await projectManager.createBlankProject();
+              if (ok) setIsProjectOpen(true);
+            } catch (e) {
+              console.warn('[CORE_MODE] Failed creating blank project, showing StartupScreen', e);
+            }
           }
         }
       } catch (e) {
@@ -197,7 +241,7 @@ const App: React.FC = () => {
         <VersionChecker />
         <Layout onSave={handleSave} onClose={handleClose}>
           {initializing ? (
-            <PageLoader />
+            <BootProgress />
           ) : !isProjectOpen ? (
             <StartupScreen onOpen={() => setIsProjectOpen(true)} />
           ) : (
