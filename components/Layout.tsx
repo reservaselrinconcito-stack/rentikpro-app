@@ -15,6 +15,8 @@ import { CheckCircle, AlertCircle, Cloud, CloudOff } from 'lucide-react';
 import { syncCoordinator } from '../services/syncCoordinator';
 import { isTauri } from '../utils/isTauri';
 import { getDbReady, isDbReady } from '../services/sqliteStore';
+import { useMaintenance } from '../src/hooks/useMaintenance';
+import { MaintenanceOverlay } from '../src/components/MaintenanceOverlay';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -73,6 +75,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
 
   const [booted, setBooted] = useState(() => isDbReady());
   const [bootError, setBootError] = useState<any>(null);
+
+  const { enabled: maintenanceEnabled, reason: maintenanceReason } = useMaintenance();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -290,11 +294,21 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   );
 
   if (bootError) {
-    return <div>Startup error</div>;
+    return (
+      <>
+        <div>Startup error</div>
+        {maintenanceEnabled && <MaintenanceOverlay reason={maintenanceReason} />}
+      </>
+    );
   }
 
   if (!booted) {
-    return <div>Initializing...</div>;
+    return (
+      <>
+        <div>Initializing...</div>
+        {maintenanceEnabled && <MaintenanceOverlay reason={maintenanceReason} />}
+      </>
+    );
   }
 
   return (
@@ -482,6 +496,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
 
       {/* DEBUG OVERLAY (Global Errors) */}
       <DebugOverlay />
+
+      {maintenanceEnabled && <MaintenanceOverlay reason={maintenanceReason} />}
     </div>
   );
 };
