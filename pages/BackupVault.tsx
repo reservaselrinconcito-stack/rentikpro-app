@@ -3,6 +3,8 @@ import { Archive, Download, Upload, ShieldCheck, AlertCircle, RefreshCw, FileArc
 import { ProjectManager, projectManager } from '../services/projectManager';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { isTauri } from '../utils/isTauri';
+import { workspaceManager } from '../services/workspaceManager';
 
 export const BackupVault = () => {
     const navigate = useNavigate();
@@ -12,6 +14,9 @@ export const BackupVault = () => {
     const [isImporting, setIsImporting] = useState(false);
     const [logs, setLogs] = useState<string[]>([]);
     const logsEndRef = useRef<HTMLDivElement>(null);
+    const [localBackups, setLocalBackups] = useState<string[]>([]);
+    const [selectedLocalBackup, setSelectedLocalBackup] = useState<string>('');
+    const tauri = isTauri();
 
     useEffect(() => {
         const backupDate = localStorage.getItem('rentik_last_backup_date');
@@ -20,6 +25,20 @@ export const BackupVault = () => {
         const restoreDate = localStorage.getItem('rentik_last_restore_date');
         if (restoreDate) setLastRestore(new Date(restoreDate).toLocaleString());
     }, []);
+
+    useEffect(() => {
+        if (!tauri) return;
+        const load = async () => {
+            try {
+                const list = await workspaceManager.listBackups();
+                setLocalBackups(list);
+                setSelectedLocalBackup(list[0] || '');
+            } catch {
+                // ignore (workspace might not be configured yet)
+            }
+        };
+        load();
+    }, [tauri]);
 
     useEffect(() => {
         logsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -35,6 +54,19 @@ export const BackupVault = () => {
             setIsExporting(true);
             setLogs([]); // Clear previous logs
             addLog("Iniciando exportación de backup...");
+
+            // Tauri workspace: create local backup file in /backups/.
+            if (tauri && workspaceManager.getWorkspacePath()) {
+                addLog('Creando backup local en workspace...');
+                const { filename } = await workspaceManager.createBackup();
+                const list = await workspaceManager.listBackups();
+                setLocalBackups(list);
+                setSelectedLocalBackup(filename);
+                addLog(`✅ Backup local creado: ${filename}`);
+                toast.success('Backup local creado en /backups/');
+                setLastBackup(new Date().toLocaleString());
+                return;
+            }
 
             // SAFARI FIX: Open popup synchronously before async work
             popup = window.open('', '_blank');
@@ -78,6 +110,50 @@ export const BackupVault = () => {
         }
     };
 
+    const handleSaveBackupInFolder = async () => {
+        try {
+            if (!tauri) {
+                toast.error('Esta opción solo está disponible en escritorio (Tauri).');
+                return;
+            }
+
+            setIsExporting(true);
+            setLogs([]);
+            addLog('Selecciona carpeta destino...');
+
+            const dialog = await import('@tauri-apps/plugin-dialog');
+            const picked = await dialog.open({
+                directory: true,
+                multiple: false,
+                title: 'Guardar backup en...'
+            });
+
+            if (!picked) return;
+            const dir = Array.isArray(picked) ? (picked[0] || '') : picked;
+            if (!dir) return;
+
+            addLog('Generando backup (.rentikpro)...');
+            const { blob, filename } = await projectManager.exportFullBackupZip();
+            const bytes = new Uint8Array(await blob.arrayBuffer());
+
+            const pathApi = await import('@tauri-apps/api/path');
+            const fs = await import('@tauri-apps/plugin-fs');
+            const filePath = await pathApi.join(dir, filename);
+
+            await (fs as any).writeFile(filePath, bytes);
+
+            addLog(`✅ Backup guardado en: ${filePath}`);
+            toast.success('Backup guardado correctamente');
+            setLastBackup(new Date().toLocaleString());
+        } catch (e: any) {
+            console.error('[BackupVault] Save backup in folder failed', e);
+            addLog(`ERROR: ${e?.message || String(e)}`);
+            toast.error(e?.message || String(e));
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
 
     const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -93,14 +169,45 @@ export const BackupVault = () => {
             setLogs([]); // Clear logs
             addLog(`Archivo seleccionado: ${file.name}`);
 
-            if (file.name.endsWith('.zip')) {
+            // Tauri workspace: import into workspace on disk.
+            if (tauri && workspaceManager.getWorkspacePath()) {
+                let dbBytes: Uint8Array;
+                if (file.name.endsWith('.sqlite')) {
+                    const buf = await file.arrayBuffer();
+                    dbBytes = new Uint8Array(buf);
+                    await workspaceManager.saveCurrentWorkspace(dbBytes);
+                } else if (file.name.endsWith('.zip') || file.name.endsWith('.rentikpro')) {
+                    dbBytes = await workspaceManager.importExternalBackupZip(file);
+                } else {
+                    throw new Error('Formato no soportado. Usa .rentikpro, .zip o .sqlite');
+                }
+
+                const projectId = localStorage.getItem('rp_workspace_project_id') || 'workspace';
+                const name = localStorage.getItem('rp_workspace_name') || workspaceManager.getWorkspaceDisplayName();
+                addLog('Cargando DB importada...');
+                await projectManager.loadProjectFromSqliteBytes(dbBytes, {
+                    projectId,
+                    name,
+                    mode: 'real',
+                    setAsActive: false,
+                    startAutoSave: true,
+                    persistToIdb: false,
+                });
+
+                toast.success('Restauración completada en el workspace');
+                setLastRestore(new Date().toLocaleString());
+                setTimeout(() => navigate('/'), 1200);
+                return;
+            }
+
+            if (file.name.endsWith('.zip') || file.name.endsWith('.rentikpro')) {
                 await projectManager.importFullBackupZip(file, (msg) => addLog(msg));
             } else if (file.name.endsWith('.sqlite')) {
                 addLog("Detectado formato legacy .sqlite");
                 await projectManager.importProjectFromFile(file);
                 addLog("Restauración completada.");
             } else {
-                throw new Error("Formato no soportado. Usa .zip o .sqlite");
+                throw new Error("Formato no soportado. Usa .rentikpro, .zip o .sqlite");
             }
 
             toast.success("Restauración completada");
@@ -118,6 +225,36 @@ export const BackupVault = () => {
         } finally {
             setIsImporting(false);
             e.target.value = '';
+        }
+    };
+
+    const handleRestoreLocalBackup = async () => {
+        if (!selectedLocalBackup) return;
+        if (!confirm('ADVERTENCIA: Restaurar un backup local SOBREESCRIBIRA los datos actuales del workspace. ¿Continuar?')) return;
+        try {
+            setIsImporting(true);
+            setLogs([]);
+            addLog(`Restaurando backup local: ${selectedLocalBackup}`);
+            const dbBytes = await workspaceManager.restoreBackup(selectedLocalBackup);
+            const projectId = localStorage.getItem('rp_workspace_project_id') || 'workspace';
+            const name = localStorage.getItem('rp_workspace_name') || workspaceManager.getWorkspaceDisplayName();
+            await projectManager.loadProjectFromSqliteBytes(dbBytes, {
+                projectId,
+                name,
+                mode: 'real',
+                setAsActive: false,
+                startAutoSave: true,
+                persistToIdb: false,
+            });
+            addLog('✅ Restauración local completada');
+            toast.success('Backup local restaurado');
+            setLastRestore(new Date().toLocaleString());
+            setTimeout(() => navigate('/'), 1200);
+        } catch (e: any) {
+            addLog(`ERROR FATAL: ${e?.message || e}`);
+            toast.error('Error al restaurar: ' + (e?.message || String(e)));
+        } finally {
+            setIsImporting(false);
         }
     };
 
@@ -145,7 +282,9 @@ export const BackupVault = () => {
                     </div>
                     <h2 className="text-2xl font-bold text-slate-800 mb-2">Crear Backup Completo</h2>
                     <p className="text-slate-500 mb-8 max-w-xs">
-                        Descarga un archivo ZIP encriptado con toda tu base de datos, configuraciones y sitios web.
+                        {tauri && workspaceManager.getWorkspacePath()
+                            ? 'Crea un backup local dentro del workspace (/backups/).'
+                            : 'Descarga un archivo .rentikpro con toda tu base de datos, configuraciones y sitios web.'}
                     </p>
 
                     <button
@@ -154,8 +293,18 @@ export const BackupVault = () => {
                         className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {isExporting ? <RefreshCw className="animate-spin" /> : <FileArchive />}
-                        {isExporting ? "Generando..." : "Descargar Backup"}
+                        {isExporting ? "Generando..." : (tauri && workspaceManager.getWorkspacePath() ? 'Crear Backup Local' : 'Descargar Backup')}
                     </button>
+
+                    {tauri && (
+                        <button
+                            onClick={handleSaveBackupInFolder}
+                            disabled={isExporting || isImporting}
+                            className="w-full mt-3 py-3 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-black text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Guardar backup en...
+                        </button>
+                    )}
 
                     <div className="mt-6 flex flex-col gap-1 text-xs text-slate-400">
                         {lastBackup ? (
@@ -176,9 +325,39 @@ export const BackupVault = () => {
                     </div>
                     <h2 className="text-2xl font-bold text-slate-800 mb-2">Restaurar Backup</h2>
                     <p className="text-slate-500 mb-8 max-w-xs">
-                        Recupera tus datos subiendo un archivo de backup previo (.zip).
+                        {tauri && workspaceManager.getWorkspacePath()
+                            ? 'Restaura un backup local del workspace o importa un archivo externo.'
+                            : 'Recupera tus datos subiendo un archivo de backup previo (.rentikpro / .zip).'}
                         <br /><span className="text-red-500 font-bold text-xs mt-2 block">⚠️ Sobreescribirá los datos actuales</span>
                     </p>
+
+                    {tauri && workspaceManager.getWorkspacePath() && (
+                        <div className="w-full mb-4">
+                            <div className="flex items-center gap-2">
+                                <select
+                                    value={selectedLocalBackup}
+                                    onChange={(e) => setSelectedLocalBackup(e.target.value)}
+                                    className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-sm"
+                                    disabled={isImporting || isExporting}
+                                >
+                                    <option value="" disabled>{localBackups.length ? 'Selecciona backup local' : 'Sin backups locales'}</option>
+                                    {localBackups.map(b => (
+                                        <option key={b} value={b}>{b}</option>
+                                    ))}
+                                </select>
+                                <button
+                                    onClick={handleRestoreLocalBackup}
+                                    disabled={!selectedLocalBackup || isImporting || isExporting}
+                                    className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold disabled:opacity-50"
+                                >
+                                    Restaurar
+                                </button>
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-bold mt-2">
+                                Carpeta: {workspaceManager.getWorkspaceDisplayName()} / backups
+                            </div>
+                        </div>
+                    )}
 
                     <div className="relative w-full">
                         <button
@@ -190,7 +369,7 @@ export const BackupVault = () => {
                         </button>
                         <input
                             type="file"
-                            accept=".zip,.sqlite"
+                            accept=".rentikpro,.zip,.sqlite"
                             onChange={handleImport}
                             disabled={isImporting || isExporting}
                             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
