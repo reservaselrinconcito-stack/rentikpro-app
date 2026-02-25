@@ -1,11 +1,271 @@
-import React, { useState, useEffect } from 'react';
-import { Play, FilePlus, Upload, ShieldCheck, Gamepad2, ArrowRight, Loader2, CheckCircle, AlertCircle, Database, FolderOpen, FileText } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Play, FilePlus, Upload, ShieldCheck, Gamepad2, ArrowRight, Loader2, CheckCircle, AlertCircle, Database, FolderOpen, FileText, Download } from 'lucide-react';
+import { APP_VERSION } from '../src/version';
 import { projectManager } from '../services/projectManager';
 import { projectPersistence, ProjectMetadata } from '../services/projectPersistence'; // Import persistence
 import { notifyDataChanged } from '../services/dataRefresher';
 import { createProject, openProject, pickProjectFolder, getLastOpenedProjectPath, validateProject } from '../services/projectFolderManager';
+import { isTauri as isTauriRuntime } from '../utils/isTauri';
+import { workspaceManager } from '../services/workspaceManager';
+import { toast } from 'sonner';
+const joinPath = async (a: string, b: string): Promise<string> => {
+    try {
+        const mod = await import('@tauri-apps/api/path');
+        return await mod.join(a, b);
+    } catch {
+        // Fallback for non-Tauri/web. (Not used in web flow.)
+        return a.replace(/\/+$/, '') + '/' + b;
+    }
+};
 
-export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
+const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
+    const [loading, setLoading] = useState(false);
+    const [loadingLog, setLoadingLog] = useState<string>('');
+    const [error, setError] = useState<string | null>(null);
+    const [workspacePath, setWorkspacePath] = useState<string | null>(() => workspaceManager.getWorkspacePath());
+    const mountedRef = useRef(true);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+        };
+    }, []);
+
+    const openAndLoad = async (path: string) => {
+        if (mountedRef.current) {
+            setLoading(true);
+            setError(null);
+            setLoadingLog('Abriendo workspace...');
+        }
+        try {
+            const res = await workspaceManager.openWorkspace(path);
+            let meta: any = {};
+            try { meta = JSON.parse(res.workspaceJson || '{}'); } catch { meta = {}; }
+            const projectId = (meta?.id || 'workspace').toString();
+            const name = (meta?.name || workspaceManager.getWorkspaceDisplayName()).toString();
+
+            localStorage.setItem('rp_workspace_project_id', projectId);
+            localStorage.setItem('rp_workspace_name', name);
+
+            if (mountedRef.current) setLoadingLog('Cargando base de datos...');
+            await projectManager.loadProjectFromSqliteBytes(res.dbBytes, {
+                projectId,
+                name,
+                mode: 'real',
+                setAsActive: false,
+                startAutoSave: true,
+                persistToIdb: false,
+            });
+
+            notifyDataChanged('all');
+            onOpen();
+        } catch (e: any) {
+            const msg = e?.message || String(e);
+            if (mountedRef.current) setError(msg);
+            toast.error(msg);
+        } finally {
+            if (mountedRef.current) setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!workspacePath) return;
+        openAndLoad(workspacePath);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const pickWorkspaceFolder = async () => {
+        try {
+            const dialog = await import('@tauri-apps/plugin-dialog');
+            const picked = await dialog.open({
+                directory: true,
+                multiple: false,
+                title: 'Elegir carpeta de trabajo',
+            });
+            if (!picked) return null;
+            if (Array.isArray(picked)) return picked[0] || null;
+            return picked;
+        } catch (e: any) {
+            throw new Error(e?.message || 'No se pudo abrir el selector de carpetas');
+        }
+    };
+
+    const chooseWorkspace = async (opts: { openAfterSetup: boolean }): Promise<string | null> => {
+        try {
+            if (mountedRef.current) setError(null);
+            const picked = await pickWorkspaceFolder();
+            if (!picked) return;
+            if (mountedRef.current) {
+                setWorkspacePath(picked);
+                setLoading(true);
+                setLoadingLog('Preparando workspace...');
+            }
+            await workspaceManager.setupWorkspace(picked);
+            toast.success('Workspace listo');
+            if (opts.openAfterSetup) {
+                await openAndLoad(picked);
+            }
+            return picked;
+        } catch (e: any) {
+            const msg = e?.message || String(e);
+            if (mountedRef.current) setError(msg);
+            toast.error(msg);
+            return null;
+        } finally {
+            if (mountedRef.current) setLoading(false);
+        }
+    };
+
+    const handleChooseWorkspace = async () => {
+        await chooseWorkspace({ openAfterSetup: true });
+    };
+
+    const handleRestoreExternal = async (file: File) => {
+        try {
+            const currentPath = workspaceManager.getWorkspacePath();
+            if (!currentPath) {
+                // Pick/setup workspace but DO NOT open yet (avoid unmount mid-restore).
+                const picked = await chooseWorkspace({ openAfterSetup: false });
+                if (!picked) return;
+            }
+            const wsPath = workspaceManager.getWorkspacePath();
+            if (!wsPath) return;
+
+            if (!confirm('ADVERTENCIA: Restaurar un backup SOBREESCRIBIRA todos los datos del workspace actual. ¿Continuar?')) {
+                return;
+            }
+
+            if (mountedRef.current) {
+                setLoading(true);
+                setError(null);
+                setLoadingLog('Importando backup externo...');
+            }
+
+            let dbBytes: Uint8Array;
+            if (file.name.endsWith('.sqlite')) {
+                const buf = await file.arrayBuffer();
+                dbBytes = new Uint8Array(buf);
+                await workspaceManager.saveCurrentWorkspace(dbBytes);
+            } else if (file.name.endsWith('.zip') || file.name.endsWith('.rentikpro')) {
+                dbBytes = await workspaceManager.importExternalBackupZip(file);
+            } else {
+                throw new Error('Formato no soportado. Usa .rentikpro, .zip o .sqlite');
+            }
+
+            if (mountedRef.current) setLoadingLog('Cargando base de datos restaurada...');
+            const projectId = localStorage.getItem('rp_workspace_project_id') || 'workspace';
+            const name = localStorage.getItem('rp_workspace_name') || workspaceManager.getWorkspaceDisplayName();
+            await projectManager.loadProjectFromSqliteBytes(dbBytes, {
+                projectId,
+                name,
+                mode: 'real',
+                setAsActive: false,
+                startAutoSave: true,
+                persistToIdb: false,
+            });
+
+            toast.success('Backup restaurado en el workspace');
+            notifyDataChanged('all');
+            onOpen();
+        } catch (e: any) {
+            const msg = e?.message || String(e);
+            if (mountedRef.current) setError(msg);
+            toast.error(msg);
+        } finally {
+            if (mountedRef.current) setLoading(false);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center py-20 w-full">
+                <div className="flex flex-col items-center gap-6 animate-in fade-in zoom-in-95 duration-500">
+                    <div className="relative">
+                        <div className="absolute inset-0 bg-indigo-400/20 rounded-full blur-xl animate-pulse"></div>
+                        <div className="w-16 h-16 bg-indigo-600 rounded-3xl shadow-2xl flex items-center justify-center overflow-hidden animate-pulse">
+                            <img src="/logo.png" alt="Loading..." className="w-12 h-12 object-contain" />
+                        </div>
+                    </div>
+                    <div className="text-center">
+                        <p className="text-slate-800 font-black text-xl tracking-tight">{loadingLog || 'Cargando...'}</p>
+                        <p className="text-slate-500 text-sm mt-2">Workspace: {workspaceManager.getWorkspaceDisplayName()}</p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="flex items-center justify-center p-6 w-full">
+                <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl max-w-lg w-full text-center space-y-6 border border-slate-100 animate-in zoom-in-95 duration-300">
+                    <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto bg-rose-100 text-rose-600">
+                        <AlertCircle size={40} />
+                    </div>
+                    <div>
+                        <h2 className="text-2xl font-black text-slate-800 tracking-tight">Workspace no disponible</h2>
+                        <p className="text-slate-500 text-sm mt-2 leading-relaxed">{error}</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-3 pt-2">
+                        <button
+                            onClick={handleChooseWorkspace}
+                            className="w-full py-4 bg-indigo-600 text-white hover:bg-indigo-700 rounded-2xl font-black text-sm transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-2"
+                        >
+                            <FolderOpen size={18} /> Elegir carpeta de trabajo
+                        </button>
+
+                        <div className="relative">
+                            <button
+                                className="w-full py-4 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2"
+                            >
+                                <Upload size={18} /> Restaurar backup externo
+                            </button>
+                            <input
+                                type="file"
+                                accept=".rentikpro,.zip,.sqlite"
+                                className="absolute inset-0 opacity-0 cursor-pointer"
+                                onChange={async (e) => {
+                                    const f = e.target.files?.[0];
+                                    e.target.value = '';
+                                    if (!f) return;
+                                    await handleRestoreExternal(f);
+                                }}
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Welcome state
+    return (
+        <div className="flex items-center justify-center p-6 w-full">
+            <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl max-w-lg w-full text-center space-y-6 border border-slate-100 animate-in zoom-in-95 duration-300">
+                <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto bg-indigo-600 shadow-xl shadow-indigo-200 overflow-hidden">
+                    <img src="/logo.png" alt="Welcome" className="w-14 h-14 object-contain" />
+                </div>
+                <div>
+                    <h2 className="text-2xl font-black text-slate-800 tracking-tight">Bienvenido</h2>
+                    <p className="text-slate-500 text-sm mt-2 leading-relaxed">Elige una carpeta para tu workspace. Dentro se guardaran: database.sqlite, settings, media y backups.</p>
+                </div>
+
+                <button
+                    onClick={handleChooseWorkspace}
+                    className="w-full py-4 bg-indigo-600 text-white hover:bg-indigo-700 rounded-2xl font-black text-sm transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-2"
+                >
+                    <FolderOpen size={18} /> Elegir carpeta de trabajo
+                </button>
+
+                <div className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Single Workspace (Tauri)</div>
+            </div>
+        </div>
+    );
+};
+
+const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
     const [loading, setLoading] = useState(false);
     const [recentProjects, setRecentProjects] = useState<ProjectMetadata[]>([]);
     const [supportsFile] = useState(() =>
@@ -14,7 +274,7 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
         typeof (window as any).showSaveFilePicker === 'function'
     );
 
-    const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+    const isTauri = isTauriRuntime();
     const lastProjectPath = getLastOpenedProjectPath();
 
     // Fix for missing definitions
@@ -135,9 +395,24 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
     });
 
     const handleCreateFolderProject = () => wrapAction('Creando proyecto (carpeta)', async () => {
-        const folder = await pickProjectFolder();
-        if (!folder) return;
-        await createProject(folder, { name: `Proyecto ${new Date().toLocaleDateString()}` });
+        const parent = await pickProjectFolder();
+        if (!parent) return;
+
+        // Desktop: create a new project folder inside the chosen parent.
+        // This avoids relying on the OS picker to create new folders.
+        const name = `Proyecto ${new Date().toLocaleDateString()}`;
+        const safeName = name.replace(/[\\/:*?"<>|]/g, '-').trim();
+        const projectFolder = await joinPath(parent, safeName);
+
+        try {
+            const fs = await import('@tauri-apps/plugin-fs');
+            // v2 plugin uses mkdir
+            await (fs as any).mkdir(projectFolder, { recursive: true });
+        } catch {
+            // If it already exists, write_project_folder will fail gracefully.
+        }
+
+        await createProject(projectFolder, { name });
     });
 
     const handleOpenFolderProject = () => wrapAction('Abriendo proyecto (carpeta)', async () => {
@@ -229,7 +504,9 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
                 <div className="flex flex-col items-center gap-6 animate-in fade-in zoom-in-95 duration-500">
                     <div className="relative">
                         <div className="absolute inset-0 bg-indigo-400/20 rounded-full blur-xl animate-pulse"></div>
-                        <Loader2 className="animate-spin text-indigo-600 relative z-10" size={64} strokeWidth={3} />
+                        <div className="w-16 h-16 bg-indigo-600 rounded-3xl shadow-2xl flex items-center justify-center overflow-hidden animate-pulse">
+                            <img src="/logo.png" alt="Loading..." className="w-12 h-12 object-contain" />
+                        </div>
                     </div>
                     <div className="text-center">
                         <p className="text-slate-800 font-black text-xl tracking-tight">{loadingLog || "Cargando..."}</p>
@@ -259,11 +536,11 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
                     </div>
 
                     <div className="relative z-10">
-                        <div className="w-12 h-12 bg-white/20 backdrop-blur rounded-xl flex items-center justify-center mb-6">
-                            <ShieldCheck size={28} className="text-white" />
+                        <div className="w-16 h-16 bg-white/20 backdrop-blur rounded-2xl flex items-center justify-center mb-6 overflow-hidden border border-white/30 shadow-xl">
+                            <img src="/logo.png" alt="RentikPro" className="w-12 h-12 object-contain" />
                         </div>
-                        <h1 className="text-4xl font-bold mb-2">RentikPro</h1>
-                        <p className="text-indigo-100 text-lg">Gestión profesional de alquiler vacacional.</p>
+                        <h1 className="text-4xl font-black mb-2 tracking-tight">RentikPro</h1>
+                        <p className="text-indigo-100 text-lg font-medium">Gestión profesional de alquiler vacacional.</p>
                     </div>
 
                     <div className="relative z-10 space-y-4">
@@ -294,6 +571,20 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
                         <h2 className="text-2xl font-black text-slate-800 mb-2">Bienvenido</h2>
                         <p className="text-slate-500 text-sm">Selecciona cómo quieres empezar hoy.</p>
                     </div>
+
+                    {!isTauri && (
+                        <div className="bg-slate-50 border border-slate-100 rounded-3xl p-5">
+                            <a
+                                href={`/downloads/rentikpro/mac/RentikPro_${APP_VERSION}.dmg`}
+                                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
+                            >
+                                <Download size={16} /> Descargar RentikPro para macOS
+                            </a>
+                            <div className="text-[10px] text-slate-500 font-bold mt-2">
+                                macOS puede pedir confirmación la primera vez.
+                            </div>
+                        </div>
+                    )}
 
                     {isTauri && (
                         <div className="bg-slate-50 border border-slate-100 rounded-3xl p-5">
@@ -520,4 +811,9 @@ export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
             </div>
         </div>
     );
+};
+
+export const StartupScreen = ({ onOpen }: { onOpen: () => void }) => {
+    const isTauri = isTauriRuntime();
+    return isTauri ? <StartupScreenTauri onOpen={onOpen} /> : <StartupScreenLegacy onOpen={onOpen} />;
 };
