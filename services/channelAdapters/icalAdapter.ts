@@ -41,7 +41,7 @@ export class ICalAdapter implements IChannelAdapter {
       const isVrbo = /vrbo|abritel|fewo-direkt/i.test(conn.ical_url);
 
       const headers: HeadersInit = {
-         'User-Agent': "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+         // NOTE: Do not set forbidden headers like UA in browser fetch.
          'Accept': 'text/calendar, text/plain, */*'
       };
       if (conn.http_etag) headers['If-None-Match'] = conn.http_etag;

@@ -463,7 +463,6 @@ export default {
         const upstreamReq = new Request(targetUrl.toString(), {
           method: "GET",
           headers: {
-            "User-Agent": "Mozilla/5.0 (compatible; RentikProCM/1.0)",
             "Accept": "text/calendar,text/plain,*/*"
           }
         });
