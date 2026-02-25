@@ -5,6 +5,9 @@ export interface SyncResult {
   events: Partial<CalendarEvent>[];
   metadataUpdates: Partial<ChannelConnection>; // ETag, Hash, LastModified updates
   log: string;
+  // Optional typed status for non-fatal provider blocks (anti-bot/captcha).
+  status?: 'ok' | 'blocked';
+  reason?: string;
 }
 
 export interface IChannelAdapter {

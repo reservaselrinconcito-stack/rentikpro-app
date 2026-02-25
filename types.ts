@@ -745,7 +745,7 @@ export interface ChannelConnection {
   alias?: string;
   ical_url: string;
   last_sync: number;
-  last_status: 'PENDING' | 'OK' | 'ERROR' | 'OFFLINE' | 'INVALID_TOKEN' | 'TOKEN_CADUCADO';
+  last_status: 'PENDING' | 'OK' | 'ERROR' | 'OFFLINE' | 'INVALID_TOKEN' | 'TOKEN_CADUCADO' | 'BLOCKED';
   sync_log?: string;
   created_at: number;
   connection_type?: 'ICAL' | 'API';

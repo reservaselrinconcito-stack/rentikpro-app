@@ -153,6 +153,14 @@ export class SyncEngine {
         continue;
       }
 
+      // Anti-bot hardening: do not retry aggressively when provider blocks with HTML/captcha.
+      if (options?.isAutomated && conn.last_status === 'BLOCKED') {
+        const backoffMs = 60 * 60 * 1000; // 60 min
+        if (conn.last_sync && Date.now() - conn.last_sync < backoffMs) {
+          continue;
+        }
+      }
+
       try {
         await this.ingestConnection(conn);
         totalProcessed++;
@@ -193,10 +201,17 @@ export class SyncEngine {
     const propertyId = apartment?.property_id || 'prop_default';
 
     // 1. PULL (Adapter Logic)
-    const result = await adapter.pullReservations(conn);
+    const result: any = await adapter.pullReservations(conn);
 
     // 2. Update Connection Metadata
     conn.last_sync = Date.now();
+    if (result?.status === 'blocked') {
+      conn.last_status = 'BLOCKED' as any;
+      conn.sync_log = result?.log || 'Bloqueado por proveedor (Anti-bot).';
+      await store.saveChannelConnection(conn);
+      return;
+    }
+
     conn.last_status = 'OK';
     conn.sync_log = result.log;
 

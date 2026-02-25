@@ -70,9 +70,23 @@ export class ICalAdapter implements IChannelAdapter {
 
             // Handle Specific Blocks preserved from earlier hardening
             if (response.status === 401 || response.status === 403 || response.status === 429) {
-               let errorMsg = response.status === 429
-                  ? "Límite de peticiones alcanzado en el proxy."
-                  : "El proveedor bloquea accesos desde navegador. Revisa URL/token o usa integración alternativa.";
+                let errorMsg = response.status === 429
+                   ? "Límite de peticiones alcanzado en el proxy."
+                   : "El proveedor bloquea accesos desde navegador. Revisa URL/token o usa integración alternativa.";
+
+                // Defensive: some anti-bot systems return HTML (captcha) with 403/429.
+                const ct = (response.headers.get('Content-Type') || '').toLowerCase();
+                const looksHtml = ct.includes('text/html') || bodyText.trim().toLowerCase().startsWith('<!doctype html') || bodyText.includes('<html');
+                if (looksHtml) {
+                   iCalLogger.logWarn('VALIDATE', 'Blocked by provider (HTML on error status)', { status: response.status, contentType: ct });
+                   return {
+                      events: [],
+                      metadataUpdates: {},
+                      status: 'blocked',
+                      reason: 'anti-bot',
+                      log: 'Bloqueado por proveedor (Anti-bot).'
+                   };
+                }
 
                // Probar si es JSON (V3 hardening)
                try {
@@ -93,8 +107,8 @@ export class ICalAdapter implements IChannelAdapter {
                      throw fatalError;
                   }
                }
-               throw new Error(errorMsg);
-            }
+                throw new Error(errorMsg);
+             }
 
             if ((response.status === 400 || response.status === 401) && bodyText.includes("Invalid Token")) {
                const errorMsg = "Token de Booking inválido o caducado. Por favor, pega un nuevo enlace.";

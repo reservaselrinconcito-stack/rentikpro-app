@@ -3,7 +3,7 @@ import { ChannelConnection, CalendarEvent } from '../types';
 import { dateFormat } from '../services/dateFormat';
 import {
     X, Globe, Calendar, Link, Activity, Clock, ShieldCheck,
-    AlertTriangle, FileText, CheckCircle2, XCircle, Clock4, ShieldAlert, RefreshCw
+    AlertTriangle, FileText, CheckCircle2, XCircle, Clock4, ShieldAlert, RefreshCw, Ban
 } from 'lucide-react';
 
 interface ChannelDetailsModalProps {
@@ -77,20 +77,24 @@ export const ChannelDetailsModal: React.FC<ChannelDetailsModalProps> = ({ connec
                 <div className="flex-1 overflow-y-auto p-8 custom-scrollbar space-y-8">
 
                     {/* Error Alert if needed */}
-                    {(connection.last_status === 'ERROR' || connection.last_status === 'INVALID_TOKEN' || connection.last_status === 'TOKEN_CADUCADO') && (
-                        <div className="bg-rose-50 border border-rose-100 rounded-2xl p-6 flex flex-col md:flex-row items-center gap-4 animate-in slide-in-from-top-2">
-                            <div className="w-12 h-12 bg-rose-100 rounded-xl flex items-center justify-center text-rose-600 shrink-0">
-                                <ShieldAlert size={24} />
+                    {(connection.last_status === 'ERROR' || connection.last_status === 'INVALID_TOKEN' || connection.last_status === 'TOKEN_CADUCADO' || connection.last_status === 'BLOCKED') && (
+                        <div className={`${connection.last_status === 'BLOCKED' ? 'bg-slate-50 border-slate-200' : 'bg-rose-50 border-rose-100'} border rounded-2xl p-6 flex flex-col md:flex-row items-center gap-4 animate-in slide-in-from-top-2`}>
+                            <div className={`w-12 h-12 ${connection.last_status === 'BLOCKED' ? 'bg-slate-200 text-slate-700' : 'bg-rose-100 text-rose-600'} rounded-xl flex items-center justify-center shrink-0`}>
+                                {connection.last_status === 'BLOCKED' ? <Ban size={24} /> : <ShieldAlert size={24} />}
                             </div>
                             <div className="flex-1 text-center md:text-left">
-                                <h4 className="font-black text-rose-800 text-sm uppercase tracking-tight">Error detectado</h4>
-                                <p className="text-rose-600 text-xs mt-1 leading-relaxed">
-                                    {(connection.last_status === 'INVALID_TOKEN' || connection.last_status === 'TOKEN_CADUCADO')
-                                        ? "Token inválido/caducado. Pega un nuevo enlace."
-                                        : (connection.sync_log || "Error desconocido durante la sincronización.")}
+                                <h4 className={`font-black ${connection.last_status === 'BLOCKED' ? 'text-slate-800' : 'text-rose-800'} text-sm uppercase tracking-tight`}>
+                                    {connection.last_status === 'BLOCKED' ? 'Bloqueado por proveedor' : 'Error detectado'}
+                                </h4>
+                                <p className={`${connection.last_status === 'BLOCKED' ? 'text-slate-600' : 'text-rose-600'} text-xs mt-1 leading-relaxed`}>
+                                    {connection.last_status === 'BLOCKED'
+                                        ? (connection.sync_log || 'El proveedor devolvio HTML/Captcha en lugar del iCal. Reintento automatico pausado.')
+                                        : ((connection.last_status === 'INVALID_TOKEN' || connection.last_status === 'TOKEN_CADUCADO')
+                                            ? "Token inválido/caducado. Pega un nuevo enlace."
+                                            : (connection.sync_log || "Error desconocido durante la sincronización."))}
                                 </p>
                             </div>
-                            {onRetry && (
+                            {onRetry && connection.last_status !== 'BLOCKED' && (
                                 <button
                                     onClick={onRetry}
                                     className="px-6 py-2 bg-rose-600 text-white rounded-xl font-black text-[10px] hover:bg-rose-700 transition-all shadow-md flex items-center gap-2 whitespace-nowrap"
@@ -125,9 +129,9 @@ export const ChannelDetailsModal: React.FC<ChannelDetailsModalProps> = ({ connec
                                 </div>
                                 <div className="flex justify-between text-xs">
                                     <span className="text-slate-500">Estado:</span>
-                                    <span className={`font-black px-2 rounded ${connection.last_status === 'OK' ? 'bg-emerald-100 text-emerald-600' : connection.last_status === 'INVALID_TOKEN' ? 'bg-rose-100 text-rose-700 border border-rose-200' : connection.last_status === 'ERROR' ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-500'}`}>
-                                        {connection.last_status === 'INVALID_TOKEN' ? 'TOKEN INVÁLIDO' : connection.last_status}
-                                    </span>
+                                     <span className={`font-black px-2 rounded ${connection.last_status === 'OK' ? 'bg-emerald-100 text-emerald-600' : connection.last_status === 'INVALID_TOKEN' ? 'bg-rose-100 text-rose-700 border border-rose-200' : connection.last_status === 'ERROR' ? 'bg-rose-100 text-rose-600' : connection.last_status === 'BLOCKED' ? 'bg-slate-100 text-slate-700 border border-slate-200' : 'bg-slate-100 text-slate-500'}`}>
+                                         {connection.last_status === 'INVALID_TOKEN' ? 'TOKEN INVÁLIDO' : connection.last_status}
+                                     </span>
                                 </div>
                                 <div className="flex justify-between text-xs">
                                     <span className="text-slate-500">Proxy Usado:</span>

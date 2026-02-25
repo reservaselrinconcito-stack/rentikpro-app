@@ -39,6 +39,7 @@ const StatusDot = ({ status, enabled, lastSync }: { status: string, enabled: boo
    if (status === 'OK') { color = 'bg-emerald-500'; text = 'Sincronizado'; textColor = 'text-emerald-600'; }
    else if (status === 'ERROR') { color = 'bg-rose-500'; text = 'Error'; textColor = 'text-rose-600'; }
    else if (status === 'OFFLINE') { color = 'bg-amber-500'; text = 'Offline'; textColor = 'text-amber-600'; }
+   else if (status === 'BLOCKED') { color = 'bg-slate-600'; text = 'Bloqueado'; textColor = 'text-slate-700'; }
    else if (status === 'INVALID_TOKEN' || status === 'TOKEN_CADUCADO') { color = 'bg-rose-600'; text = 'Token Caducado'; textColor = 'text-rose-700'; }
 
    // Check if stale (> 2 hours)
