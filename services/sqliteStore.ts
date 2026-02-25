@@ -43,6 +43,8 @@ const DEFAULT_POLICY: BookingPolicy = {
 
 declare const initSqlJs: any;
 
+import { isMaintenanceMode, getMaintenanceReason } from './maintenance';
+
 // ===== DB READY GATE =====
 // Lightweight global gate used by UI to avoid querying a not-yet-initialized DB.
 // Resolves once per app session when the store finishes init/load successfully.
@@ -65,6 +67,16 @@ export async function getDbReady(): Promise<any> {
   return __readyPromise;
 }
 
+function __assertNotMaintenance() {
+  if (isMaintenanceMode()) {
+    throw new Error(
+      `DB is in maintenance mode${
+        getMaintenanceReason() ? `: ${getMaintenanceReason()}` : ''
+      }`
+    );
+  }
+}
+
 function adaptDb(db: any): any {
   if (!db) return db;
   if (typeof db.queryAll === 'function') return db;
@@ -72,10 +84,20 @@ function adaptDb(db: any): any {
   // sql.js Database
   if (typeof db.exec === 'function') {
     return {
-      exec: (sql: string, params?: any[]) => db.exec(sql, params),
-      run: (sql: string, params?: any[]) => (typeof db.run === 'function' ? db.run(sql, params) : undefined),
-      close: () => (typeof db.close === 'function' ? db.close() : undefined),
+      exec: (sql: string, params?: any[]) => {
+        __assertNotMaintenance();
+        return db.exec(sql, params);
+      },
+      run: (sql: string, params?: any[]) => {
+        __assertNotMaintenance();
+        return typeof db.run === 'function' ? db.run(sql, params) : undefined;
+      },
+      close: () => {
+        __assertNotMaintenance();
+        return typeof db.close === 'function' ? db.close() : undefined;
+      },
       queryAll: async (sql: string, params: any[] = []) => {
+        __assertNotMaintenance();
         const res = db.exec(sql, params);
         if (!res || res.length === 0) return [];
         const columns: string[] = res[0].columns;
@@ -3394,6 +3416,7 @@ export class SQLiteStore implements IDataStore {
 
   // --- BASE HELPERS ---
   private async ensureDbOrThrow(op: string, sql: string) {
+    __assertNotMaintenance();
     if (this.db) return;
     if (this.initPromise) {
       try {
@@ -3416,6 +3439,7 @@ export class SQLiteStore implements IDataStore {
     }
 
     const run = async () => {
+      __assertNotMaintenance();
       this.inWrite = true;
       try {
         return await fn();
@@ -3430,12 +3454,14 @@ export class SQLiteStore implements IDataStore {
   }
 
   async execute(sql: string) {
+    __assertNotMaintenance();
     await this.ensureDbOrThrow('EXECUTE', sql);
     await this.queueWrite(() => {
       this.db.run(sql);
     });
   }
   async executeWithParams(sql: string, params: any[]) {
+    __assertNotMaintenance();
     await this.ensureDbOrThrow('EXECUTE_PARAMS', sql);
     const sanitized = this.sanitizeParams(params);
     await this.queueWrite(() => {
@@ -3445,6 +3471,7 @@ export class SQLiteStore implements IDataStore {
 
   // Generic query method
   public async query(sql: string, params: any[] = []): Promise<any[]> {
+    __assertNotMaintenance();
     await this.ensureDbOrThrow('QUERY', sql);
     const sanitized = this.sanitizeParams(params);
 
