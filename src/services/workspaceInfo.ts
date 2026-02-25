@@ -1,5 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
+import { join, homeDir } from "@tauri-apps/api/path";
 
 // Ajusta estos imports a tu workspace manager real:
 import { getActiveWorkspacePath, setActiveWorkspace } from "./workspaceManager";
@@ -16,6 +17,13 @@ export function isICloudWorkspace(path?: string | null) {
 export async function openWorkspaceFolder(path: string) {
   // Abre Finder en esa ruta
   await shellOpen(path);
+}
+
+export async function openICloudDriveFolder() {
+  // macOS iCloud Drive root
+  const home = await homeDir();
+  const cloud = await join(home, "Library", "Mobile Documents", "com~apple~CloudDocs");
+  await shellOpen(cloud);
 }
 
 export async function chooseFolder(): Promise<string | null> {

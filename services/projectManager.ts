@@ -8,7 +8,9 @@ import { projectPersistence } from './projectPersistence';
 import { demoGenerator } from './demoGenerator';
 import { ProjectFileProvider } from './projectFileProvider';
 import { syncCoordinator } from './syncCoordinator';
-import { invoke } from '@tauri-apps/api/core';
+import { isTauri as isTauriRuntime } from '../utils/isTauri';
+// Native imports moved to dynamic imports for web-safe operation
+
 
 export class ProjectManager {
   public store: SQLiteStore;
@@ -38,27 +40,51 @@ export class ProjectManager {
   // --- INITIALIZATION ---
 
   async initialize(): Promise<void> {
-    const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+    const isTauri = isTauriRuntime();
 
-    // Priority 1: Desktop folder-based project (Tauri) — auto-open last folder if available.
+    // Priority 1 (Tauri): Single Workspace — auto-open last workspace if available.
     if (isTauri) {
-      const lastFolder = (() => {
-        try { return localStorage.getItem('rp_last_project_path'); } catch { return null; }
+      const lastWorkspace = (() => {
+        try { return localStorage.getItem('rp_workspace_path'); } catch { return null; }
       })();
-      if (lastFolder) {
+
+      if (lastWorkspace) {
         try {
-          const pfm = await import('./projectFolderManager');
-          const v = await pfm.validateProject(lastFolder);
-          if (v.ok) {
-            await pfm.openProject(lastFolder);
-            logger.log(`[ProjectManager] Auto-opened folder project: ${lastFolder}`);
-            return;
-          }
-          logger.warn('[ProjectManager] Last folder project invalid, falling back to IDB', v.error);
+          const { workspaceManager } = await import('./workspaceManager');
+          const opened = await workspaceManager.openWorkspace(lastWorkspace);
+          let meta: any = {};
+          try { meta = JSON.parse(opened.workspaceJson || '{}'); } catch { meta = {}; }
+          const projectId = (meta?.id || 'workspace').toString();
+          const name = (meta?.name || workspaceManager.getWorkspaceDisplayName()).toString();
+          localStorage.setItem('rp_workspace_project_id', projectId);
+          localStorage.setItem('rp_workspace_name', name);
+
+          await this.loadProjectFromSqliteBytes(opened.dbBytes, {
+            projectId,
+            name,
+            mode: 'real',
+            setAsActive: false,
+            startAutoSave: true,
+            persistToIdb: false,
+          });
+          logger.log(`[ProjectManager] Auto-opened workspace: ${lastWorkspace}`);
+          return;
         } catch (e) {
-          logger.warn('[ProjectManager] Failed to auto-open last folder project, falling back to IDB', e);
+          // P0 hardening: do NOT fall back to IDB/file projects automatically.
+          // If the workspace path is missing (moved/iCloud lazy download), we must show recovery UI.
+          logger.warn('[ProjectManager] Failed to auto-open workspace. Showing StartupScreen (no fallback).', e);
+          try {
+            const msg = (e as any)?.message ? String((e as any).message) : String(e);
+            localStorage.setItem('rp_workspace_boot_error', msg);
+          } catch {
+            // ignore
+          }
+          return;
         }
       }
+
+      // No workspace configured: show StartupScreen. Do not auto-load IndexedDB in Tauri.
+      return;
     }
 
     // Priority 2: File System Access (FSA) — restore last linked file handle if permission is granted.
@@ -236,7 +262,7 @@ export class ProjectManager {
 
   async loadProject(id: string): Promise<boolean> {
     try {
-      const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+      const isTauri = isTauriRuntime();
 
       const record = await projectPersistence.loadProject(id);
       if (!record) return false;
@@ -390,8 +416,27 @@ export class ProjectManager {
   async saveProject(): Promise<void> {
     console.log('[SAVE:PM] begin', { projectId: this.currentProjectId });
     if (!this.store || !this.currentProjectId) return;
-    const isTauri = typeof window !== 'undefined' && !!(window as any).__TAURI_INTERNALS__;
+    const isTauri = isTauriRuntime();
+    const workspacePath = isTauri ? (localStorage.getItem('rp_workspace_path') || '') : '';
     const folderPath = isTauri ? (localStorage.getItem('rp_last_project_path') || '') : '';
+
+    // NEW (Tauri): Single Workspace mode.
+    // Source-of-truth is database.sqlite on disk; IDB is optional fallback only.
+    if (isTauri && workspacePath) {
+      const dbBytes = this.store.export();
+      const { workspaceManager } = await import('./workspaceManager');
+      await workspaceManager.saveWorkspace(workspacePath, dbBytes);
+
+      try {
+        const name = `Workspace ${workspaceManager.getWorkspaceDisplayName()}`;
+        await this.snapshotCurrentProjectToIdb(name);
+      } catch (e) {
+        logger.warn('[ProjectManager] IDB snapshot failed (workspace mode)', e);
+      }
+
+      this.lastSyncedAt = Date.now();
+      return;
+    }
 
     // Desktop folder-based projects: persist to the selected folder (project.json + db.sqlite).
     // Always also snapshot to IndexedDB as a fallback.
@@ -488,12 +533,18 @@ export class ProjectManager {
     const projectJsonStr = JSON.stringify(projectJson, null, 2);
     localStorage.setItem('rp_last_project_json', projectJsonStr);
 
-    await invoke<any>('write_project_folder', {
-      path: folderPath,
-      project_json: projectJsonStr,
-      db_base64: dbBase64,
-      overwrite: true,
-    } as any);
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke<any>('write_project_folder', {
+        path: folderPath,
+        projectJson: projectJsonStr,
+        dbBase64: dbBase64,
+        overwrite: true,
+      } as any);
+    } catch (e) {
+      logger.error('[ProjectManager] Failed to write project folder (Tauri/invoke)', e);
+      throw e;
+    }
   }
 
   async waitForFileSave(): Promise<void> {
@@ -689,8 +740,11 @@ export class ProjectManager {
     }
 
     const blob = await zip.generateAsync({ type: 'blob' });
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const filename = `rentikpro_full_${timestamp}.zip`;
+    const d = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const timestamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    // Standard backup container: .rentikpro (ZIP inside)
+    const filename = `backup_${timestamp}.rentikpro`;
 
     console.log(`[EXPORT:FULL] Created blob (${blob.size} bytes). Filename: ${filename}`);
 
@@ -701,15 +755,36 @@ export class ProjectManager {
 
   async importFullBackupZip(file: File, onProgress?: (msg: string) => void): Promise<boolean> {
     try {
+      // Avoid concurrent auto-saves (IDB/file) while we swap the DB.
+      if (this.autoSaveInterval) {
+        clearInterval(this.autoSaveInterval);
+        this.autoSaveInterval = null;
+      }
+      await this.waitForFileSave();
+
       if (onProgress) onProgress("Leyendo archivo ZIP...");
       const zip = await JSZip.loadAsync(file);
 
-      // 1. Load Database using MERGE (Sequential & Safety)
-      const dbFile = zip.file('database.sqlite');
-      if (!dbFile) throw new Error("El backup no contiene 'database.sqlite'");
+      // 1. Load Database (FULL REPLACE — deterministic)
+      // Standard entry is database.sqlite; accept legacy db.sqlite for backward compatibility.
+      const dbFile = zip.file('database.sqlite') || zip.file('db.sqlite');
+      if (!dbFile) {
+        throw new Error("El archivo no contiene 'database.sqlite'. ¿Es un backup .rentikpro válido?");
+      }
 
       if (onProgress) onProgress("Extrayendo base de datos...");
       const dbData = await dbFile.async('uint8array');
+
+      // Quick validation: SQLite header ("SQLite format 3\0")
+      if (!dbData || dbData.byteLength < 16) {
+        throw new Error("'database.sqlite' está vacío o incompleto.");
+      }
+      const sqliteMagic = [83, 81, 76, 105, 116, 101, 32, 102, 111, 114, 109, 97, 116, 32, 51, 0];
+      for (let i = 0; i < sqliteMagic.length; i++) {
+        if (dbData[i] !== sqliteMagic[i]) {
+          throw new Error("'database.sqlite' no parece un archivo SQLite válido (backup corrupto o formato incorrecto).");
+        }
+      }
 
       // 2. Identify and restore context
       // We create a new project ID for the restored data
@@ -718,9 +793,23 @@ export class ProjectManager {
       this.currentProjectId = id;
       this.currentProjectMode = 'real';
 
-      // Perform sequential merge (Structural -> Operational)
-      // This preserves existing data in the DB engine if any, but restores these specific tables
-      await this.store.merge(dbData, onProgress);
+      if (onProgress) onProgress("Cargando base de datos...");
+      try {
+        // IMPORTANT: load() replaces the whole in-memory DB (NOT merge)
+        await this.store.load(dbData);
+      } catch (e: any) {
+        const details = e?.message ? ` Detalles: ${e.message}` : '';
+        throw new Error(`La base de datos del backup es inválida o está corrupta.${details}`);
+      }
+
+      // After full restore, ensure we are not accidentally still in file-mode.
+      // Restores should not overwrite an unrelated open file handle.
+      try {
+        this.fileProvider.clearHandle();
+      } catch {
+        // ignore
+      }
+      this.storageMode = 'idb';
 
       if (onProgress) onProgress("Persistiendo en almacenamiento local...");
       await this.persistCurrentProject(name);

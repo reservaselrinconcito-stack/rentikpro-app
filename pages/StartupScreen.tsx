@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, FilePlus, Upload, ShieldCheck, Gamepad2, ArrowRight, Loader2, CheckCircle, AlertCircle, Database, FolderOpen, FileText, Download } from 'lucide-react';
+import { Play, FilePlus, Upload, ShieldCheck, Gamepad2, ArrowRight, Loader2, CheckCircle, AlertCircle, Database, FolderOpen, FileText, Download, RefreshCw } from 'lucide-react';
 import { APP_VERSION } from '../src/version';
 import { projectManager } from '../services/projectManager';
 import { projectPersistence, ProjectMetadata } from '../services/projectPersistence'; // Import persistence
@@ -8,6 +8,7 @@ import { createProject, openProject, pickProjectFolder, getLastOpenedProjectPath
 import { isTauri as isTauriRuntime } from '../utils/isTauri';
 import { workspaceManager } from '../services/workspaceManager';
 import { toast } from 'sonner';
+import { openICloudDriveFolder } from '../services/workspaceInfo';
 const joinPath = async (a: string, b: string): Promise<string> => {
     try {
         const mod = await import('@tauri-apps/api/path');
@@ -32,41 +33,81 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
         };
     }, []);
 
-    const openAndLoad = async (path: string) => {
+    const formatWorkspaceError = (e: any): string => {
+        const msg = e?.message || String(e);
+        if (msg.includes('Workspace folder does not exist')) {
+            return 'Workspace no disponible: la carpeta no existe (puede haberse movido o iCloud aun no la ha descargado).';
+        }
+        if (msg.includes("Missing database.sqlite")) {
+            return "Workspace no disponible: falta 'database.sqlite' en la carpeta.";
+        }
+        return msg;
+    };
+
+    const doOpenAndLoad = async (path: string) => {
+        const res = await workspaceManager.openWorkspace(path);
+        let meta: any = {};
+        try { meta = JSON.parse(res.workspaceJson || '{}'); } catch { meta = {}; }
+        const projectId = (meta?.id || 'workspace').toString();
+        const name = (meta?.name || workspaceManager.getWorkspaceDisplayName()).toString();
+
+        localStorage.setItem('rp_workspace_project_id', projectId);
+        localStorage.setItem('rp_workspace_name', name);
+
+        await projectManager.loadProjectFromSqliteBytes(res.dbBytes, {
+            projectId,
+            name,
+            mode: 'real',
+            setAsActive: false,
+            startAutoSave: true,
+            persistToIdb: false,
+        });
+    };
+
+    const openAndLoad = async (path: string, opts?: { toastOnError?: boolean }) => {
         if (mountedRef.current) {
             setLoading(true);
             setError(null);
             setLoadingLog('Abriendo workspace...');
         }
         try {
-            const res = await workspaceManager.openWorkspace(path);
-            let meta: any = {};
-            try { meta = JSON.parse(res.workspaceJson || '{}'); } catch { meta = {}; }
-            const projectId = (meta?.id || 'workspace').toString();
-            const name = (meta?.name || workspaceManager.getWorkspaceDisplayName()).toString();
-
-            localStorage.setItem('rp_workspace_project_id', projectId);
-            localStorage.setItem('rp_workspace_name', name);
-
-            if (mountedRef.current) setLoadingLog('Cargando base de datos...');
-            await projectManager.loadProjectFromSqliteBytes(res.dbBytes, {
-                projectId,
-                name,
-                mode: 'real',
-                setAsActive: false,
-                startAutoSave: true,
-                persistToIdb: false,
-            });
-
+            await doOpenAndLoad(path);
             notifyDataChanged('all');
             onOpen();
         } catch (e: any) {
-            const msg = e?.message || String(e);
+            const msg = formatWorkspaceError(e);
             if (mountedRef.current) setError(msg);
-            toast.error(msg);
+            if (opts?.toastOnError !== false) toast.error(msg);
         } finally {
             if (mountedRef.current) setLoading(false);
         }
+    };
+
+    const retryOpenWorkspace = async () => {
+        const p = workspaceManager.getWorkspacePath();
+        if (!p) return;
+        setLoading(true);
+        setError(null);
+        let lastErr: any = null;
+        const tries = 12;
+        for (let i = 0; i < tries; i++) {
+            if (!mountedRef.current) return;
+            setLoadingLog(`Reintentando workspace... (${i + 1}/${tries})`);
+            try {
+                await doOpenAndLoad(p);
+                notifyDataChanged('all');
+                onOpen();
+                return;
+            } catch (e: any) {
+                lastErr = e;
+                await new Promise(r => setTimeout(r, 400));
+            }
+        }
+
+        const msg = formatWorkspaceError(lastErr);
+        if (mountedRef.current) setError(msg);
+        toast.error(msg);
+        if (mountedRef.current) setLoading(false);
     };
 
     useEffect(() => {
@@ -210,10 +251,31 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
 
                     <div className="grid grid-cols-1 gap-3 pt-2">
                         <button
+                            onClick={retryOpenWorkspace}
+                            className="w-full py-4 bg-slate-900 text-white hover:bg-slate-800 rounded-2xl font-black text-sm transition-all shadow-lg flex items-center justify-center gap-2"
+                        >
+                            <RefreshCw size={18} /> Reintentar
+                        </button>
+
+                        <button
                             onClick={handleChooseWorkspace}
                             className="w-full py-4 bg-indigo-600 text-white hover:bg-indigo-700 rounded-2xl font-black text-sm transition-all shadow-lg shadow-indigo-100 flex items-center justify-center gap-2"
                         >
                             <FolderOpen size={18} /> Elegir carpeta de trabajo
+                        </button>
+
+                        <button
+                            onClick={async () => {
+                                try {
+                                    await openICloudDriveFolder();
+                                } catch (e: any) {
+                                    console.error('[StartupScreen] openICloudDriveFolder failed', e);
+                                    toast.error(e?.message || String(e));
+                                }
+                            }}
+                            className="w-full py-4 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-2xl font-black text-sm transition-all flex items-center justify-center gap-2"
+                        >
+                            <FolderOpen size={18} /> Abrir iCloud Drive
                         </button>
 
                         <div className="relative">

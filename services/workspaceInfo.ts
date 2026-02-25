@@ -5,6 +5,7 @@ export {
   getWorkspacePath,
   isICloudWorkspace,
   openWorkspaceFolder,
+  openICloudDriveFolder,
   chooseFolder,
   chooseNewWorkspace,
   switchWorkspace,
