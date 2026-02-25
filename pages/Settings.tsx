@@ -21,7 +21,7 @@ import {
     chooseNewWorkspace,
     switchWorkspace
 } from '../services/workspaceInfo';
-import { moveWorkspaceTo } from '../src/services/workspaceMover';
+import { chooseDestinationFolder, moveWorkspaceToFolder } from '../src/services/workspaceMover';
 
 import { useStore } from '../hooks/useStore';
 
@@ -1130,35 +1130,13 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                             );
                                             if (!ok) return;
 
-                                            const picked = await dialog.open({
-                                                directory: true,
-                                                multiple: false,
-                                                title: 'Mover workspace completo a...'
-                                            });
-                                            if (!picked) return;
-                                            const destDir = Array.isArray(picked) ? (picked[0] || '') : picked;
+                                            const destDir = await chooseDestinationFolder();
                                             if (!destDir) return;
 
-                                            const renameOld = await dialog.confirm(
-                                                '¿Quieres RENOMBRAR la carpeta antigua para marcarla como backup? (No se borra nada)',
-                                                { title: 'Renombrar antiguo workspace (opcional)' }
-                                            );
-
                                             const tid = toast.loading('Moviendo workspace...');
-                                            const res = await moveWorkspaceTo(destDir, {
-                                                renameSourceToBackup: !!renameOld,
-                                                onProgress: (m) => {
-                                                    try {
-                                                        toast.message(m);
-                                                    } catch {
-                                                        // ignore
-                                                    }
-                                                }
-                                            });
+                                            await moveWorkspaceToFolder(destDir);
                                             toast.dismiss(tid);
                                             toast.success('Workspace movido. Reiniciando...');
-                                            console.log('[WorkspaceMover] result', res);
-                                            setTimeout(() => window.location.reload(), 800);
                                         } catch (e: any) {
                                             console.error('[Settings][WorkspaceMover] failed', e);
                                             toast.error(e?.message || String(e));
@@ -1167,7 +1145,7 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                     disabled={!workspacePath}
                                     className="px-4 py-2 bg-indigo-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    Mover workspace completo...
+                                    Mover workspace a...
                                 </button>
                             </div>
 

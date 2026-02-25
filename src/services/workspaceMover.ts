@@ -13,10 +13,9 @@ function normalize(p: string): string {
   return p.replace(/\\/g, "/").replace(/\/+$/g, "");
 }
 
-async function copyFileBytes(fromPath: string, toPath: string): Promise<void> {
+async function copyFileNative(fromPath: string, toPath: string): Promise<void> {
   const fs: any = await import("@tauri-apps/plugin-fs");
-  const bytes = await fs.readFile(fromPath);
-  await fs.writeFile(toPath, bytes);
+  await fs.copyFile(fromPath, toPath);
 }
 
 async function copyDirRecursive(srcDir: string, destDir: string): Promise<void> {
@@ -32,11 +31,80 @@ async function copyDirRecursive(srcDir: string, destDir: string): Promise<void> 
     if (entry.isDirectory) {
       await copyDirRecursive(srcPath, destPath);
     } else if (entry.isFile) {
-      await copyFileBytes(srcPath, destPath);
+      await copyFileNative(srcPath, destPath);
     } else {
       // Skip symlinks
     }
   }
+}
+
+export async function chooseDestinationFolder(): Promise<string | null> {
+  if (!isTauri()) return null;
+  const dialog: any = await import("@tauri-apps/plugin-dialog");
+  const dir = await dialog.open({ directory: true, multiple: false });
+  if (!dir) return null;
+  return dir as string;
+}
+
+export async function moveWorkspaceToFolder(destRoot: string) {
+  if (!isTauri()) {
+    throw new Error("Esta accion solo esta disponible en escritorio (Tauri). ");
+  }
+
+  const src = workspaceManager.getWorkspacePath();
+  if (!src) throw new Error("No active workspace path");
+
+  const fs: any = await import("@tauri-apps/plugin-fs");
+  const pathApi: any = await import("@tauri-apps/api/path");
+
+  const folderName = basenamePath(src);
+  const dest = await pathApi.join(destRoot, folderName);
+
+  const srcN = normalize(src);
+  const destN = normalize(dest);
+  if (destN === srcN) {
+    throw new Error("El destino no puede ser la misma carpeta del workspace actual.");
+  }
+  if (destN.startsWith(srcN + "/")) {
+    throw new Error("El destino no puede estar dentro del workspace actual.");
+  }
+
+  return withMaintenance("Moviendo workspace...", async () => {
+    // 1) Copiar TODO el workspace
+    if (await fs.exists(dest)) {
+      throw new Error("El destino ya existe. Elige otra carpeta.");
+    }
+    await copyDirRecursive(src, dest);
+
+    // 2) Verificar minimo (existencia + tamanos)
+    const dbPath = await pathApi.join(dest, "database.sqlite");
+    const wsJson = await pathApi.join(dest, "workspace.json");
+
+    const okDb = await fs.exists(dbPath);
+    const okWs = await fs.exists(wsJson);
+    if (!okDb || !okWs) {
+      throw new Error("Move failed: missing database.sqlite or workspace.json in destination");
+    }
+
+    const dbStat = await fs.stat(dbPath);
+    const wsStat = await fs.stat(wsJson);
+    if (!dbStat?.size || dbStat.size <= 0 || !wsStat?.size || wsStat.size <= 0) {
+      throw new Error("Move failed: database.sqlite or workspace.json is empty");
+    }
+
+    // 3) Renombrar origen (no borrar)
+    const srcParent = srcN.split("/").slice(0, -1).join("/") || "/";
+    const backupName = `${folderName}__MOVED_BACKUP_${Date.now()}`;
+    const srcBackup = await pathApi.join(srcParent, backupName);
+    await fs.rename(src, srcBackup);
+
+    // 4) Switch al nuevo
+    await workspaceManager.setActiveWorkspace(dest);
+    emit("workspace:changed", { from: src, to: dest });
+
+    // 5) Reload app
+    window.location.reload();
+  });
 }
 
 export type MoveWorkspaceOptions = {
@@ -92,10 +160,10 @@ export async function moveWorkspaceTo(destDir: string, opts: MoveWorkspaceOption
     const destWs = await pathApi.join(dest, "workspace.json");
 
     progress("Copiando database.sqlite...");
-    await copyFileBytes(srcDb, destDb);
+    await copyFileNative(srcDb, destDb);
 
     progress("Copiando workspace.json...");
-    await copyFileBytes(srcWs, destWs);
+    await copyFileNative(srcWs, destWs);
 
     // Copy optional folders
     const srcBackups = await pathApi.join(src, "backups");
