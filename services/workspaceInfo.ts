@@ -5,6 +5,7 @@ export {
   getWorkspacePath,
   isICloudWorkspace,
   openWorkspaceFolder,
+  chooseFolder,
   chooseNewWorkspace,
   switchWorkspace,
 } from '../src/services/workspaceInfo';

@@ -18,7 +18,7 @@ import {
     getWorkspacePath,
     isICloudWorkspace,
     openWorkspaceFolder,
-    chooseNewWorkspace,
+    chooseFolder,
     switchWorkspace
 } from '../services/workspaceInfo';
 import { chooseDestinationFolder, moveWorkspaceToFolder } from '../services/workspaceMover';
@@ -1089,7 +1089,7 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                     onClick={async () => {
                                         const tid = toast.loading('Cambiando ubicación del workspace...');
                                         try {
-                                            const newPath = await chooseNewWorkspace();
+                                            const newPath = await chooseFolder();
                                             if (!newPath) {
                                                 toast.dismiss(tid);
                                                 return;

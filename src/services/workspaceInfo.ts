@@ -1,3 +1,7 @@
+import { open } from "@tauri-apps/plugin-dialog";
+import { open as shellOpen } from "@tauri-apps/plugin-shell";
+
+// Ajusta estos imports a tu workspace manager real:
 import { getActiveWorkspacePath, setActiveWorkspace } from "./workspaceManager";
 
 export function getWorkspacePath(): string | null {
@@ -10,25 +14,18 @@ export function isICloudWorkspace(path?: string | null) {
 }
 
 export async function openWorkspaceFolder(path: string) {
-  try {
-    // We use plugin-shell here (revealItemInDir does not exist on plugin-fs v2).
-    const mod: any = await import("@tauri-apps/plugin-shell");
-    await mod.open(path);
-  } catch (e) {
-    console.error("Reveal failed", e);
-  }
+  // Abre Finder en esa ruta
+  await shellOpen(path);
 }
 
+export async function chooseFolder(): Promise<string | null> {
+  const dir = await open({ directory: true, multiple: false });
+  return dir ? (dir as string) : null;
+}
+
+// Backwards-compatible alias (older code).
 export async function chooseNewWorkspace(): Promise<string | null> {
-  const dialog: any = await import("@tauri-apps/plugin-dialog");
-  const dir = await dialog.open({
-    directory: true,
-    multiple: false,
-  });
-
-  if (!dir) return null;
-
-  return dir as string;
+  return await chooseFolder();
 }
 
 export async function switchWorkspace(path: string) {
