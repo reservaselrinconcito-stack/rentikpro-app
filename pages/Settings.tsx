@@ -1118,21 +1118,6 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
                                 <button
                                     onClick={async () => {
                                         try {
-                                            let ok = false;
-                                            try {
-                                                const dialog = await import('@tauri-apps/plugin-dialog');
-                                                ok = await dialog.confirm(
-                                                    'Esto copiara TODO el workspace al destino elegido, verificara database.sqlite y workspace.json, renombrara el origen como *_MOVED_BACKUP y cambiara el workspace activo. La app se reiniciara. ¿Continuar?',
-                                                    { title: 'Mover workspace a...' }
-                                                );
-                                            } catch (e) {
-                                                console.error('[Settings][WorkspaceMover] confirm failed, falling back', e);
-                                                ok = window.confirm(
-                                                    'Esto copiara TODO el workspace al destino elegido, verificara database.sqlite y workspace.json, renombrara el origen como *_MOVED_BACKUP y cambiara el workspace activo. La app se reiniciara. ¿Continuar?'
-                                                );
-                                            }
-                                            if (!ok) return;
-
                                             const destRoot = await chooseDestinationFolder();
                                             if (!destRoot) return;
 
