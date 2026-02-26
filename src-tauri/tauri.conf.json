@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "RentikPro",
-  "version": "2.0.0",
+  "version": "2.0.2",
   "identifier": "com.rentikpro.desktop",
   "build": {
     "beforeDevCommand": "npm run dev:tauri",
@@ -34,6 +34,9 @@
     "icon": [
       "icons/icon.icns",
       "icons/icon.png"
-    ]
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
   }
 }
