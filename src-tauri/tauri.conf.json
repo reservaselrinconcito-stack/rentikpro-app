@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "RentikPro",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "identifier": "com.rentikpro.app",
   "build": {
     "beforeDevCommand": "npm run dev:tauri",
@@ -29,7 +29,8 @@
     "active": true,
     "targets": [
       "nsis",
-      "msi"
+      "msi",
+      "dmg"
     ],
     "icon": [
       "icons/icon.icns",

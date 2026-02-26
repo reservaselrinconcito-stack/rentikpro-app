@@ -13,23 +13,26 @@ jobs:
         include:
           # macOS Intel runner (x64)
           - os: macos-13
+            rust_target: "x86_64-apple-darwin"
             tauri_args: "--target x86_64-apple-darwin"
             stable_asset: RentikPro-mac-x64.dmg
             glob: "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
 
           # macOS Apple Silicon runner (arm64)
           - os: macos-14
+            rust_target: "aarch64-apple-darwin"
             tauri_args: "--target aarch64-apple-darwin"
             stable_asset: RentikPro-mac-arm64.dmg
             glob: "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
 
           # Windows
           - os: windows-latest
-            tauri_args: ""
+            rust_target: "x86_64-pc-windows-msvc"
+            tauri_args: "--target x86_64-pc-windows-msvc"
             stable_asset_exe: RentikPro-win.exe
             stable_asset_msi: RentikPro-win.msi
-            glob_exe: "src-tauri/target/release/bundle/**/*.exe"
-            glob_msi: "src-tauri/target/release/bundle/**/*.msi"
+            glob_exe: "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/*.exe"
+            glob_msi: "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/*.msi"
 
     runs-on: ${{ matrix.os }}
 
@@ -41,6 +44,8 @@ jobs:
           node-version: "lts/*"
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
 
       - run: npm ci
 
@@ -76,7 +81,7 @@ jobs:
         shell: bash
         run: |
           echo "Listing bundle folder:"
-          ls -R src-tauri/target/release/bundle || true
+          ls -R src-tauri/target || true
 
       - name: Upload stable asset (macOS)
         if: startsWith(matrix.os, 'macos')
@@ -119,5 +124,5 @@ jobs:
             exit 0
           fi
 
-          echo "ERROR: No EXE or MSI found under src-tauri/target/release/bundle"
+          echo "ERROR: No EXE or MSI found under src-tauri/target"
           exit 1
