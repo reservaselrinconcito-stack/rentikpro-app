@@ -7,6 +7,9 @@ jobs:
   publish:
     permissions:
       contents: write
+    concurrency:
+      group: release-${{ github.ref_name }}-${{ matrix.os }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
