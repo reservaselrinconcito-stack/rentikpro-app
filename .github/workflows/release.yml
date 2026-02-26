@@ -49,6 +49,10 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Install NSIS (Windows)
+        if: matrix.os == 'windows-latest'
+        run: choco install nsis -y
+
       - name: Build and publish (Tauri)
         uses: tauri-apps/tauri-action@v0
         env:
