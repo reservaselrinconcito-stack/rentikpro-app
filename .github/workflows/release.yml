@@ -11,20 +11,25 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          # macOS Intel runner (x64)
+          - os: macos-13
             tauri_args: "--target x86_64-apple-darwin"
             stable_asset: RentikPro-mac-x64.dmg
             glob: "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
 
-          - os: macos-latest
+          # macOS Apple Silicon runner (arm64)
+          - os: macos-14
             tauri_args: "--target aarch64-apple-darwin"
             stable_asset: RentikPro-mac-arm64.dmg
             glob: "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
 
+          # Windows
           - os: windows-latest
             tauri_args: ""
-            stable_asset: RentikPro-win.exe
-            glob: "src-tauri/target/release/bundle/**/*.exe"
+            stable_asset_exe: RentikPro-win.exe
+            stable_asset_msi: RentikPro-win.msi
+            glob_exe: "src-tauri/target/release/bundle/**/*.exe"
+            glob_msi: "src-tauri/target/release/bundle/**/*.msi"
 
     runs-on: ${{ matrix.os }}
 
@@ -58,13 +63,48 @@ jobs:
           prerelease: false
           args: ${{ matrix.tauri_args }}
 
-      - name: Upload stable asset
+      - name: Debug bundles (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          echo "Listing bundle folder:"
+          ls -R src-tauri/target/release/bundle || true
+
+      - name: Upload stable asset (macOS)
+        if: startsWith(matrix.os, 'macos')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -e
-          FILE=$(ls -1 ${{ matrix.glob }} | head -n 1)
+          FILE="$(ls -1 ${{ matrix.glob }} | head -n 1)"
           echo "Found file: $FILE"
           cp "$FILE" "${{ matrix.stable_asset }}"
           gh release upload "${{ github.ref_name }}" "${{ matrix.stable_asset }}" --clobber
+
+      - name: Upload stable asset (Windows EXE/MSI)
+        if: matrix.os == 'windows-latest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -e
+          EXE="$(ls -1 ${{ matrix.glob_exe }} 2>/dev/null | head -n 1 || true)"
+          MSI="$(ls -1 ${{ matrix.glob_msi }} 2>/dev/null | head -n 1 || true)"
+
+          if [ -n "$EXE" ]; then
+            echo "Found EXE: $EXE"
+            cp "$EXE" "${{ matrix.stable_asset_exe }}"
+            gh release upload "${{ github.ref_name }}" "${{ matrix.stable_asset_exe }}" --clobber
+            exit 0
+          fi
+
+          if [ -n "$MSI" ]; then
+            echo "No EXE found. Found MSI: $MSI"
+            cp "$MSI" "${{ matrix.stable_asset_msi }}"
+            gh release upload "${{ github.ref_name }}" "${{ matrix.stable_asset_msi }}" --clobber
+            exit 0
+          fi
+
+          echo "ERROR: No EXE or MSI found under src-tauri/target/release/bundle"
+          exit 1
