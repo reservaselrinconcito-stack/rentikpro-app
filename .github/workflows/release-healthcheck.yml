@@ -3,7 +3,7 @@ name: Release Healthcheck
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */6 * * *"   # cada 6 horas
+    - cron: "0 */6 * * *"
   release:
     types: [published]
 
@@ -14,7 +14,16 @@ jobs:
   verify-latest-release-assets:
     runs-on: ubuntu-latest
     steps:
-      - name: Check latest release assets exist
+      - name: Ensure jq is available
+        run: |
+          set -e
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+
+      - name: Resolve release to verify (latest if exists, else most recent)
+        id: rel
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -22,13 +31,46 @@ jobs:
           set -euo pipefail
 
           echo "Repo: $REPO"
-          echo "Fetching latest release..."
-          latest_json="$(gh api "repos/$REPO/releases/latest")"
-          tag="$(echo "$latest_json" | jq -r .tag_name)"
-          echo "Latest tag: $tag"
 
-          assets="$(echo "$latest_json" | jq -r '.assets[].name' | sort || true)"
-          echo "Assets in latest:"
+          # 1) Intentar latest (solo releases publicadas, no drafts, y normalmente no prereleases)
+          if gh api "repos/$REPO/releases/latest" >/tmp/latest.json 2>/dev/null; then
+            echo "Using releases/latest"
+            tag="$(jq -r .tag_name /tmp/latest.json)"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            cp /tmp/latest.json /tmp/release.json
+            exit 0
+          fi
+
+          echo "No 'latest' release found (maybe only prereleases/drafts). Falling back to most recent published release..."
+
+          # 2) Fallback: coger la más reciente que NO sea draft
+          gh api "repos/$REPO/releases?per_page=20" > /tmp/releases.json
+          jq -c '[.[] | select(.draft==false)] | .[0]' /tmp/releases.json > /tmp/release.json
+
+          tag="$(jq -r '.tag_name // empty' /tmp/release.json)"
+          if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+            echo "❌ No published releases found at all."
+            echo "Hint: publish a non-draft release, or mark one as Latest."
+            exit 2
+          fi
+
+          echo "Using most recent release: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check required assets exist on chosen release
+        env:
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          echo "Verifying release tag: $TAG"
+
+          # Obtener assets de ESA release (por tag)
+          rel="$(curl -sL "https://api.github.com/repos/${REPO}/releases/tags/${TAG}")"
+          assets="$(echo "$rel" | jq -r '.assets[].name' | sort || true)"
+
+          echo "Assets:"
           echo "$assets" | sed 's/^/ - /'
 
           need_ok=1
@@ -45,47 +87,42 @@ jobs:
           fi
 
           if [ "$need_ok" -ne 1 ]; then
-            echo "❌ Latest release assets are NOT compliant."
-            exit 2
+            echo "❌ Release assets NOT compliant."
+            exit 3
           fi
 
           echo "✅ Asset names compliant."
 
-      - name: Check latest download URLs respond
+      - name: Check download URLs respond (latest)
         env:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           base="https://github.com/${REPO}/releases/latest/download"
 
-          files=("RentikPro-mac-x64.dmg" "RentikPro-mac-arm64.dmg" "RentikPro-win.exe" "RentikPro-win.msi")
-
-          ok_any_win=0
-
-          for f in "${files[@]}"; do
+          # macOS deben existir sí o sí en latest si latest apunta bien
+          for f in "RentikPro-mac-x64.dmg" "RentikPro-mac-arm64.dmg"; do
             url="${base}/${f}"
-            echo "HEAD $url"
-            # No descargamos, solo cabeceras. Aceptamos 200 tras redirecciones.
             code="$(curl -s -o /dev/null -w "%{http_code}" -I -L "$url" || true)"
-            echo "HTTP $code"
-
-            if [[ "$f" == "RentikPro-win.exe" || "$f" == "RentikPro-win.msi" ]]; then
-              if [ "$code" = "200" ]; then ok_any_win=1; fi
+            echo "$f -> HTTP $code"
+            if [ "$code" != "200" ]; then
+              echo "❌ Latest download URL not OK for $f"
+              exit 4
             fi
           done
 
-          # Exigir que ambos dmg den 200
-          code_x64="$(curl -s -o /dev/null -w "%{http_code}" -I -L "${base}/RentikPro-mac-x64.dmg" || true)"
-          code_arm="$(curl -s -o /dev/null -w "%{http_code}" -I -L "${base}/RentikPro-mac-arm64.dmg" || true)"
+          # Windows: vale exe o msi
+          ok=0
+          for f in "RentikPro-win.exe" "RentikPro-win.msi"; do
+            url="${base}/${f}"
+            code="$(curl -s -o /dev/null -w "%{http_code}" -I -L "$url" || true)"
+            echo "$f -> HTTP $code"
+            if [ "$code" = "200" ]; then ok=1; fi
+          done
 
-          if [ "$code_x64" != "200" ] || [ "$code_arm" != "200" ]; then
-            echo "❌ macOS latest download URLs not OK (x64=$code_x64 arm64=$code_arm)"
-            exit 3
-          fi
-
-          if [ "$ok_any_win" != "1" ]; then
-            echo "❌ Windows latest download URL not OK (neither EXE nor MSI returned 200)"
-            exit 4
+          if [ "$ok" != "1" ]; then
+            echo "❌ Latest Windows download URL not OK (neither EXE nor MSI returned 200)"
+            exit 5
           fi
 
           echo "✅ Latest download URLs OK."
