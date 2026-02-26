@@ -1,0 +1,91 @@
+name: Release Healthcheck
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"   # cada 6 horas
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-latest-release-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check latest release assets exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          echo "Repo: $REPO"
+          echo "Fetching latest release..."
+          latest_json="$(gh api "repos/$REPO/releases/latest")"
+          tag="$(echo "$latest_json" | jq -r .tag_name)"
+          echo "Latest tag: $tag"
+
+          assets="$(echo "$latest_json" | jq -r '.assets[].name' | sort || true)"
+          echo "Assets in latest:"
+          echo "$assets" | sed 's/^/ - /'
+
+          need_ok=1
+          echo "$assets" | grep -qx "RentikPro-mac-x64.dmg" || { echo "MISSING: RentikPro-mac-x64.dmg"; need_ok=0; }
+          echo "$assets" | grep -qx "RentikPro-mac-arm64.dmg" || { echo "MISSING: RentikPro-mac-arm64.dmg"; need_ok=0; }
+
+          if echo "$assets" | grep -qx "RentikPro-win.exe"; then
+            echo "OK: RentikPro-win.exe"
+          elif echo "$assets" | grep -qx "RentikPro-win.msi"; then
+            echo "OK: RentikPro-win.msi (fallback)"
+          else
+            echo "MISSING: RentikPro-win.exe and RentikPro-win.msi"
+            need_ok=0
+          fi
+
+          if [ "$need_ok" -ne 1 ]; then
+            echo "❌ Latest release assets are NOT compliant."
+            exit 2
+          fi
+
+          echo "✅ Asset names compliant."
+
+      - name: Check latest download URLs respond
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          base="https://github.com/${REPO}/releases/latest/download"
+
+          files=("RentikPro-mac-x64.dmg" "RentikPro-mac-arm64.dmg" "RentikPro-win.exe" "RentikPro-win.msi")
+
+          ok_any_win=0
+
+          for f in "${files[@]}"; do
+            url="${base}/${f}"
+            echo "HEAD $url"
+            # No descargamos, solo cabeceras. Aceptamos 200 tras redirecciones.
+            code="$(curl -s -o /dev/null -w "%{http_code}" -I -L "$url" || true)"
+            echo "HTTP $code"
+
+            if [[ "$f" == "RentikPro-win.exe" || "$f" == "RentikPro-win.msi" ]]; then
+              if [ "$code" = "200" ]; then ok_any_win=1; fi
+            fi
+          done
+
+          # Exigir que ambos dmg den 200
+          code_x64="$(curl -s -o /dev/null -w "%{http_code}" -I -L "${base}/RentikPro-mac-x64.dmg" || true)"
+          code_arm="$(curl -s -o /dev/null -w "%{http_code}" -I -L "${base}/RentikPro-mac-arm64.dmg" || true)"
+
+          if [ "$code_x64" != "200" ] || [ "$code_arm" != "200" ]; then
+            echo "❌ macOS latest download URLs not OK (x64=$code_x64 arm64=$code_arm)"
+            exit 3
+          fi
+
+          if [ "$ok_any_win" != "1" ]; then
+            echo "❌ Windows latest download URL not OK (neither EXE nor MSI returned 200)"
+            exit 4
+          fi
+
+          echo "✅ Latest download URLs OK."

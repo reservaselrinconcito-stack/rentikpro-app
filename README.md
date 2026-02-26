@@ -1,3 +1,5 @@
+![Release Pipeline](https://github.com/reservaselrinconcito-stack/rentikpro-app/actions/workflows/release.yml/badge.svg)
+![Release Healthcheck](https://github.com/reservaselrinconcito-stack/rentikpro-app/actions/workflows/release-healthcheck.yml/badge.svg)
 
 # RentikPro - Property Management App
 
