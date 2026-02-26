@@ -14,8 +14,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS Intel runner (x64)
-          - os: macos-13
+          # macOS Intel (cross-compiled on Apple Silicon runner — macos-13 is deprecated)
+          - os: macos-14
             rust_target: "x86_64-apple-darwin"
             tauri_args: "--target x86_64-apple-darwin"
             stable_asset: RentikPro-mac-x64.dmg
