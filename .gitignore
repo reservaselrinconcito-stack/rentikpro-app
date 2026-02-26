@@ -1,24 +1,11 @@
-# Node
-node_modules
-**/node_modules
-dist
-
-# Tauri build
-src-tauri/target
-
-# Logs
+node_modules/
+**/node_modules/
+dist/
+src-tauri/target/
 *.log
 tauri-dev.log
-
-# Tests
-playwright-report
-test-results
-
-# Archives
+playwright-report/
+test-results/
 *.zip
-
-# OS
 .DS_Store
-
-# Env
 .env
