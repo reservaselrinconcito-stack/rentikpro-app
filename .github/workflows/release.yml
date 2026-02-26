@@ -1,0 +1,89 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 'macos-14'
+            args: '--bundle dmg'
+          - platform: 'windows-latest'
+            args: '--bundle msi'
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: install frontend dependencies
+        run: npm ci
+
+      - name: Build web
+        run: npm run build
+
+      - name: Import macOS signing certificate
+        if: matrix.platform == 'macos-14'
+        env:
+          MACOS_CERT_P12_B64: ${{ secrets.MACOS_CERT_P12_B64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: bash scripts/macos-import-cert.sh
+
+      - name: Build Tauri
+        run: npx tauri build ${{ matrix.args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+
+      - name: Notarize macOS DMG
+        if: matrix.platform == 'macos-14'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: bash scripts/macos-notarize.sh
+
+      - name: Rename assets (macOS)
+        if: matrix.platform == 'macos-14'
+        shell: bash
+        run: |
+          mv src-tauri/target/release/bundle/dmg/*.dmg src-tauri/target/release/bundle/dmg/RentikPro-mac.dmg
+
+      - name: Rename assets (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Path src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1
+          if ($msi) {
+            Rename-Item -Path $msi.FullName -NewName "RentikPro-win.msi"
+          }
+
+      - name: Create Release and Upload
+        uses: softprops/action-gh-release@v2
+        with:
+          name: RentikPro ${{ github.ref_name }}
+          body: "Official release for version ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          files: |
+            src-tauri/target/release/bundle/dmg/RentikPro-mac.dmg
+            src-tauri/target/release/bundle/msi/RentikPro-win.msi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
