@@ -15,19 +15,22 @@ jobs:
         include:
           # macOS Intel (x64)
           - os: macos-latest
-            args: "--target x86_64-apple-darwin"
+            rust_target: "x86_64-apple-darwin"
+            tauri_args: "--target x86_64-apple-darwin"
             stable_asset: "RentikPro-mac-x64.dmg"
             dmg_glob: "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
 
           # macOS Apple Silicon (arm64)
           - os: macos-latest
-            args: "--target aarch64-apple-darwin"
+            rust_target: "aarch64-apple-darwin"
+            tauri_args: "--target aarch64-apple-darwin"
             stable_asset: "RentikPro-mac-arm64.dmg"
             dmg_glob: "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
 
           # Windows (NSIS .exe normalmente)
           - os: windows-latest
-            args: ""
+            rust_target: ""
+            tauri_args: ""
             stable_asset: "RentikPro-win.exe"
             exe_glob: "src-tauri/target/release/bundle/nsis/*.exe"
 
@@ -44,10 +47,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.rust_target }}
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Clean Tauri target dir
+        run: |
+          rm -rf src-tauri/target
 
       - name: Install NSIS (Windows)
         if: matrix.os == 'windows-latest'
@@ -63,9 +70,9 @@ jobs:
           releaseBody: "Assets de instalación para ${{ github.ref_name }}."
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.args }}
+          args: ${{ matrix.tauri_args }}
 
-      # Subimos una copia con nombre ESTABLE para usar /releases/latest/download/...
+      # Subimos una copia con nombre ESTABLE para /releases/latest/download/...
       - name: Upload stable asset (macOS)
         if: startsWith(matrix.os, 'macos')
         env:
