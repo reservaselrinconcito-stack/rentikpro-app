@@ -13,21 +13,18 @@ jobs:
         include:
           # macOS Intel runner (x64)
           - os: macos-13
-            rust_target: "x86_64-apple-darwin"
             tauri_args: "--target x86_64-apple-darwin"
             stable_asset: RentikPro-mac-x64.dmg
             glob: "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
 
           # macOS Apple Silicon runner (arm64)
           - os: macos-14
-            rust_target: "aarch64-apple-darwin"
             tauri_args: "--target aarch64-apple-darwin"
             stable_asset: RentikPro-mac-arm64.dmg
             glob: "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
 
           # Windows
           - os: windows-latest
-            rust_target: ""
             tauri_args: ""
             stable_asset_exe: RentikPro-win.exe
             stable_asset_msi: RentikPro-win.msi
@@ -44,14 +41,6 @@ jobs:
           node-version: "lts/*"
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust_target }}
-
-      - name: Install dependencies (Ubuntu only)
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
 
       - run: npm ci
 
