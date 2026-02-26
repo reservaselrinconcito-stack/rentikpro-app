@@ -239,12 +239,12 @@ const App: React.FC = () => {
       <Router>
         <Toaster />
         <VersionChecker />
-        <Layout onSave={handleSave} onClose={handleClose}>
-          {initializing ? (
-            <BootProgress />
-          ) : !isProjectOpen ? (
-            <StartupScreen onOpen={() => setIsProjectOpen(true)} />
-          ) : (
+        {initializing ? (
+          <BootProgress />
+        ) : !isProjectOpen ? (
+          <StartupScreen onOpen={() => setIsProjectOpen(true)} />
+        ) : (
+          <Layout onSave={handleSave} onClose={handleClose}>
             <Suspense fallback={<PageLoader />}>
               <Routes>
                 <Route path="/" element={<Dashboard />} />
@@ -277,8 +277,8 @@ const App: React.FC = () => {
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
             </Suspense>
-          )}
-        </Layout>
+          </Layout>
+        )}
       </Router>
     </ErrorBoundary>
   );
