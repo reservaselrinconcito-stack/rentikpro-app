@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 680" width="512" height="680">
+
+  <!-- ===== ICON ===== -->
+  <!-- Squircle background - professional blue -->
+  <rect width="512" height="512" rx="120" ry="120" fill="#1C5FA0"/>
+
+  <!-- White house pentagon -->
+  <path d="M256,108 L400,258 L400,392 L112,392 L112,258 Z" fill="#FFFFFF"/>
+
+  <!-- Check as negative-space door: same blue as background -->
+  <path
+    d="M188,356 L238,368 L330,284"
+    fill="none"
+    stroke="#1C5FA0"
+    stroke-width="36"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- ===== WORDMARK ===== -->
+  <!--
+    "Rentik" : #1E3A5F — azul oscuro institucional
+    "Pro"    : #2F80ED — azul acción brillante
+    Font     : Inter 900 (fallback DM Sans → system-ui → sans-serif)
+    Centrado en x=256, baseline en y=618
+  -->
+  <text
+    x="256"
+    y="618"
+    text-anchor="middle"
+    font-family="Inter, 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+    font-weight="900"
+    font-size="80"
+    letter-spacing="-2"
+  >
+    <tspan fill="#1E3A5F">Rentik</tspan><tspan fill="#2F80ED">Pro</tspan>
+  </text>
+
+</svg>

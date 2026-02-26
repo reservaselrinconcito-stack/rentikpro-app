@@ -1,30 +1,23 @@
-# Dependencies
-/node_modules
+# Node
+node_modules
+dist
 
-# Build artifacts
-/dist
-/src-tauri/target
-/src-tauri/gen
-/public/vendor/sqljs/
+# Tauri build
+src-tauri/target
 
 # Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 *.log
+tauri-dev.log
 
-# Environment variables
-.env
-.env.local
-.env.*
+# Tests
+playwright-report
+test-results
 
-# IDEs and editors
-.vscode/
-.idea/
+# Zips
+*.zip
 
-# OS-generated files
+# OS
 .DS_Store
-Thumbs.db
 
-# NPM config
-.npmrc
+# Env
+.env

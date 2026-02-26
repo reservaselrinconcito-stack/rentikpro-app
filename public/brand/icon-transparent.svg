@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="RentikPro icon transparent">
+  <!--
+    RentikPro — Transparent background version
+    No squircle background. Only the symbol.
+    Use for: overlaying on any surface (dark UIs, colored backgrounds).
+
+    The check uses white stroke so it's visible on any dark surface.
+    For light surfaces: swap check stroke to #1C5FA0 or #1E3A5F.
+
+    House fill: #FFFFFF (white — works on dark/medium backgrounds)
+    Check stroke: #1C5FA0 (blue — the negative shape, works on dark AND reads as check on light)
+
+    NOTE: On pure white backgrounds, the white house will be invisible.
+    Use icon-monochrome.svg (Version B) for white backgrounds instead.
+  -->
+
+  <!-- No background rect — transparent by default in SVG -->
+
+  <!-- White house -->
+  <path
+    d="M256,108 L400,258 L400,392 L112,392 L112,258 Z"
+    fill="#FFFFFF"
+  />
+
+  <!-- Check: blue stroke creates negative check against white house -->
+  <path
+    d="M188,356 L238,368 L330,284"
+    fill="none"
+    stroke="#1C5FA0"
+    stroke-width="36"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!--
+  === ALTERNATIVE for use on DARK backgrounds only ===
+  Replace the paths above with:
+
+  <path d="M256,108 L400,258 L400,392 L112,392 L112,258 Z" fill="#FFFFFF"/>
+  <path d="M188,356 L238,368 L330,284"
+        fill="none" stroke="#FFFFFF" stroke-width="36"
+        stroke-linecap="round" stroke-linejoin="round" opacity="0"/>
+
+  (On dark bg, remove check entirely — house reads clean as pure white silhouette)
+  -->
+
+</svg>
