@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "RentikPro",
-  "version": "2.0.2",
-  "identifier": "com.rentikpro.desktop",
+  "version": "2.0.6",
+  "identifier": "com.rentikpro.app",
   "build": {
     "beforeDevCommand": "npm run dev:tauri",
     "beforeBuildCommand": "npm run build:tauri",
@@ -28,7 +28,7 @@
   "bundle": {
     "active": true,
     "targets": [
-      "app",
+      "nsis",
       "dmg"
     ],
     "icon": [
