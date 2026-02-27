@@ -101,7 +101,17 @@ export const createDefaultBlock = (type: string): BlockInstance => {
                 },
                 styles: commonStyles
             };
-        default:
+        case 'AvailabilityCalendar':
+            return {
+                id, type, variant: 'A',
+                data: {
+                    title: 'Disponibilidad',
+                    propertyId: '',
+                    apartmentLabel: 'Ver disponibilidad',
+                },
+                styles: commonStyles
+            };
+                default:
             return {
                 id, type, variant: 'A',
                 data: { title: `Bloque ${type}` },

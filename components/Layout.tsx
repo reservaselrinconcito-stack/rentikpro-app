@@ -80,6 +80,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   const navigate = useNavigate();
   const location = useLocation();
 
+  useEffect(() => {
+    const pending = sessionStorage.getItem('pendingNavigation');
+    if (pending) {
+      sessionStorage.removeItem('pendingNavigation');
+      navigate(pending);
+    }
+  }, [navigate]);
+
+
   // File-mode save state (polls every 500ms — zero cost when in 'idb' mode)
   const [fileSaveState, setFileSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [fileDisplayName, setFileDisplayName] = useState<string>('Sin archivo');
@@ -260,7 +269,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
       <NavItem to="/registry" icon={Landmark} label="Registro / Ventanilla" onClick={mobile ? handleNavClick : undefined} />
 
       <div className="pt-4 pb-2 px-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Create2Web</div>
-      <NavItem to="/website-builder" icon={Globe} label="Mis Sitios" onClick={mobile ? handleNavClick : undefined} />
+      <NavItem to="/website-builder" icon={Globe} label="Editor web" onClick={mobile ? handleNavClick : undefined} />
 
       <div className="pt-4 pb-2 px-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Herramientas</div>
       <NavItem to="/importers" icon={ShieldAlert} label="Importadores" onClick={mobile ? handleNavClick : undefined} />

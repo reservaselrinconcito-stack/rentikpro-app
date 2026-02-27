@@ -136,7 +136,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                                         onChange={e => updateData('imageUrl', e.target.value)}
                                         className="flex-1 bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs font-medium outline-none focus:border-indigo-500 transition-colors"
                                     />
-                                    <button className="p-3 bg-slate-100 rounded-xl text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
+                                    <button title="Arrastrar imagen o pegar URL" className="p-3 bg-slate-100 rounded-xl text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors" onClick={() => { const inp = document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.onchange = (e: any) => { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => updateData("imageUrl", ev.target?.result as string); r.readAsDataURL(f); }; inp.click(); }}>
                                         <ImageIcon size={18} />
                                     </button>
                                 </div>

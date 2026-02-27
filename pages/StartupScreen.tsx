@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, FilePlus, Upload, ShieldCheck, Gamepad2, ArrowRight, Loader2, CheckCircle, AlertCircle, Database, FolderOpen, FileText, Download, RefreshCw } from 'lucide-react';
+import { Play, FilePlus, Upload, ShieldCheck, Gamepad2, ArrowRight, Loader2, CheckCircle, AlertCircle, Database, FolderOpen, FileText, Download, RefreshCw, Globe } from 'lucide-react';
 import { APP_VERSION } from '../src/version';
 import { projectManager } from '../services/projectManager';
 import { projectPersistence, ProjectMetadata } from '../services/projectPersistence'; // Import persistence
@@ -423,6 +423,13 @@ const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
         }
     };
 
+    const handleOpenEditor = () => wrapAction("Iniciando Editor", async () => {
+        if (!projectManager.isProjectLoaded()) {
+            await projectManager.createDemoProject((msg) => setLoadingLog(msg));
+        }
+        sessionStorage.setItem('pendingNavigation', '/website-builder');
+    });
+
     const handleCreate = () => wrapAction("Creando proyecto nuevo", async () => {
         setLoadingLog("Inicializando base de datos...");
         const success = await projectManager.createBlankProject();
@@ -794,6 +801,19 @@ const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
                                 <ArrowRight size={18} className="text-indigo-400 group-hover:translate-x-1 transition-transform" />
                             </button>
                         )}
+
+                        <button onClick={handleOpenEditor} className="w-full flex items-center justify-between p-4 bg-indigo-600/5 border border-indigo-600/20 rounded-xl hover:bg-indigo-600/10 hover:border-indigo-600/30 transition-all group">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-indigo-600 rounded-lg text-white shadow-lg shadow-indigo-200 group-hover:scale-110 transition-transform">
+                                    <Globe size={20} />
+                                </div>
+                                <div className="text-left">
+                                    <h3 className="font-bold text-indigo-900">Editor web</h3>
+                                    <p className="text-xs text-indigo-600/70 font-medium">Configura y publica tu sitio</p>
+                                </div>
+                            </div>
+                            <ArrowRight size={18} className="text-indigo-400 group-hover:translate-x-1 transition-transform" />
+                        </button>
 
                         <div className="h-px bg-slate-100 my-4" />
 

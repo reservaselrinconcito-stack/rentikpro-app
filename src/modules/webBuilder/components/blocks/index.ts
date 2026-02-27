@@ -1,10 +1,11 @@
 import React from 'react';
 
-// Import all block components
+// Block components
 import { Hero } from './Hero';
 import { Navigation } from './Navigation';
 import { TrustBadges } from './TrustBadges';
 import { ApartmentsGrid } from './ApartmentsGrid';
+import { AvailabilityCalendar } from './AvailabilityCalendar';
 import { Features } from './Features';
 import { Gallery } from './Gallery';
 import { Testimonials } from './Testimonials';
@@ -15,12 +16,13 @@ import { FAQ } from './FAQ';
 import { Pricing } from './Pricing';
 import { ContactForm } from './ContactForm';
 
-// The canonical block registry
+// Canonical registry
 export const BlockRegistry: Record<string, React.FC<any>> = {
     'Hero': Hero,
     'Navigation': Navigation,
     'TrustBadges': TrustBadges,
     'ApartmentsGrid': ApartmentsGrid,
+    'AvailabilityCalendar': AvailabilityCalendar,
     'Features': Features,
     'Gallery': Gallery,
     'Testimonials': Testimonials,
@@ -32,7 +34,6 @@ export const BlockRegistry: Record<string, React.FC<any>> = {
     'ContactForm': ContactForm,
 };
 
-// Fallback registry to prevent crashes
-export const getBlockComponent = (type: string): React.FC<any> => {
-    return BlockRegistry[type] || null; // Handler in WebsiteRenderer will catch nulls
+export const getBlockComponent = (type: string): React.FC<any> | null => {
+    return BlockRegistry[type] ?? null;
 };

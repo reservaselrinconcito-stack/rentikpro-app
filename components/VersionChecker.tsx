@@ -36,7 +36,6 @@ export const VersionChecker: React.FC = () => {
     useEffect(() => {
         // Skip in development
         if (isDev()) {
-            console.log("[VersionChecker] Development mode detected, skipping version check UI.");
             return;
         }
 

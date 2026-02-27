@@ -43,7 +43,7 @@ const Importers = lazyWithRetry(() => import('./pages/Importers').then(m => ({ d
 const Calendar = lazyWithRetry(() => import('./pages/Calendar').then(m => ({ default: m.Calendar })));
 const Marketing = lazyWithRetry(() => import('./pages/Marketing').then(m => ({ default: m.Marketing })));
 const Registry = lazyWithRetry(() => import('./pages/Registry').then(m => ({ default: m.Registry })));
-const WebsiteBuilder = lazyWithRetry(() => import('./pages/WebsiteBuilder').then(m => ({ default: m.WebsiteBuilder })));
+const WebsiteBuilderRoute = lazyWithRetry(() => import('./src/pages/WebsiteBuilderRoute'));
 const Diagnostics = lazyWithRetry(() => import('./pages/Diagnostics').then(m => ({ default: m.Diagnostics })));
 const Communications = lazyWithRetry(() => import('./pages/Communications').then(m => ({ default: m.Communications })));
 const ChannelManager = lazyWithRetry(() => import('./pages/ChannelManager').then(m => ({ default: m.ChannelManager })));
@@ -264,7 +264,7 @@ const App: React.FC = () => {
                 <Route path="/accounting" element={<Accounting />} />
                 <Route path="/registry" element={<Registry />} />
                 <Route path="/email-bookings" element={<EmailBookings />} />
-                <Route path="/website-builder" element={<WebsiteBuilder />} />
+                <Route path="/website-builder" element={<WebsiteBuilderRoute />} />
                 <Route path="/settings" element={<Settings onSave={handleSave} />} />
                 <Route path="/comms" element={<Communications />} />
                 <Route path="/buzon" element={<Navigate to="/comms" replace />} />
