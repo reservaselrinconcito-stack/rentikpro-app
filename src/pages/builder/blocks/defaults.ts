@@ -111,7 +111,52 @@ export const createDefaultBlock = (type: string): BlockInstance => {
                 },
                 styles: commonStyles
             };
-                default:
+        case 'ApartmentsGrid':
+            return {
+                id, type, variant: 'A',
+                data: {
+                    title: 'Nuestros Alojamientos',
+                    subtitle: 'Encuentra el lugar perfecto para tu próxima escapada.',
+                    items: [] // Empty means showing editor placeholders or v0 real data
+                },
+                styles: commonStyles
+            };
+        case 'TrustBadges':
+            return {
+                id, type, variant: 'A',
+                data: {},
+                styles: commonStyles
+            };
+        case 'Gallery':
+            return {
+                id, type, variant: 'A',
+                data: {},
+                styles: commonStyles
+            };
+        case 'ContactFooter':
+            return {
+                id, type, variant: 'A',
+                data: {
+                    brandName: 'RentikPro',
+                    email: 'info@rentik.pro',
+                },
+                styles: commonStyles
+            };
+        case 'Navigation':
+            return {
+                id, type, variant: 'A',
+                data: {
+                    brandName: 'RentikPro',
+                    links: [
+                        { label: 'Inicio', href: '/' },
+                        { label: 'Alojamientos', href: '#apartments' }
+                    ]
+                },
+                styles: {
+                    desktop: { padding: '20px 40px', backgroundColor: '#ffffff', color: '#1e293b' }
+                }
+            };
+        default:
             return {
                 id, type, variant: 'A',
                 data: { title: `Bloque ${type}` },

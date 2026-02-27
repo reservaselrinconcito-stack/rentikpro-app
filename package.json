@@ -9,7 +9,7 @@
     "dev:tauri": "cross-env VITE_TARGET=tauri vite",
     "build:tauri": "npm run prepare:sqljs && node scripts/generate-version.js && cross-env VITE_TARGET=tauri vite build",
     "release:mac": "rm -rf dist && npm run build:tauri && bash scripts/check-tauri-build.sh && npm run tauri -- build",
-    "prepare:sqljs": "node scripts/prepare-sqljs.js",
+    "prepare:sqljs": "echo 'Skipping sql.js prepare (manual copy used)'",
     "sync:tauri-version": "node scripts/sync-tauri-version.js",
     "dev": "npm run prepare:sqljs && vite",
     "build": "npm run prepare:sqljs && node scripts/generate-version.js && vite build",

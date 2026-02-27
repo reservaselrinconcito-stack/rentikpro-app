@@ -139,10 +139,10 @@ export class PublicPublisher {
      */
     async publish(propertyId: string): Promise<boolean> {
         const workerUrl = (import.meta.env.VITE_PUBLIC_WORKER_URL || '').replace(/\/$/, '');
-        const adminKey = import.meta.env.VITE_PUBLIC_WORKER_ADMIN_KEY || '';
+        const adminKey = import.meta.env.VITE_PUBLIC_WORKER_ADMIN_KEY || import.meta.env.VITE_ADMIN_TOKEN || '';
 
         if (!workerUrl || !adminKey) {
-            toast.error('Worker URL or Admin Key missing in environment');
+            toast.error('Worker URL or Admin Key (VITE_ADMIN_TOKEN) missing in environment');
             return false;
         }
 
