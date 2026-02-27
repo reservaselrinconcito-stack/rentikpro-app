@@ -15,19 +15,15 @@ interface BlockTemplate {
 }
 
 const AVAILABLE_BLOCKS: BlockTemplate[] = [
-    { type: 'Hero',                label: 'Hero',              icon: Layout,        category: 'basic',   description: 'Portada impactante con imagen y CTA' },
-    { type: 'Navigation',          label: 'Navegación',        icon: Columns,       category: 'basic',   description: 'Menú superior y enlaces' },
-    { type: 'Features',            label: 'Características',   icon: Columns,       category: 'basic',   description: 'Lista de beneficios con iconos' },
-    { type: 'CTA',                 label: 'Llamada a Acción',  icon: Layout,        category: 'basic',   description: 'Botón destacado para conversión' },
-    { type: 'Location',            label: 'Ubicación',         icon: MapPin,        category: 'basic',   description: 'Mapa de Google y dirección' },
-    { type: 'ApartmentsGrid',      label: 'Apartamentos',      icon: Square,        category: 'content', description: 'Listado automático de unidades' },
-    { type: 'AvailabilityCalendar',label: 'Disponibilidad',    icon: Calendar,      category: 'content', description: 'Calendario de disponibilidad real' },
-    { type: 'FAQ',                 label: 'FAQ',               icon: MessageSquare, category: 'content', description: 'Preguntas frecuentes (Acordeón)' },
-    { type: 'ContactForm',         label: 'Formulario',        icon: MessageSquare, category: 'content', description: 'Captura de leads y consultas' },
-    { type: 'Pricing',             label: 'Tarifas',           icon: Layout,        category: 'content', description: 'Planes de precios y reserva' },
-    { type: 'Gallery',             label: 'Galería',           icon: ImageIcon,     category: 'media',   description: 'Cuadrícula de imágenes del proyecto' },
-    { type: 'Testimonials',        label: 'Testimonios',       icon: MessageSquare, category: 'social',  description: 'Reseñas de clientes satisfechos' },
-    { type: 'TrustBadges',         label: 'Badges',            icon: Share2,        category: 'social',  description: 'Sellos de confianza y plataformas' },
+    { type: 'Hero', label: 'Portada (Hero)', icon: Layout, category: 'basic', description: 'Imagen principal y título de impacto' },
+    { type: 'Navigation', label: 'Navegación', icon: Columns, category: 'basic', description: 'Menú superior y enlaces' },
+    { type: 'Features', label: 'Amenities', icon: Columns, category: 'basic', description: 'Servicios: piscina, wifi, aire...' },
+    { type: 'CTA', label: 'Botón de Reserva', icon: Layout, category: 'basic', description: 'Acceso directo a la reserva' },
+    { type: 'Location', label: 'Ubicación (Mapa)', icon: MapPin, category: 'basic', description: 'Mapa de Google y dirección' },
+    { type: 'ApartmentsGrid', label: 'Catálogo Unidades', icon: Square, category: 'content', description: 'Listado de apartamentos' },
+    { type: 'AvailabilityCalendar', label: 'Calendario', icon: Calendar, category: 'content', description: 'Disponibilidad en tiempo real' },
+    { type: 'Gallery', label: 'Galería Fotos', icon: ImageIcon, category: 'media', description: 'Fotos del alojamiento' },
+    { type: 'ContactFooter', label: 'Footer', icon: Layout, category: 'basic', description: 'Pie de página con contacto' },
 ];
 
 interface SidebarLeftProps {
@@ -36,10 +32,10 @@ interface SidebarLeftProps {
 
 export const SidebarLeft: React.FC<SidebarLeftProps> = ({ onAddBlock }) => {
     const categories = [
-        { id: 'basic',   label: 'Estructura' },
+        { id: 'basic', label: 'Estructura' },
         { id: 'content', label: 'Contenido' },
-        { id: 'media',   label: 'Multimedia' },
-        { id: 'social',  label: 'Social' },
+        { id: 'media', label: 'Multimedia' },
+        { id: 'social', label: 'Social' },
     ];
 
     return (

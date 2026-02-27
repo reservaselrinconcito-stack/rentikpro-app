@@ -111,10 +111,21 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
 
                         {/* Configurable content depending on type */}
                         {Object.entries(selectedBlock.data).map(([key, val]) => {
-                            if (typeof val === 'string' && (key.toLowerCase().includes('text') || key === 'title' || key === 'subtitle' || key === 'ctaLabel' || key === 'kicker')) {
+                            if (typeof val === 'string' && (key.toLowerCase().includes('text') || key === 'title' || key === 'subtitle' || key === 'ctaLabel' || key === 'kicker' || key === 'address' || key === 'phone' || key === 'brandName')) {
+                                const labels: Record<string, string> = {
+                                    title: 'Título',
+                                    subtitle: 'Subtítulo',
+                                    ctaLabel: 'Etiqueta Botón',
+                                    kicker: 'Llamada (Kicker)',
+                                    address: 'Dirección',
+                                    phone: 'Teléfono',
+                                    brandName: 'Nombre del Alojamiento',
+                                    text: 'Contenido',
+                                    email: 'Email de contacto'
+                                };
                                 return (
                                     <div key={key} className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-800 uppercase tracking-widest block">{key}</label>
+                                        <label className="text-[10px] font-black text-slate-800 uppercase tracking-widest block">{labels[key] || key}</label>
                                         <textarea
                                             value={val}
                                             onChange={e => updateData(key, e.target.value)}
@@ -136,7 +147,7 @@ export const SidebarRight: React.FC<SidebarRightProps> = ({
                                         onChange={e => updateData('imageUrl', e.target.value)}
                                         className="flex-1 bg-slate-50 border border-slate-100 rounded-xl p-3 text-xs font-medium outline-none focus:border-indigo-500 transition-colors"
                                     />
-                                    <button title="Arrastrar imagen o pegar URL" className="p-3 bg-slate-100 rounded-xl text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors" onClick={() => { const inp = document.createElement("input"); inp.type="file"; inp.accept="image/*"; inp.onchange = (e: any) => { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => updateData("imageUrl", ev.target?.result as string); r.readAsDataURL(f); }; inp.click(); }}>
+                                    <button title="Arrastrar imagen o pegar URL" className="p-3 bg-slate-100 rounded-xl text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors" onClick={() => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*"; inp.onchange = (e: any) => { const f = e.target.files?.[0]; if (!f) return; const r = new FileReader(); r.onload = (ev) => updateData("imageUrl", ev.target?.result as string); r.readAsDataURL(f); }; inp.click(); }}>
                                         <ImageIcon size={18} />
                                     </button>
                                 </div>
