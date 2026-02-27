@@ -10,46 +10,52 @@ export interface BuilderTemplate {
 
 export const BUILDER_TEMPLATES: BuilderTemplate[] = [
     {
-        id: 'minimal',
-        name: 'Minimal',
-        description: 'Limpia, espaciosa y centrada en la tipografía.',
+        id: 'apartamento',
+        name: 'Estilo Urbano/Playa',
+        description: 'Limpio y moderno, enfocado en apartamentos turísticos de ciudad o costa.',
         config: {
             theme: {
                 ...DEFAULT_SITE_CONFIG_V1.theme,
-                colors: { ...DEFAULT_SITE_CONFIG_V1.theme.colors, primary: '#000000', background: '#ffffff' }
+                colors: {
+                    ...DEFAULT_SITE_CONFIG_V1.theme.colors,
+                    primary: '#4f46e5',
+                    background: '#ffffff',
+                    accent: '#10b981'
+                }
             }
         }
     },
     {
-        id: 'luxury',
-        name: 'Luxury',
-        description: 'Elegancia con tonos dorados y serifas premium.',
+        id: 'rural',
+        name: 'Estilo Rústico',
+        description: 'Tonos cálidos y naturales, ideal para casas rurales y entornos de montaña.',
         config: {
             theme: {
                 ...DEFAULT_SITE_CONFIG_V1.theme,
-                colors: { ...DEFAULT_SITE_CONFIG_V1.theme.colors, primary: '#b4975a', background: '#fafaf9', text: '#1c1917' }
+                colors: {
+                    ...DEFAULT_SITE_CONFIG_V1.theme.colors,
+                    primary: '#059669',
+                    background: '#fefce8',
+                    text: '#451a03',
+                    accent: '#d97706'
+                }
             }
         }
     },
     {
-        id: 'conversion',
-        name: 'Conversion',
-        description: 'Diseñada para maximizar las reservas con CTAs vibrantes.',
+        id: 'complejo',
+        name: 'Estilo Premium/Complejo',
+        description: 'Elegancia y sobriedad para edificios de apartamentos o servicios exclusivos.',
         config: {
             theme: {
                 ...DEFAULT_SITE_CONFIG_V1.theme,
-                colors: { ...DEFAULT_SITE_CONFIG_V1.theme.colors, primary: '#4f46e5', accent: '#f59e0b', background: '#f8fafc' }
-            }
-        }
-    },
-    {
-        id: 'rustic',
-        name: 'Rustic',
-        description: 'Tonos tierra y calidez para entornos naturales.',
-        config: {
-            theme: {
-                ...DEFAULT_SITE_CONFIG_V1.theme,
-                colors: { ...DEFAULT_SITE_CONFIG_V1.theme.colors, primary: '#78350f', background: '#fefce8', text: '#451a03' }
+                colors: {
+                    ...DEFAULT_SITE_CONFIG_V1.theme.colors,
+                    primary: '#1e293b',
+                    background: '#fafaf9',
+                    text: '#1c1917',
+                    accent: '#d4af37'
+                }
             }
         }
     }

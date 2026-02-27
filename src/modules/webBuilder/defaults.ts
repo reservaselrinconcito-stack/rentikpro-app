@@ -45,13 +45,13 @@ export const DEFAULT_SITE_CONFIG_V1: SiteConfigV1 = {
     slug: '',
     themeId: 'modern',
     globalData: {
-        brandName: 'Mi Nuevo Sitio',
+        brandName: 'Apartamento El Rincón',
     },
     assets: [],
     theme: {
         colors: {
             primary: '#4f46e5', // indigo-600
-            secondary: '#slate-800',
+            secondary: '#1e293b', // slate-800
             accent: '#10b981', // emerald-500
             background: '#f8fafc', // slate-50
             surface: '#ffffff', // white
@@ -76,65 +76,59 @@ export const DEFAULT_SITE_CONFIG_V1: SiteConfigV1 = {
             id: 'page-home',
             path: '/',
             title: 'Inicio',
-            description: 'Sitio web moderno y profesional.',
+            description: 'Reserva tu estancia en Apartamento El Rincón (Fuentespalda).',
             blocks: [
                 {
                     id: 'block-nav-1',
                     type: 'Navigation',
-                    data: { brandName: 'RentikPro' },
+                    data: { brandName: 'Apartamento El Rincón' },
                     styles: {}
                 },
                 {
                     id: 'block-hero-1',
                     type: 'Hero',
                     data: {
-                        title: 'Tu Descanso Perfecto',
-                        subtitle: 'Descubre alojamientos exclusivos diseñados para tu confort.',
-                        ctaLabel: 'Ver Alojamientos',
+                        title: 'Tu estancia perfecta en Fuentespalda',
+                        subtitle: 'Descubre un alojamiento exclusivo diseñado para tu máximo confort y descanso.',
+                        ctaLabel: 'Ver Disponibilidad',
                         ctaHref: '#apartments'
                     },
                     styles: {}
                 },
                 {
-                    id: 'block-trust-1',
-                    type: 'TrustBadges',
-                    data: {},
+                    id: 'block-features-1',
+                    type: 'Features',
+                    data: {
+                        features: [
+                            { title: '4 Huéspedes', description: 'Espacio ideal para familias o grupos.', icon: 'Users' },
+                            { title: '2 Habitaciones', description: 'Dormitorios amplios y equipados.', icon: 'Bed' },
+                            { title: '1 Baño', description: 'Baño completo con ducha y amenities.', icon: 'Droplets' }
+                        ]
+                    },
                     styles: {}
                 },
                 {
                     id: 'block-grid-1',
                     type: 'ApartmentsGrid',
-                    data: {},
-                    styles: {}
-                },
-                {
-                    id: 'block-features-1',
-                    type: 'Features',
-                    data: {},
+                    data: { title: 'Nuestras Unidades' },
                     styles: {}
                 },
                 {
                     id: 'block-gallery-1',
                     type: 'Gallery',
-                    data: {},
-                    styles: {}
-                },
-                {
-                    id: 'block-testimonials-1',
-                    type: 'Testimonials',
-                    data: {},
+                    data: { title: 'Galería de Fotos' },
                     styles: {}
                 },
                 {
                     id: 'block-location-1',
                     type: 'Location',
-                    data: {},
+                    data: { title: 'Ubicación', address: 'Fuentespalda (Teruel)' },
                     styles: {}
                 },
                 {
                     id: 'block-footer-1',
                     type: 'ContactFooter',
-                    data: {},
+                    data: { brandName: 'Apartamento El Rincón' },
                     styles: {}
                 }
             ]
