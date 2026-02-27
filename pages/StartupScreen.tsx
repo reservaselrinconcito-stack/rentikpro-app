@@ -662,15 +662,35 @@ const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
                     </div>
 
                     {!isTauri && (
-                        <div className="bg-slate-50 border border-slate-100 rounded-3xl p-5">
+                        <div className="bg-slate-50 border border-slate-100 rounded-3xl p-5 space-y-3">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Descargar Aplicación Escritorio</p>
+
+                            {/* macOS Section */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <a
+                                    href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest/download/RentikPro-mac-arm64.dmg"
+                                    className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
+                                >
+                                    <Download size={14} /> Mac Apple Silicon (M1/M2/M3)
+                                </a>
+                                <a
+                                    href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest/download/RentikPro-mac-x64.dmg"
+                                    className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-white border border-slate-200 text-slate-700 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm"
+                                >
+                                    <Download size={14} /> Mac Intel
+                                </a>
+                            </div>
+
+                            {/* Windows Section */}
                             <a
-                                href={`/downloads/rentikpro/mac/RentikPro_${APP_VERSION}.dmg`}
-                                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
+                                href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest/download/RentikPro-win.exe"
+                                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-100 text-slate-600 border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
                             >
-                                <Download size={16} /> Descargar RentikPro para macOS
+                                <Download size={14} /> Descargar para Windows (.exe)
                             </a>
-                            <div className="text-[10px] text-slate-500 font-bold mt-2">
-                                macOS puede pedir confirmación la primera vez.
+
+                            <div className="text-[9px] text-slate-400 font-bold mt-2 px-1">
+                                Para la mejor experiencia (offline y gestión de archivos), recomendamos la versión instalable.
                             </div>
                         </div>
                     )}

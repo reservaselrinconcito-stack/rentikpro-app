@@ -1,20 +1,58 @@
 <!doctype html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>RentikPro — Descarga</title>
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;padding:40px;max-width:920px}
-    .card{border:1px solid #e5e7eb;border-radius:16px;padding:24px}
-    h1{margin:0 0 8px;font-size:40px}
-    p{line-height:1.5}
-    .btn{display:inline-block;padding:14px 18px;border-radius:12px;border:1px solid #111;text-decoration:none}
-    .muted{color:#6b7280;font-size:14px}
-    code{background:#f3f4f6;padding:2px 6px;border-radius:6px}
-    ul{padding-left:18px}
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      margin: 0;
+      padding: 40px;
+      max-width: 920px
+    }
+
+    .card {
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      padding: 24px
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 40px
+    }
+
+    p {
+      line-height: 1.5
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 14px 18px;
+      border-radius: 12px;
+      border: 1px solid #111;
+      text-decoration: none
+    }
+
+    .muted {
+      color: #6b7280;
+      font-size: 14px
+    }
+
+    code {
+      background: #f3f4f6;
+      padding: 2px 6px;
+      border-radius: 6px
+    }
+
+    ul {
+      padding-left: 18px
+    }
   </style>
 </head>
+
 <body>
   <div class="card">
     <h1>RentikPro</h1>
@@ -24,8 +62,19 @@
       <li>Workspace seleccionable desde Settings</li>
       <li>Datos en <code>database.sqlite</code> dentro de <code>workspace/</code></li>
     </ul>
-    <p><a class="btn" href="/downloads/rentikpro/mac/RentikPro.dmg">Descargar para macOS (DMG)</a></p>
-    <p class="muted">SHA256: <code>/downloads/rentikpro/mac/RentikPro.dmg.sha256</code></p>
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px;">
+      <a class="btn" style="background: #111; color: #fff;"
+        href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest/download/RentikPro-mac-arm64.dmg">Descargar
+        Mac (Apple Silicon)</a>
+      <a class="btn"
+        href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest/download/RentikPro-mac-x64.dmg">Descargar
+        Mac (Intel)</a>
+      <a class="btn" style="background: #0066cc; color: #fff; border-color: #0066cc;"
+        href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest/download/RentikPro-win.exe">Descargar
+        para Windows</a>
+    </div>
+    <p class="muted">📦 Última versión estable desde GitHub Releases.</p>
   </div>
 </body>
+
 </html>
