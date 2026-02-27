@@ -38,6 +38,8 @@ import { toast } from 'sonner';
 import { generateV0Config } from '../modules/webBuilder/v0Generator';
 import { publishAdapter } from '../services/publishAdapter';
 import { APP_VERSION } from '../version';
+import { TemplateOnboarding } from '../modules/webBuilder/components/TemplateOnboarding';
+import { PROPERTY_TEMPLATES, PropertyTemplate } from '../modules/webBuilder/templates/propertyTemplates';
 
 // ─── ErrorBoundary ─────────────────────────────────────────────────────────────
 
@@ -163,6 +165,8 @@ const WebsiteBuilderInner: React.FC = () => {
     const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
     const [isPublishing, setIsPublishing] = useState(false);
     const [liveUrl, setLiveUrl] = useState<string | null>(null);
+    const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+    const [selectedTemplate, setSelectedTemplate] = useState<PropertyTemplate | null>(null);
 
     const {
         state, dispatch, undo, redo, canUndo, canRedo,
@@ -308,16 +312,32 @@ const WebsiteBuilderInner: React.FC = () => {
     // ── AUTO GENERATE v0 ──────────────────────────────────────────────────────
     const handleAutoGenerate = async (property: Property) => {
         setShowAutoGenerateModal(false);
-        toast.loading('Generando web v0...');
+        const template = selectedTemplate;
+        setSelectedTemplate(null);
+
+        toast.loading(template ? `Generando ${template.name}...` : 'Generando web v0...');
         try {
             const snapshot = await projectManager.getStore().loadPropertySnapshot(property.id);
-            const v0Config = generateV0Config(snapshot);
+
+            let v1Config;
+            if (template) {
+                v1Config = template.seed({ name: property.name, location: property.location });
+                // We might want to inject real apartments if the template has ApartmentsGrid
+                const v0Base = generateV0Config(snapshot);
+                const gridBlock = v1Config.pages['/'].blocks.find(b => b.type === 'ApartmentsGrid');
+                if (gridBlock) {
+                    const v0Grid = v0Base.pages['/'].blocks.find(b => b.type === 'ApartmentsGrid');
+                    if (v0Grid) gridBlock.data.items = v0Grid.data.items;
+                }
+            } else {
+                v1Config = generateV0Config(snapshot);
+            }
 
             const newSite: WebSite = {
                 id: `ws_${Math.random().toString(36).substr(2, 9)}`,
                 name: property.name,
                 property_id: property.id,
-                subdomain: v0Config.slug,
+                subdomain: v1Config.slug || generateSlug(property.name),
                 template_slug: 'v2',
                 plan_type: 'pro',
                 public_token: '',
@@ -326,19 +346,19 @@ const WebsiteBuilderInner: React.FC = () => {
                 theme_config: '{}',
                 seo_title: property.name,
                 seo_description: '',
-                sections_json: JSON.stringify(v0Config),
+                sections_json: JSON.stringify(v1Config),
                 booking_config: '{}',
                 property_ids_json: JSON.stringify([property.id]),
                 allowed_origins_json: '[]',
                 features_json: '{}',
-                slug: v0Config.slug,
+                slug: v1Config.slug || generateSlug(property.name),
                 created_at: Date.now(),
                 updated_at: Date.now(),
             };
 
             await projectManager.getStore().saveWebsite(newSite);
             await loadData();
-            toast.success('Web v0 generada');
+            toast.success(template ? `${template.name} generada` : 'Web v0 generada');
 
             const created = (await projectManager.getStore().getWebsites()).find(w => w.id === newSite.id);
             if (created) setSelectedSite(created);
@@ -378,11 +398,10 @@ const WebsiteBuilderInner: React.FC = () => {
                             <span className="font-black uppercase tracking-widest text-xs">Cargando motores...</span>
                         </div>
                     ) : websites.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-32 text-center text-slate-400">
-                            <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mb-6 text-5xl">🌐</div>
-                            <h2 className="text-xl font-black text-slate-700 mb-2">Sin sitios web aún</h2>
-                            <p className="text-sm max-w-sm">Usa "Generar Web v0" para crear el primer sitio a partir de una propiedad existente.</p>
-                        </div>
+                        <TemplateOnboarding onSelect={(tmpl) => {
+                            setSelectedTemplate(tmpl);
+                            setShowAutoGenerateModal(true);
+                        }} />
                     ) : (
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pb-20">
                             {websites.map(ws => (
@@ -424,10 +443,14 @@ const WebsiteBuilderInner: React.FC = () => {
                             <div className="p-10">
                                 <div className="flex items-center justify-between mb-8">
                                     <div>
-                                        <h2 className="text-3xl font-black text-slate-800 mb-2">Generar Web v0</h2>
-                                        <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">Selecciona una propiedad</p>
+                                        <h2 className="text-3xl font-black text-slate-800 mb-2">
+                                            {selectedTemplate ? `Crear ${selectedTemplate.name}` : 'Generar Web v0'}
+                                        </h2>
+                                        <p className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">
+                                            {selectedTemplate ? 'Selecciona una propiedad para esta plantilla' : 'Selecciona una propiedad'}
+                                        </p>
                                     </div>
-                                    <button onClick={() => setShowAutoGenerateModal(false)} className="p-4 bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-full transition-all">
+                                    <button onClick={() => { setShowAutoGenerateModal(false); setSelectedTemplate(null); }} className="p-4 bg-slate-100 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-full transition-all">
                                         <X size={24} />
                                     </button>
                                 </div>
