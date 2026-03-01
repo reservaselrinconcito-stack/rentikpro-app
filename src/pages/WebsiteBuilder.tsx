@@ -124,7 +124,38 @@ async function generateConfigFromProperty(
                     {
                         id: 'features-1',
                         type: 'Features',
-                        data: {},
+                        data: {
+                            title: 'Servicios Incluidos',
+                            subtitle: 'Todo lo que necesitas para una estancia perfecta.',
+                        },
+                        styles: {},
+                    },
+                    {
+                        id: 'pricing-1',
+                        type: 'Pricing',
+                        data: {
+                            title: 'Nuestras Tarifas',
+                            subtitle: 'Reserva directamente con nosotros para el mejor precio.',
+                        },
+                        styles: {},
+                    },
+                    {
+                        id: 'cta-1',
+                        type: 'CTA',
+                        data: {
+                            title: '¿Listo para tu próxima aventura?',
+                            subtitle: 'Reserva ahora y vive la experiencia RentikPro.',
+                            buttonLabel: 'Reservar Ahora',
+                        },
+                        styles: {},
+                    },
+                    {
+                        id: 'location-1',
+                        type: 'Location',
+                        data: {
+                            title: 'Dónde estamos',
+                            address: property.location || 'Calle Principal, 123',
+                        },
                         styles: {},
                     },
                     {
@@ -310,8 +341,14 @@ export const WebsiteBuilder: React.FC = () => {
             toast.loading('Generando sitio desde datos reales…');
             const config = await generateConfigFromProperty(property, themeId);
 
+            const projectId = localStorage.getItem('active_project_id');
+            const isDemo = projectId === 'demo_project' || property.id === 'demo_project';
+
+            // Deterministic ID for demo to ensure UPSERT replaces the existing demo site
+            const siteId = isDemo ? 'web_demo_1' : `ws_${Math.random().toString(36).substr(2, 9)}`;
+
             const newSite: WebSite = {
-                id: `ws_${Math.random().toString(36).substr(2, 9)}`,
+                id: siteId,
                 name: property.name,
                 property_id: property.id,
                 subdomain: config.slug,
@@ -331,8 +368,14 @@ export const WebsiteBuilder: React.FC = () => {
             setShowAutoGenerateModal(false);
             toast.success('Sitio generado con datos reales');
 
-            const created = (await projectManager.getStore().getWebsites()).find(w => w.id === newSite.id);
-            if (created) setSelectedSite(created);
+            // Find the canonical record (especially important in demo where saveWebsite might have adjusted values)
+            const allSites = await projectManager.getStore().getWebsites();
+            const created = allSites.find(w => w.id === siteId) || allSites.find(w => w.subdomain === config.slug);
+            if (created) {
+                setSelectedSite(created);
+                // Ensure the canvas renders immediately with the generated config
+                reset(config);
+            }
         } catch (e: any) {
             console.error(e);
             toast.error('Error al generar: ' + e.message);

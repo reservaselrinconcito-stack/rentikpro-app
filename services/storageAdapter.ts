@@ -30,7 +30,7 @@ export class WebDemoStorageAdapter implements IStorageAdapter {
     private prefix: string;
 
     constructor(seed: string = 'rentikpro') {
-        this.prefix = `RENTIKPRO_DEMO_${seed}_`;
+        this.prefix = `rp_demo_${seed}_`;
     }
 
     async getItem(key: string): Promise<string | null> {
@@ -65,10 +65,11 @@ export function getStorageAdapter(): IStorageAdapter {
     if (currentAdapter) return currentAdapter;
 
     const params = new URLSearchParams(window.location.search);
-    const isDemo = params.get('demo') === '1' || !isTauri();
+    const isViteDemo = import.meta.env.VITE_DEMO === '1';
+    const isDemo = params.get('demo') === '1' || isViteDemo || !isTauri();
     const seed = params.get('seed') || 'rentikpro';
 
-    if (!isTauri() && isDemo) {
+    if (isDemo) {
         currentAdapter = new WebDemoStorageAdapter(seed);
     } else {
         currentAdapter = new TauriStorageAdapter();

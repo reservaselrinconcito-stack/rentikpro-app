@@ -36,7 +36,7 @@ export const Features: React.FC<{ data: any; styles?: any; variant?: string; the
                                 <div className="bg-emerald-500/10 w-12 h-12 rounded-xl flex items-center justify-center text-emerald-400 flex-shrink-0">
                                     <CheckSquare size={24} />
                                 </div>
-                                <p className="text-lg font-bold leading-relaxed">{feature}</p>
+                                <p className="text-lg font-bold leading-relaxed">{(feature?.description ?? feature?.title ?? "") as any}</p>
                             </div>
                         ))}
                     </div>
@@ -71,7 +71,7 @@ export const Features: React.FC<{ data: any; styles?: any; variant?: string; the
                                     <div className="mt-1 bg-indigo-100 text-indigo-600 rounded-full p-1 flex-shrink-0">
                                         <CheckCircle2 size={20} className="fill-indigo-50" />
                                     </div>
-                                    <p className="text-lg text-slate-700 font-medium leading-relaxed">{feature}</p>
+                                    <p className="text-lg text-slate-700 font-medium leading-relaxed">{(feature?.description ?? feature?.title ?? "") as any}</p>
                                 </div>
                             ))}
                         </div>

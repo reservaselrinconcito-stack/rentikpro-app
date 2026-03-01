@@ -56,7 +56,8 @@ export class ProjectManager {
 
 
     // Priority 1 (Tauri): Single Workspace — auto-open last workspace if available.
-    if (isTauri) {
+    // Skip if in demo mode to force memory/IDB-based demo data.
+    if (isTauri && !isDemo) {
       // Emit boot state so UI shows "Leyendo configuración…"
       try {
         const { setWorkspaceBootState } = await import('../src/services/workspaceBootState');
@@ -442,8 +443,9 @@ export class ProjectManager {
     console.log('[SAVE:PM] begin', { projectId: this.currentProjectId });
     if (!this.store || !this.currentProjectId) return;
     const isTauri = isTauriRuntime();
-    const workspacePath = isTauri ? (localStorage.getItem('rp_workspace_path') || '') : '';
-    const folderPath = isTauri ? (localStorage.getItem('rp_last_project_path') || '') : '';
+    const isDemo = this.currentProjectMode === 'demo';
+    const workspacePath = (isTauri && !isDemo) ? (localStorage.getItem('rp_workspace_path') || '') : '';
+    const folderPath = (isTauri && !isDemo) ? (localStorage.getItem('rp_last_project_path') || '') : '';
 
     // NEW (Tauri): Single Workspace mode.
     // Source-of-truth is database.sqlite on disk; IDB is optional fallback only.

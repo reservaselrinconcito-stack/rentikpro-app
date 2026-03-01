@@ -1,13 +1,14 @@
 import React from 'react';
 import { Sparkles, X } from 'lucide-react';
 import { projectManager } from '../services/projectManager';
+import { isTauri } from '../utils/isTauri';
 
 export const DemoBanner: React.FC = () => {
     const isProjectOpen = projectManager.isProjectLoaded();
     const isDemo = projectManager.getCurrentMode() === 'demo';
-    const isTauri = !!(window as any).__TAURI__;
+    const isTauriRuntime = isTauri();
 
-    if (!isProjectOpen || !isDemo || isTauri) return null;
+    if (!isProjectOpen || !isDemo || isTauriRuntime) return null;
 
     const handleExit = async () => {
         if (window.confirm('¿Deseas salir del modo demo? Los cambios no se guardarán permanentemente.')) {

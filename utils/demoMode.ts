@@ -5,10 +5,17 @@ export function isDemoMode(): boolean {
 
     const params = new URLSearchParams(window.location.search);
     const isDemoParam = params.get('demo') === '1';
+    const isViteDemo = import.meta.env.VITE_DEMO === '1';
 
-    // Force demo if NOT in Tauri AND NO FSA (File System Access) supported/granted
-    // or if explicitly requested via URL.
-    return isDemoParam || (!isTauri() && !window.location.hostname.includes('localhost'));
+    // 1. Explicitly requested or forced via build env
+    if (isDemoParam || isViteDemo) return true;
+
+    // 2. Strict Tauri check: if in Tauri, NEVER demo by default.
+    if (isTauri()) return false;
+
+    // 3. Fallback: Force demo on public web deployments (non-localhost)
+    // This allows the standard web build to act as a demo on preview URLs.
+    return !window.location.hostname.includes('localhost');
 }
 
 export function getDemoSeed(): string {

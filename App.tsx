@@ -55,6 +55,7 @@ const EmailBookings = lazyWithRetry(() => import('./pages/EmailBookings').then(m
 import { Toaster } from 'sonner';
 import { VersionChecker } from './components/VersionChecker';
 import { isTauri } from './utils/isTauri';
+import { isDemoMode } from './utils/demoMode';
 
 // Boot-aware loading component — subscribes to the workspace state machine
 // so users always see exactly what is happening.
@@ -137,7 +138,7 @@ const App: React.FC = () => {
           // Don't auto-load; fall through to show StartupScreen
         } else if (projectManager.isProjectLoaded()) {
           setIsProjectOpen(true);
-        } else if (!isTauri() && (params.get('demo') === '1' || !window.location.hostname.includes('localhost'))) {
+        } else if (isDemoMode()) {
           // If initialize() auto-loaded a demo, ensure we mark the project as open.
           if (projectManager.isProjectLoaded()) setIsProjectOpen(true);
         } else if (CORE_MODE) {
