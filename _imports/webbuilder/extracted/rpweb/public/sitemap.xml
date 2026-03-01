@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SITEMAP — El Rinconcito Matarraña
+  Generated: 2026-02-19
+
+  NOTE: This is a static stub. For dynamic generation with lastmod dates,
+  integrate with your build pipeline or a Cloudflare Worker.
+  See: https://developers.cloudflare.com/workers/examples/sitemap/
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xhtml="http://www.w3.org/1999/xhtml">
+
+  <!-- Core pages -->
+  <url>
+    <loc>https://www.elrinconcitomatarranya.com/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+    <xhtml:link rel="alternate" hreflang="es" href="https://www.elrinconcitomatarranya.com/"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://www.elrinconcitomatarranya.com/en/"/>
+  </url>
+
+  <url>
+    <loc>https://www.elrinconcitomatarranya.com/#/apartamentos</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <url>
+    <loc>https://www.elrinconcitomatarranya.com/#/apartamentos/los-almendros</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.elrinconcitomatarranya.com/#/apartamentos/la-ermita</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://www.elrinconcitomatarranya.com/#/apartamentos/la-tirolina</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <url>
+    <loc>https://www.elrinconcitomatarranya.com/#/disponibilidad</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <url>
+    <loc>https://www.elrinconcitomatarranya.com/#/experiencias</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.elrinconcitomatarranya.com/#/guias</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.elrinconcitomatarranya.com/#/contacto</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+
+  <!-- RentikPro showcase -->
+  <url>
+    <loc>https://www.elrinconcitomatarranya.com/#/rentikpro</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+
+</urlset>
