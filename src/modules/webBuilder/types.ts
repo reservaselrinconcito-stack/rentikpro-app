@@ -12,9 +12,15 @@ export interface StyleObject {
     gap?: string;
     borderRadius?: string;
     maxWidth?: string;
+    minHeight?: string;
     borderWidth?: string;
     borderColor?: string;
     borderStyle?: string;
+    // Background
+    backgroundPosition?: string;
+    backgroundSize?: string;
+    backgroundRepeat?: string;
+    backgroundImage?: string;
     // Overlay (useful for Hero/Image blocks)
     overlayColor?: string;
     overlayOpacity?: number;

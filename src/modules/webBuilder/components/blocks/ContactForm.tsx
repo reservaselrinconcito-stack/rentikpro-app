@@ -1,152 +1,86 @@
 import React, { useState } from 'react';
-import { Send, User, Mail, MessageSquare, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
+import { Send, User, Mail, MessageSquare, CheckCircle, AlertCircle } from 'lucide-react';
 
-export const ContactForm: React.FC<{ data: any; styles?: any; theme?: any }> = ({ data }) => {
+/**
+ * ContactForm — bloque de contacto.
+ *
+ * Editor: muestra el formulario visual, onSubmit desactivado.
+ * RPWeb (publicación): envía a POST ${VITE_PUBLIC_WORKER_URL}/public/leads
+ *   { propertyId, name, email, message, source: 'website', timestamp }
+ *
+ * isLiveMode lo inyecta el template de RPWeb via props.data._liveMode.
+ */
+export const ContactForm: React.FC<{ data: any; styles?: any; theme?: any }> = ({ data, theme }) => {
     const {
         title = 'Contacta con nosotros',
-        subtitle = '¿Tienes alguna duda o petición especial? Estamos encantados de escucharte.',
-        fields = {
-            name: { label: 'Nombre Completo', placeholder: 'Tu nombre...' },
-            email: { label: 'Correo Electrónico', placeholder: 'ejemplo@correo.com' },
-            message: { label: 'Mensaje', placeholder: '¿En qué podemos ayudarte?' }
-        },
-        submitLabel = 'Enviar Mensaje',
-        // propertyId is injected by generateV0Config / WebsiteBuilder when publishing
+        subtitle = '¿Tienes alguna duda? Estamos para ayudarte.',
+        submitLabel = 'Enviar Consulta',
         propertyId = '',
-    } = data;
+        _liveMode = false,
+    } = data ?? {};
 
-    const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
-    const [message, setMessage] = useState('');
-    const [status, setStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+    const primary = theme?.colors?.primary ?? '#4f46e5';
+    const [form, setForm] = useState({ name: '', email: '', message: '' });
+    const [status, setStatus] = useState<'idle' | 'sending' | 'ok' | 'error'>('idle');
+    const [errorMsg, setErrorMsg] = useState('');
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!name.trim() || !email.trim() || !message.trim()) return;
-
+        if (!_liveMode) return;
+        if (!form.name || !form.email || !form.message) { setStatus('error'); setErrorMsg('Rellena todos los campos.'); return; }
         setStatus('sending');
         try {
-            const workerUrl = (import.meta.env.VITE_PUBLIC_WORKER_URL ?? '').replace(/\/$/, '');
-            if (!workerUrl) {
-                // In editor preview mode — just show success without network call
-                await new Promise(r => setTimeout(r, 600));
-                setStatus('sent');
-                return;
-            }
-
+            const workerUrl = ((typeof import.meta !== 'undefined' ? (import.meta as any).env?.VITE_PUBLIC_WORKER_URL : '') ?? '').replace(/\/$/, '');
             const res = await fetch(`${workerUrl}/public/leads`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    propertyId: propertyId || 'unknown',
-                    name: name.trim(),
-                    email: email.trim(),
-                    message: message.trim(),
-                    source: 'website-builder',
-                    timestamp: new Date().toISOString(),
-                }),
+                body: JSON.stringify({ propertyId, ...form, source: 'website', timestamp: Date.now() }),
             });
-
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            setStatus('sent');
-        } catch (err) {
-            console.error('[ContactForm] submit failed:', err);
+            setStatus('ok');
+            setForm({ name: '', email: '', message: '' });
+        } catch (err: any) {
             setStatus('error');
+            setErrorMsg('Error al enviar. Inténtalo de nuevo o contáctanos directamente.');
         }
     };
 
-    if (status === 'sent') {
-        return (
-            <section className="w-full py-20 px-6">
-                <div className="max-w-3xl mx-auto text-center py-16">
-                    <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <CheckCircle size={40} className="text-white" />
-                    </div>
-                    <h3 className="text-3xl font-black text-slate-800 mb-4">¡Mensaje recibido!</h3>
-                    <p className="text-slate-500 text-lg">Te responderemos en menos de 2 horas.</p>
-                    <button
-                        onClick={() => { setStatus('idle'); setName(''); setEmail(''); setMessage(''); }}
-                        className="mt-8 text-sm text-indigo-600 font-bold hover:underline"
-                    >
-                        Enviar otro mensaje
-                    </button>
-                </div>
-            </section>
-        );
-    }
+    if (status === 'ok') return (
+        <section className="w-full py-20 px-6" id="contacto">
+            <div className="max-w-3xl mx-auto text-center">
+                <CheckCircle size={56} className="mx-auto mb-6" style={{ color: primary }} />
+                <h2 className="text-3xl font-bold mb-4">¡Mensaje recibido!</h2>
+                <p className="opacity-70">Te responderemos en menos de 24 horas.</p>
+            </div>
+        </section>
+    );
 
     return (
-        <section className="w-full py-20 px-6">
+        <section className="w-full py-20 px-6" id="contacto">
             <div className="max-w-3xl mx-auto">
                 <div className="text-center mb-12">
                     <h2 className="text-3xl md:text-5xl font-black mb-6">{title}</h2>
-                    <p className="text-slate-500 font-medium">{subtitle}</p>
+                    <p className="opacity-70">{subtitle}</p>
                 </div>
-
                 <form className="space-y-6" onSubmit={handleSubmit}>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
-                                <User size={12} className="text-indigo-600" /> {fields.name.label}
-                            </label>
-                            <input
-                                type="text"
-                                value={name}
-                                onChange={e => setName(e.target.value)}
-                                placeholder={fields.name.placeholder}
-                                required
-                                className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:border-indigo-500 transition-all shadow-sm"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <label className="text-[10px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
-                                <Mail size={12} className="text-indigo-600" /> {fields.email.label}
-                            </label>
-                            <input
-                                type="email"
-                                value={email}
-                                onChange={e => setEmail(e.target.value)}
-                                placeholder={fields.email.placeholder}
-                                required
-                                className="w-full bg-slate-50 border border-slate-100 rounded-2xl p-4 text-sm font-bold outline-none focus:border-indigo-500 transition-all shadow-sm"
-                            />
-                        </div>
+                        {[{ key: 'name', label: 'Nombre', Icon: User, type: 'text' }, { key: 'email', label: 'Email', Icon: Mail, type: 'email' }].map(({ key, label, Icon, type }) => (
+                            <div key={key} className="space-y-2">
+                                <label className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2 opacity-70"><Icon size={12} /> {label}</label>
+                                <input type={type} value={(form as any)[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} placeholder={`Tu ${label.toLowerCase()}...`} className="w-full bg-gray-50 border border-gray-100 rounded-2xl p-4 text-sm font-bold outline-none focus:border-current transition-all shadow-sm" required={_liveMode} style={{ '--tw-ring-color': primary } as any} />
+                            </div>
+                        ))}
                     </div>
                     <div className="space-y-2">
-                        <label className="text-[10px] font-black text-slate-800 uppercase tracking-widest flex items-center gap-2">
-                            <MessageSquare size={12} className="text-indigo-600" /> {fields.message.label}
-                        </label>
-                        <textarea
-                            rows={5}
-                            value={message}
-                            onChange={e => setMessage(e.target.value)}
-                            placeholder={fields.message.placeholder}
-                            required
-                            className="w-full bg-slate-50 border border-slate-100 rounded-3xl p-4 text-sm font-bold outline-none focus:border-indigo-500 transition-all shadow-sm resize-none"
-                        />
+                        <label className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2 opacity-70"><MessageSquare size={12} /> Mensaje</label>
+                        <textarea rows={5} value={form.message} onChange={e => setForm(f => ({ ...f, message: e.target.value }))} placeholder="¿En qué podemos ayudarte?" className="w-full bg-gray-50 border border-gray-100 rounded-3xl p-4 text-sm font-bold outline-none focus:border-current transition-all shadow-sm resize-none" required={_liveMode} />
                     </div>
-
-                    {status === 'error' && (
-                        <div className="flex items-center gap-3 bg-red-50 border border-red-100 rounded-2xl p-4 text-red-600">
-                            <AlertCircle size={18} />
-                            <span className="text-sm font-bold">Error al enviar. Prueba de nuevo o contáctanos por teléfono.</span>
-                        </div>
-                    )}
-
-                    <button
-                        type="submit"
-                        disabled={status === 'sending' || !name || !email || !message}
-                        className="w-full py-4 bg-slate-900 text-white rounded-3xl font-black text-sm tracking-widest uppercase flex items-center justify-center gap-3 hover:bg-indigo-600 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {status === 'sending' ? (
-                            <><Loader2 size={16} className="animate-spin" /> Enviando...</>
-                        ) : (
-                            <><Send size={16} /> {submitLabel}</>
-                        )}
+                    {status === 'error' && <div className="flex items-center gap-2 text-red-600 text-sm font-bold"><AlertCircle size={16} /> {errorMsg}</div>}
+                    <button type={_liveMode ? 'submit' : 'button'} disabled={status === 'sending'} className="w-full py-4 rounded-3xl font-black text-sm tracking-widest uppercase flex items-center justify-center gap-3 transition-all shadow-xl hover:opacity-90 hover:-translate-y-1 active:scale-95 text-white disabled:opacity-50" style={{ backgroundColor: primary }}>
+                        <Send size={16} />
+                        {status === 'sending' ? 'Enviando...' : submitLabel}
                     </button>
-                    <p className="text-[10px] text-slate-400 text-center uppercase font-bold tracking-tighter">
-                        Al enviar este formulario aceptas nuestra política de privacidad
-                    </p>
+                    {!_liveMode && <p className="text-[10px] text-gray-400 text-center uppercase font-bold tracking-tighter">Preview — envío real activado en RPWeb</p>}
                 </form>
             </div>
         </section>

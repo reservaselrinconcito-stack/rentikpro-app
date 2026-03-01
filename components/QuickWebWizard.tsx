@@ -125,7 +125,7 @@ export const QuickWebWizard: React.FC<QuickWebWizardProps> = ({ isOpen, onClose,
                 seo_title: `${property.name} | Alquiler Vacacional`,
                 seo_description: `Reserva tu estancia en ${property.name}. Mejor precio garantizado. ${contact.location}.`,
                 sections_json: JSON.stringify(sections, null, 2),
-                booking_config: { min_stay: 2, max_stay: 30 },
+                booking_config: JSON.stringify({ min_stay: 2, max_stay: 30 }),
                 property_ids_json: JSON.stringify([selectedPropertyId]),
                 created_at: Date.now(),
                 updated_at: Date.now()

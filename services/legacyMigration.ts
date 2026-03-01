@@ -120,8 +120,13 @@ function execObjects(db: any, sql: string, params: any[] = []): any[] {
 
 async function openSqlJsDatabase(bytes: Uint8Array): Promise<any> {
   const SQL = await initSqlJs({
-    locateFile: (file: string) => `/vendor/sqljs/${file}`
+    locateFile: (file: string) => {
+      const base = (import.meta as any).env?.BASE_URL || '/';
+      const prefix = base.endsWith('/') ? base : `${base}/`;
+      return `${prefix}vendor/sqljs/${file}`;
+    }
   });
+
   return new SQL.Database(bytes);
 }
 
@@ -321,7 +326,7 @@ export async function migrateLegacyProjectToFolder(args: {
   legacyProjectId: string;
   targetFolderPath?: string;
   mode?: 'copy' | 'merge';
-}): Promise<{ folderPath: string }>{
+}): Promise<{ folderPath: string }> {
   if (!isTauriRuntime()) {
     throw new Error('Migration requires Tauri runtime');
   }

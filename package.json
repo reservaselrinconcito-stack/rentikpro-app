@@ -13,6 +13,7 @@
     "sync:tauri-version": "node scripts/sync-tauri-version.js",
     "dev": "npm run prepare:sqljs && vite",
     "build": "npm run prepare:sqljs && node scripts/generate-version.js && vite build",
+    "build:demo": "cross-env VITE_DEMO=1 vite build",
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
@@ -25,9 +26,16 @@
     "tauri:build": "npm run sync:tauri-version && tauri build",
     "mac:build": "npm ci && npm run build && npx tauri build",
     "mac:verify": "bash scripts/macos-verify.sh",
-    "mac:notarize": "bash scripts/macos-notarize.sh"
+    "mac:notarize": "bash scripts/macos-notarize.sh",
+    "cap:sync": "npm run build && npx cap sync",
+    "cap:ios": "npm run cap:sync && npx cap open ios",
+    "cap:android": "npm run cap:sync && npx cap open android"
   },
   "dependencies": {
+    "@capacitor/core": "^8.1.0",
+    "@capacitor/dialog": "^8.0.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/preferences": "^8.0.1",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-fs": "^2.0.0",
@@ -46,6 +54,9 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.1.0",
+    "@capacitor/cli": "^8.1.0",
+    "@capacitor/ios": "^8.1.0",
     "@playwright/test": "^1.42.0",
     "@resvg/resvg-js": "^2.6.2",
     "@tauri-apps/cli": "^2.0.0",

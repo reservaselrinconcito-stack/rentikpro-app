@@ -9,3 +9,31 @@ test-results/
 *.zip
 .DS_Store
 .env
+
+# --- local caches / logs ---
+.npm_local_cache/
+_cacache/
+_update-notifier-last-checked
+build_log.txt
+build_output.txt
+run/
+
+# --- AI/agent bundles ---
+_claude_*/
+zip claude/
+RentikPro_*bundle*
+RentikPro_*full*
+*.rentikpro
+*.bak
+*.txt
+
+# --- imports & extracted bundles ---
+_imports/
+_optimus_assets/
+
+# --- mobile / generated ---
+ios/
+capacitor.config.ts
+
+# --- accidental backups ---
+src/_backups/

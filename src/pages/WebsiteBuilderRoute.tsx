@@ -78,8 +78,8 @@ const LoadingFallback = () => (
         <div className="w-16 h-16 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-6 animate-pulse">
             <Loader2 className="animate-spin" size={32} />
         </div>
-        <h2 className="text-xl font-black text-slate-800 mb-1">Cargando Editor Ferrari</h2>
-        <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Iniciando motores v3...</p>
+        <h2 className="text-xl font-black text-slate-800 mb-1">Cargando Editor Web</h2>
+        <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Iniciando motores Pro...</p>
     </div>
 );
 

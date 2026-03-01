@@ -1,156 +1,82 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, Calendar } from 'lucide-react';
+import React, { useState } from 'react';
+import { CalendarDays, ChevronLeft, ChevronRight, Send } from 'lucide-react';
 
-interface AvailabilityDay {
-    date: string;
-    isAvailable: boolean;
-}
-
-interface Props {
+/**
+ * AvailabilityCalendar — bloque del editor (preview only).
+ *
+ * En RPWeb: el componente <Availability /> de templates/components/
+ * consume useBootstrapState() con datos reales del Worker KV.
+ *
+ * En editor: muestra un calendario de demostración interactivo.
+ */
+export const AvailabilityCalendar: React.FC<{
     data: any;
     styles?: any;
+    variant?: string;
     theme?: any;
-}
+}> = ({ data, theme }) => {
+    const { title = 'Disponibilidad', subtitle = 'Consulta fechas disponibles en tiempo real.', ctaLabel = 'Consultar Precio' } = data ?? {};
+    const primary = theme?.colors?.primary ?? '#4f46e5';
 
-// Fetches public availability from the Worker KV
-async function fetchPublicAvailability(
-    workerUrl: string,
-    propertyId: string,
-    from: string,
-    to: string
-): Promise<Record<string, 'blocked' | 'available'>> {
-    try {
-        const token = import.meta.env.VITE_PUBLIC_TOKEN ?? '';
-        const res = await fetch(
-            `${workerUrl}/public/availability?propertyId=${encodeURIComponent(propertyId)}&from=${from}&to=${to}`,
-            { headers: token ? { 'X-PUBLIC-TOKEN': token } : {} }
-        );
-        if (!res.ok) return {};
-        return await res.json();
-    } catch {
-        return {};
-    }
-}
-
-export const AvailabilityCalendar: React.FC<Props> = ({ data }) => {
-    const {
-        title = 'Disponibilidad',
-        propertyId = '',
-        apartmentLabel = 'Ver disponibilidad',
-    } = data;
-
-    const [viewMonth, setViewMonth] = useState(() => {
-        const d = new Date();
-        d.setDate(1);
-        return d;
-    });
-    const [availability, setAvailability] = useState<Record<string, 'blocked' | 'available'>>({});
-    const [loading, setLoading] = useState(false);
-
-    const year = viewMonth.getFullYear();
-    const month = viewMonth.getMonth();
+    const [offset, setOffset] = useState(0);
+    const base = new Date();
+    const d = new Date(base.getFullYear(), base.getMonth() + offset, 1);
+    const year = d.getFullYear();
+    const month = d.getMonth();
+    const monthName = d.toLocaleString('es-ES', { month: 'long', year: 'numeric' });
+    const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const firstDayOfWeek = (new Date(year, month, 1).getDay() + 6) % 7; // Mon-first
+    const emptySlots = firstDay === 0 ? 6 : firstDay - 1;
 
-    const monthLabel = new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric' }).format(viewMonth);
-
-    const fetchMonth = useCallback(async () => {
-        const workerUrl = (import.meta.env.VITE_PUBLIC_WORKER_URL ?? '').replace(/\/$/, '');
-        if (!workerUrl || !propertyId) {
-            // Editor preview — generate demo data
-            const demo: Record<string, 'blocked'> = {};
-            const today = new Date(year, month, 1);
-            for (let d = 5; d <= 12; d++) {
-                demo[`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`] = 'blocked';
-            }
-            for (let d = 20; d <= 24; d++) {
-                demo[`${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`] = 'blocked';
-            }
-            setAvailability(demo);
-            return;
-        }
-
-        setLoading(true);
-        try {
-            const from = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-            const toDate = new Date(year, month + 1, 0);
-            const to = toDate.toISOString().split('T')[0];
-            const result = await fetchPublicAvailability(workerUrl, propertyId, from, to);
-            setAvailability(prev => ({ ...prev, ...result }));
-        } finally {
-            setLoading(false);
-        }
-    }, [year, month, propertyId]);
-
-    useEffect(() => { fetchMonth(); }, [fetchMonth]);
-
-    const prevMonth = () => setViewMonth(d => new Date(d.getFullYear(), d.getMonth() - 1, 1));
-    const nextMonth = () => setViewMonth(d => new Date(d.getFullYear(), d.getMonth() + 1, 1));
-
-    const getDayStatus = (day: number): 'past' | 'blocked' | 'available' | 'unknown' => {
-        const today = new Date();
-        const thisDay = new Date(year, month, day);
-        if (thisDay < new Date(today.getFullYear(), today.getMonth(), today.getDate())) return 'past';
-        const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        if (availability[key] === 'blocked') return 'blocked';
-        return 'available';
-    };
-
-    const dayClasses: Record<string, string> = {
-        past: 'text-slate-200 cursor-default',
-        blocked: 'text-red-300 line-through bg-red-50 cursor-not-allowed rounded-xl',
-        available: 'text-emerald-700 font-bold hover:bg-emerald-50 rounded-xl cursor-pointer',
-        unknown: 'text-slate-400',
-    };
+    // Demo: block days 5-12 and 20-25
+    const blocked = new Set<number>([...Array.from({ length: 8 }, (_, i) => i + 5), ...Array.from({ length: 6 }, (_, i) => i + 20)]);
+    const today = offset === 0 ? new Date().getDate() : -1;
 
     return (
-        <section className="py-20 px-6 bg-white" id="disponibilidad">
+        <section className="w-full py-20 px-6" id="disponibilidad">
             <div className="max-w-3xl mx-auto">
-                <div className="text-center mb-12">
-                    <h2 className="text-3xl md:text-5xl font-black text-slate-900 mb-4">{title}</h2>
-                    <p className="text-slate-500 font-medium">Estado en tiempo real sincronizado con todas las plataformas.</p>
+                <div className="text-center mb-10">
+                    <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-widest mb-4 opacity-60">
+                        <CalendarDays size={14} /> Disponibilidad
+                    </div>
+                    <h2 className="text-3xl md:text-4xl font-bold mb-4">{title}</h2>
+                    <p className="opacity-70 max-w-md mx-auto">{subtitle}</p>
                 </div>
 
-                <div className="bg-slate-50 rounded-[2.5rem] p-8 border border-slate-100">
+                <div className="bg-white border border-gray-100 rounded-3xl shadow-xl p-6 md:p-10">
                     {/* Month nav */}
-                    <div className="flex items-center justify-between mb-8">
-                        <button
-                            onClick={prevMonth}
-                            className="p-3 bg-white rounded-2xl border border-slate-200 hover:border-indigo-500 hover:text-indigo-600 transition-all"
-                        >
-                            <ChevronLeft size={20} />
+                    <div className="flex items-center justify-between mb-6">
+                        <button onClick={() => setOffset(o => o - 1)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+                            <ChevronLeft size={18} />
                         </button>
-                        <div className="flex items-center gap-3">
-                            {loading && <Loader2 size={16} className="animate-spin text-slate-400" />}
-                            <h3 className="text-lg font-black text-slate-800 capitalize">{monthLabel}</h3>
-                        </div>
-                        <button
-                            onClick={nextMonth}
-                            className="p-3 bg-white rounded-2xl border border-slate-200 hover:border-indigo-500 hover:text-indigo-600 transition-all"
-                        >
-                            <ChevronRight size={20} />
+                        <span className="text-sm font-black uppercase tracking-widest capitalize">{monthName}</span>
+                        <button onClick={() => setOffset(o => o + 1)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+                            <ChevronRight size={18} />
                         </button>
                     </div>
 
                     {/* Weekday headers */}
                     <div className="grid grid-cols-7 gap-1 mb-2">
-                        {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => (
-                            <div key={d} className="text-center text-[10px] font-black text-slate-400 uppercase tracking-wider py-2">
-                                {d}
-                            </div>
+                        {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(day => (
+                            <div key={day} className="text-center text-[10px] font-black uppercase tracking-widest text-gray-400 py-1">{day}</div>
                         ))}
                     </div>
 
                     {/* Days */}
                     <div className="grid grid-cols-7 gap-1">
-                        {Array.from({ length: firstDayOfWeek }).map((_, i) => <div key={`e-${i}`} />)}
-                        {Array.from({ length: daysInMonth }).map((_, i) => {
-                            const day = i + 1;
-                            const st = getDayStatus(day);
+                        {Array.from({ length: emptySlots }).map((_, i) => <div key={`e${i}`} />)}
+                        {Array.from({ length: daysInMonth }, (_, i) => i + 1).map(day => {
+                            const isBlocked = blocked.has(day);
+                            const isToday = day === today;
                             return (
                                 <div
                                     key={day}
-                                    className={`aspect-square flex items-center justify-center text-sm transition-all ${dayClasses[st]}`}
+                                    className={[
+                                        'aspect-square flex items-center justify-center rounded-xl text-sm font-bold select-none transition-all',
+                                        isBlocked ? 'bg-red-50 text-red-300 line-through cursor-not-allowed' : 'cursor-pointer hover:opacity-90',
+                                        isToday ? 'ring-2 ring-offset-1' : '',
+                                    ].join(' ')}
+                                    style={!isBlocked ? { backgroundColor: isToday ? primary + '22' : undefined, color: isToday ? primary : undefined, ringColor: isToday ? primary : undefined } : undefined}
                                 >
                                     {day}
                                 </div>
@@ -159,27 +85,24 @@ export const AvailabilityCalendar: React.FC<Props> = ({ data }) => {
                     </div>
 
                     {/* Legend */}
-                    <div className="flex items-center justify-center gap-8 mt-8 pt-6 border-t border-slate-200">
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
-                            <div className="w-3 h-3 rounded bg-emerald-100 border border-emerald-300" />
-                            Disponible
-                        </div>
-                        <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
-                            <div className="w-3 h-3 rounded bg-red-100 border border-red-200" />
-                            Ocupado
-                        </div>
+                    <div className="mt-6 flex items-center gap-6 text-xs font-bold text-gray-400 justify-center">
+                        <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-green-100 block" /> Disponible</span>
+                        <span className="flex items-center gap-2"><span className="w-3 h-3 rounded-sm bg-red-50 block" /> Reservado</span>
                     </div>
-                </div>
 
-                {/* CTA */}
-                <div className="text-center mt-10">
-                    <a
-                        href="#contacto"
-                        className="inline-flex items-center gap-2 px-8 py-4 bg-slate-900 text-white rounded-full font-black text-sm tracking-widest uppercase hover:bg-indigo-600 transition-all shadow-xl hover:shadow-2xl hover:-translate-y-1"
-                    >
-                        <Calendar size={16} />
-                        Consultar Fechas
-                    </a>
+                    <div className="mt-8 text-center">
+                        <button
+                            type="button"
+                            className="px-8 py-4 rounded-2xl font-black text-sm text-white transition-all hover:opacity-90 active:scale-95 shadow-lg"
+                            style={{ backgroundColor: primary }}
+                        >
+                            <Send size={14} className="inline mr-2" />
+                            {ctaLabel}
+                        </button>
+                        <p className="mt-3 text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                            Preview — datos reales en publicación vía RPWeb
+                        </p>
+                    </div>
                 </div>
             </div>
         </section>

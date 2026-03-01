@@ -21,6 +21,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "@modules/*": [
+        "./src/modules/*"
       ]
     },
     "allowImportingTsExtensions": true,
@@ -29,12 +32,23 @@
   },
   "exclude": [
     "node_modules",
+    "node_modules_backup_1772217076",
     "dist",
     "playwright-report",
     "test-results",
     "src-tauri/target",
     "src-tauri/target/**",
     "worker-availability/**",
-    "worker-public-availability/**"
+    "worker-public-availability/**",
+    "_claude_rentikpro_editor_bundle/**",
+    "_claude_rentikpro_full/**",
+    "_optimus_assets/**",
+    "scripts",
+    "worker_*.ts",
+    "vitest.config.ts",
+    "**/node_modules_to_delete_*",
+    "**/node_modules_backup_*",
+    "**/_claude_*",
+    "**/_optimus_assets"
   ]
 }

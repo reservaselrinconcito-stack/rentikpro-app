@@ -137,7 +137,11 @@ const App: React.FC = () => {
           // Don't auto-load; fall through to show StartupScreen
         } else if (projectManager.isProjectLoaded()) {
           setIsProjectOpen(true);
+        } else if (!isTauri() && (params.get('demo') === '1' || !window.location.hostname.includes('localhost'))) {
+          // If initialize() auto-loaded a demo, ensure we mark the project as open.
+          if (projectManager.isProjectLoaded()) setIsProjectOpen(true);
         } else if (CORE_MODE) {
+
           // CORE_MODE: always allow entering the app offline without login/licensing.
           // If nothing is loaded, create a local blank project as a safe default.
           // EXCEPTION (Tauri): do NOT fall back to IDB projects automatically.

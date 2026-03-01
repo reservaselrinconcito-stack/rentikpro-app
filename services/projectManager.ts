@@ -9,6 +9,9 @@ import { demoGenerator } from './demoGenerator';
 import { ProjectFileProvider } from './projectFileProvider';
 import { syncCoordinator } from './syncCoordinator';
 import { isTauri as isTauriRuntime } from '../utils/isTauri';
+import { getStorageAdapter } from './storageAdapter';
+import { isDemoMode } from '../utils/demoMode';
+
 // Native imports moved to dynamic imports for web-safe operation
 
 
@@ -41,6 +44,16 @@ export class ProjectManager {
 
   async initialize(): Promise<void> {
     const isTauri = isTauriRuntime();
+    const isDemo = isDemoMode();
+    const adapter = getStorageAdapter();
+
+    // Priority 0: Web Demo Mode — Auto-load demo project and bypass startup.
+    if (!isTauri && isDemo) {
+      logger.log("[ProjectManager] Web Demo Mode detected. Auto-loading demo project...");
+      await this.createDemoProject();
+      return;
+    }
+
 
     // Priority 1 (Tauri): Single Workspace — auto-open last workspace if available.
     if (isTauri) {
@@ -66,6 +79,7 @@ export class ProjectManager {
           localStorage.setItem('rp_workspace_name', name);
 
           await this.loadProjectFromSqliteBytes(opened.dbBytes, {
+
             projectId,
             name,
             mode: 'real',
@@ -192,8 +206,12 @@ export class ProjectManager {
   // --- ACTIVE PROPERTY CONTEXT ---
 
   getActivePropertyId(): string {
+    // Note: getActivePropertyId is currently synchronous in some places, 
+    // so we keep using localStorage directly for this simple string if needed, 
+    // or we should update it to async. For now, since it's just for UI state:
     return localStorage.getItem('activePropertyId') || 'prop_default';
   }
+
 
   setActivePropertyId(id: string) {
     localStorage.setItem('activePropertyId', id);

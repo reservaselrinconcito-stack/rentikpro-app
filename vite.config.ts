@@ -8,9 +8,13 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   const buildDate = new Date().toISOString().split('T')[0];
   const isTauri = process.env.VITE_TARGET === 'tauri';
+  const isDemoBuild = process.env.VITE_DEMO === '1';
+  const base = isDemoBuild ? '/rentikpro/demo/' : (isTauri ? '' : '/');
 
   return {
+    base,
     server: {
+
       port: 5173,
       host: '0.0.0.0',
     },
@@ -92,6 +96,7 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        '@modules': path.resolve(__dirname, 'src/modules'),
         ...(isTauri ? { 'virtual:pwa-register': path.resolve(__dirname, 'src/pwa-register-stub.ts') } : {}),
       }
     },

@@ -1,4 +1,20 @@
 
+export type {
+  IDataStore, Property, Apartment, Traveler, Stay, AccountingMovement,
+  Booking, FiscalProfile, DataOnlyBackup, StructureOnlyBackup,
+  MarketingTemplate, MarketingEmailTemplate, MarketingLog, MarketingEmailLog, MarketingCampaign, Coupon,
+  RegistryUnit, RegistryPresentation, WebSite,
+  CleaningTask, CleaningTemplate,
+  MaintenanceIssue, MaintenancePhoto,
+  CommunicationAccount, Conversation, Message, MessageAttachment, ConversationStatus,
+  AiPersona, AiKnowledgeFact, AiAuditLog, ChannelConnection, CalendarEvent, MediaAsset,
+  PricingRuleSet, PricingRule, BookingPriceSnapshot,
+  CancellationPolicy, RatePlan, PricingModifier, Fee, UserSettings,
+  ProvisionalBooking, BookingPolicy, PolicyScope, EmailIngest, EmailIngestStatus,
+  PaymentMode, DepositType, DepositDue, RemainingDue, SecurityDepositMethod, CancellationPolicyType,
+  CheckInRequest, PropertySnapshot, SiteDraft, SiteOverrides,
+  PricingDefaults, NightlyRateOverride
+} from '../types';
 import {
   IDataStore, Property, Apartment, Traveler, Stay, AccountingMovement,
   Booking, FiscalProfile, DataOnlyBackup, StructureOnlyBackup,
@@ -15,6 +31,7 @@ import {
   CheckInRequest, PropertySnapshot, SiteDraft, SiteOverrides,
   PricingDefaults, NightlyRateOverride
 } from '../types';
+
 import { PaymentScheduleItem, CheckoutResult, checkoutService } from './checkoutService';
 import { logger } from './logger';
 import { APP_VERSION, SCHEMA_VERSION } from '../src/version';
@@ -70,8 +87,7 @@ export async function getDbReady(): Promise<any> {
 function __assertNotMaintenance() {
   if (isMaintenanceMode()) {
     throw new Error(
-      `DB is in maintenance mode${
-        getMaintenanceReason() ? `: ${getMaintenanceReason()}` : ''
+      `DB is in maintenance mode${getMaintenanceReason() ? `: ${getMaintenanceReason()}` : ''
       }`
     );
   }
@@ -176,8 +192,14 @@ export class SQLiteStore implements IDataStore {
     }
     this.SQL = await initSqlJs({
       // Keep SQLite fully local (works offline + Tauri dev/build)
-      locateFile: (file: string) => `/vendor/sqljs/${file}`
+      // Use BASE_URL to support subfolder deployments (demo Mode)
+      locateFile: (file: string) => {
+        const base = (import.meta as any).env?.BASE_URL || '/';
+        const prefix = base.endsWith('/') ? base : `${base}/`;
+        return `${prefix}vendor/sqljs/${file}`;
+      }
     });
+
     return this.SQL;
   }
 

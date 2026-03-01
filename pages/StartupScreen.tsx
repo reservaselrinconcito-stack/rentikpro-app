@@ -10,13 +10,25 @@ import { workspaceManager } from '../services/workspaceManager';
 import { toast } from 'sonner';
 import { getWorkspaceBootState, setWorkspaceBootState } from "../services/workspaceBootState";
 import { chooseFolder, switchWorkspace, openWorkspaceFolder, isICloudWorkspace, openICloudDriveFolder } from "../services/workspaceInfo";
-import { exists } from "@tauri-apps/plugin-fs";
+// Native imports moved to dynamic imports for web-safe operation
+// import { exists } from "@tauri-apps/plugin-fs";
 import { waitForPathToExist } from '../src/services/workspaceManager';
+
+async function tauriExists(path: string): Promise<boolean> {
+    if (typeof (window as any).__TAURI__ === "undefined") return false;
+    try {
+        const { exists } = await import("@tauri-apps/plugin-fs");
+        return await exists(path);
+    } catch {
+        return false;
+    }
+}
+
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 async function waitForExists(path: string, totalMs: number) {
     const start = Date.now();
     while (Date.now() - start < totalMs) {
-        try { if (await exists(path)) return true; } catch { }
+        try { if (await tauriExists(path)) return true; } catch { }
         await sleep(500);
     }
     return false;
@@ -252,7 +264,7 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
                     <div className="relative">
                         <div className="absolute inset-0 bg-indigo-400/20 rounded-full blur-xl animate-pulse"></div>
                         <div className="w-16 h-16 bg-indigo-600 rounded-3xl shadow-2xl flex items-center justify-center overflow-hidden animate-pulse">
-                            <img src="/logo.png" alt="Loading..." className="w-12 h-12 object-contain" />
+                            <img src="/favicon.svg" alt="Loading..." className="w-12 h-12 object-contain" />
                         </div>
                     </div>
                     <div className="text-center">
@@ -334,7 +346,7 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
         <div className="flex items-center justify-center p-6 w-full">
             <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl max-w-lg w-full text-center space-y-6 border border-slate-100 animate-in zoom-in-95 duration-300">
                 <div className="w-20 h-20 rounded-3xl flex items-center justify-center mx-auto bg-indigo-600 shadow-xl shadow-indigo-200 overflow-hidden">
-                    <img src="/logo.png" alt="Welcome" className="w-14 h-14 object-contain" />
+                    <img src="/favicon.svg" alt="Welcome" className="w-14 h-14 object-contain" />
                 </div>
                 <div>
                     <h2 className="text-2xl font-black text-slate-800 tracking-tight">Bienvenido</h2>
@@ -601,7 +613,7 @@ const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
                     <div className="relative">
                         <div className="absolute inset-0 bg-indigo-400/20 rounded-full blur-xl animate-pulse"></div>
                         <div className="w-16 h-16 bg-indigo-600 rounded-3xl shadow-2xl flex items-center justify-center overflow-hidden animate-pulse">
-                            <img src="/logo.png" alt="Loading..." className="w-12 h-12 object-contain" />
+                            <img src="/favicon.svg" alt="Loading..." className="w-12 h-12 object-contain" />
                         </div>
                     </div>
                     <div className="text-center">
@@ -994,7 +1006,7 @@ const StartupRecoveryScreen: React.FC<{
         let found = false;
         while (Date.now() < deadline && !abortRef.current) {
             try {
-                if (await exists(path)) { found = true; break; }
+                if (await tauriExists(path)) { found = true; break; }
             } catch { /* ignore */ }
             await new Promise(r => setTimeout(r, 500));
         }

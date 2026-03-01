@@ -1,11 +1,8 @@
 import React from 'react';
-
-// Block components
 import { Hero } from './Hero';
 import { Navigation } from './Navigation';
 import { TrustBadges } from './TrustBadges';
 import { ApartmentsGrid } from './ApartmentsGrid';
-import { AvailabilityCalendar } from './AvailabilityCalendar';
 import { Features } from './Features';
 import { Gallery } from './Gallery';
 import { Testimonials } from './Testimonials';
@@ -15,25 +12,24 @@ import { CTA } from './CTA';
 import { FAQ } from './FAQ';
 import { Pricing } from './Pricing';
 import { ContactForm } from './ContactForm';
+import { AvailabilityCalendar } from './AvailabilityCalendar';
 
-// Canonical registry
 export const BlockRegistry: Record<string, React.FC<any>> = {
-    'Hero': Hero,
-    'Navigation': Navigation,
-    'TrustBadges': TrustBadges,
-    'ApartmentsGrid': ApartmentsGrid,
-    'AvailabilityCalendar': AvailabilityCalendar,
-    'Features': Features,
-    'Gallery': Gallery,
-    'Testimonials': Testimonials,
-    'Location': Location,
-    'ContactFooter': ContactFooter,
-    'CTA': CTA,
-    'FAQ': FAQ,
-    'Pricing': Pricing,
-    'ContactForm': ContactForm,
+    Hero,
+    Navigation,
+    TrustBadges,
+    ApartmentsGrid,
+    Features,
+    Gallery,
+    Testimonials,
+    Location,
+    ContactFooter,
+    CTA,
+    FAQ,
+    Pricing,
+    ContactForm,
+    AvailabilityCalendar,
 };
 
-export const getBlockComponent = (type: string): React.FC<any> | null => {
-    return BlockRegistry[type] ?? null;
-};
+export const getBlockComponent = (type: string): React.FC<any> | null =>
+    BlockRegistry[type] ?? null;
