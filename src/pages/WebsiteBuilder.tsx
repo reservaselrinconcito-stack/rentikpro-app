@@ -337,8 +337,9 @@ export const WebsiteBuilder: React.FC = () => {
     // ── Auto Generate ────────────────────────────────────────────────────────
 
     const handleAutoGenerate = async (property: Property, themeId: string = 'builder-standard') => {
+        const toastId = toast.loading('Generando sitio desde datos reales…');
+        console.log(`[WEBBUILDER] generate_start {propertyId: ${property.id}, themeId: ${themeId}}`);
         try {
-            toast.loading('Generando sitio desde datos reales…');
             const config = await generateConfigFromProperty(property, themeId);
 
             const projectId = localStorage.getItem('active_project_id');
@@ -366,7 +367,9 @@ export const WebsiteBuilder: React.FC = () => {
             await projectManager.getStore().saveWebsite(newSite);
             await loadData();
             setShowAutoGenerateModal(false);
-            toast.success('Sitio generado con datos reales');
+
+            console.log(`[WEBBUILDER] generate_ok {sectionsCount: ${Object.keys(config.pages).length}, blocksCount: ${config.pages['/']?.blocks?.length}}`);
+            toast.success('Sitio generado con datos reales', { id: toastId });
 
             // Find the canonical record (especially important in demo where saveWebsite might have adjusted values)
             const allSites = await projectManager.getStore().getWebsites();
@@ -377,8 +380,8 @@ export const WebsiteBuilder: React.FC = () => {
                 reset(config);
             }
         } catch (e: any) {
-            console.error(e);
-            toast.error('Error al generar: ' + e.message);
+            console.error('[WEBBUILDER] generate_fail', e);
+            toast.error('Error al generar: ' + e.message, { id: toastId });
         }
     };
 
@@ -387,6 +390,17 @@ export const WebsiteBuilder: React.FC = () => {
     const getPublicUrl = useCallback(() => {
         if (!selectedSite) return '';
         const slug = config.slug || selectedSite.slug || selectedSite.subdomain || '';
+
+        console.log(`[WEBBUILDER] view_web_click {resolvedUrl: ${PUBLIC_WEB_BASE}/${slug}, is_published: ${selectedSite.is_published}}`);
+
+        // En demo o si no está publicado, abrir preview local
+        const projectId = localStorage.getItem('active_project_id');
+        const isDemo = projectId === 'demo_project';
+
+        if (isDemo || !selectedSite.is_published) {
+            return `/#/preview/${selectedSite.id}`;
+        }
+
         return slug ? `${PUBLIC_WEB_BASE}/${slug}` : '';
     }, [selectedSite, config.slug]);
 
