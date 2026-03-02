@@ -54,6 +54,7 @@ const EmailBookings = lazyWithRetry(() => import('./pages/EmailBookings').then(m
 
 import { Toaster } from 'sonner';
 import { VersionChecker } from './components/VersionChecker';
+import { AutoUpdater } from './components/AutoUpdater';
 import { isTauri } from './utils/isTauri';
 import { isDemoMode } from './utils/demoMode';
 
@@ -186,13 +187,26 @@ const App: React.FC = () => {
       init();
     }
 
-    // 2. Global Error Handler for initial mounting (optional but good)
-    const handleError = (event: ErrorEvent) => {
-      // If critical error occurs very early
-      // console.error("Global captured:", event.error);
+    // [DIAGNOSTICS] Shortcut listener (Cmd+Alt+Shift+D)
+    const handleDiagShortcut = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
+      const cmdCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (cmdCtrl && e.altKey && e.shiftKey && e.key.toUpperCase() === 'D') {
+        console.log('[App] Diagnostic shortcut detected');
+        // 1. Open DevTools in Tauri
+        if (isTauri()) {
+          import('@tauri-apps/api/core').then(({ invoke }) => {
+            invoke('open_devtools').catch(err => console.error('Failed to open devtools:', err));
+          });
+        }
+        // 2. Clear current project state and go to diagnostics directly if not open
+        window.location.hash = '#/diagnostics?diag=1';
+      }
     };
-    window.addEventListener('error', handleError);
-    return () => window.removeEventListener('error', handleError);
+
+    window.addEventListener('keydown', handleDiagShortcut);
+    return () => window.removeEventListener('keydown', handleDiagShortcut);
   }, []);
 
   // UseEffect for Project Context Updates
@@ -243,6 +257,7 @@ const App: React.FC = () => {
     <ErrorBoundary onError={(error) => setBootError(error)}>
       <Router>
         <Toaster />
+        <AutoUpdater />
         <VersionChecker />
         {initializing ? (
           <BootProgress />

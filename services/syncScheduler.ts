@@ -76,6 +76,8 @@ export class SyncScheduler {
 
   // --- QUEUE PROCESSOR ---
   private async processQueue() {
+    console.log("[SyncScheduler] processQueue started. Network:", networkMonitor.isOnline(), "ProjectLoaded:", projectManager.isProjectLoaded(), "Mode:", projectManager.getCurrentMode());
+
     if (!networkMonitor.isOnline()) {
       logger.log("Sync Skipped: Offline");
       return;
@@ -83,19 +85,19 @@ export class SyncScheduler {
 
     // CRITICAL FIX: Ensure project is loaded before attempting database access
     if (!projectManager.isProjectLoaded()) {
-      // console.debug("Sync Skipped: No project loaded");
+      console.warn("[SyncScheduler] Sync Skipped: No project loaded. This means currentProjectId is null.");
       return;
     }
 
     if (projectManager.getCurrentMode() === 'demo') {
-      logger.log("Sync Skipped: Demo Mode Active");
+      logger.log("[SyncScheduler] Sync Skipped: Demo Mode Active");
       return;
     }
 
     const store = projectManager.getStore();
     const apartments = await store.getAllApartments();
 
-    logger.log("Starting Auto-Sync Cycle...");
+    logger.log(`[SyncScheduler] Starting Auto-Sync Cycle for ${apartments.length} apartments...`);
 
     // Sequential processing to avoid flooding
     for (const apt of apartments) {

@@ -2,27 +2,20 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
-    const origin = request.headers.get("Origin");
 
-    // Helper para CORS
-    function addCors(resp, originHeader) {
-      const allowedOrigins = [
-        "https://rentikpro2.pages.dev",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-      ];
+    // 1. Robust CORS Definition
+    const CORS_HEADERS = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS, HEAD",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Admin-Key, X-Admin-Token, X-Public-Token, If-None-Match",
+      "Access-Control-Expose-Headers": "ETag, Content-Length, X-Generated-At",
+      "Access-Control-Max-Age": "86400",
+      "Vary": "Origin"
+    };
+
+    function withCors(resp) {
       const h = new Headers(resp.headers);
-
-      if (!originHeader || allowedOrigins.includes(originHeader.replace(/\/$/, ""))) {
-        h.set("Access-Control-Allow-Origin", originHeader || "*");
-      }
-
-      h.set("Vary", "Origin");
-      h.set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,HEAD,PUT");
-      h.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Key, If-None-Match");
-      h.set("Access-Control-Expose-Headers", "ETag, Content-Length, X-Generated-At");
-      h.set("Access-Control-Max-Age", "86400");
-
+      Object.entries(CORS_HEADERS).forEach(([k, v]) => h.set(k, v));
       return new Response(resp.body, {
         status: resp.status,
         statusText: resp.statusText,
@@ -30,236 +23,237 @@ export default {
       });
     }
 
-    async function generateETag(content) {
-      const msgUint8 = new TextEncoder().encode(content);
-      const hashBuffer = await crypto.subtle.digest("SHA-1", msgUint8);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      return `W/"${hashArray.map(b => b.toString(16).padStart(2, "0")).join("")}"`;
-    }
-
-    // Preflight
+    // 2. Centralized OPTIONS handling
     if (request.method === "OPTIONS") {
-      return addCors(new Response(null, { status: 204 }), origin);
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    // --- ENPOINTS NUEVOS (SITE CONFIGS) ---
-
-    // Health checks
-    if ((path === "/" || path === "/health") && request.method === "GET") {
-      return addCors(new Response("OK", { status: 200 }), origin);
+    // 3. Main Request Wrapper to catch ALL errors and apply CORS
+    try {
+      const response = await handleRequest(request, env, ctx, url, path);
+      return withCors(response);
+    } catch (err) {
+      console.error("Worker Error:", err);
+      return withCors(new Response(JSON.stringify({ error: err.message || "Internal Server Error" }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" }
+      }));
     }
 
-    // GET /public/site-config/snapshot?slug=...
-    // Stable public payload for RPWeb v0 (brand + apartments + publicBasePrice + availability URL)
-    if (path === "/public/site-config/snapshot" && request.method === "GET") {
-      const slug = url.searchParams.get("slug") || url.searchParams.get("subdomain");
-      if (!slug || typeof slug !== "string" || slug.length > 100) {
-        return addCors(new Response(JSON.stringify({ error: "Invalid slug" }), {
-          status: 400, headers: { "Content-Type": "application/json" }
-        }), origin);
+    // --- INNER HANDLER ---
+    async function handleRequest(request, env, ctx, url, path) {
+      async function generateETag(content) {
+        const msgUint8 = new TextEncoder().encode(content);
+        const hashBuffer = await crypto.subtle.digest("SHA-1", msgUint8);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return `W/"${hashArray.map(b => b.toString(16).padStart(2, "0")).join("")}"`;
       }
 
-      const MIN_VALID_SNAPSHOT = {
-        version: 1,
-        slug: slug,
-        site: { name: "RentikPro Property", description: "Cargando..." },
-        apartments: [],
-        availability: { enabled: false }
-      };
+      // Health checks
+      if ((path === "/" || path === "/health") && request.method === "GET") {
+        return new Response("OK", { status: 200 });
+      }
 
-      try {
-        // 0) Try KV snapshot first (The new snap:live:slug pattern)
-        const cachedSnap = await env.SITE_CONFIGS.get(`snap:live:${slug}`);
-        if (cachedSnap) {
-          const etag = await generateETag(cachedSnap);
-          if (request.headers.get("If-None-Match") === etag) {
-            return addCors(new Response(null, { status: 304 }), origin);
+      // GET /public/site-config/snapshot?slug=...
+      if (path === "/public/site-config/snapshot" && request.method === "GET") {
+        const slug = url.searchParams.get("slug") || url.searchParams.get("subdomain");
+        if (!slug || typeof slug !== "string" || slug.length > 100) {
+          return new Response(JSON.stringify({ error: "Invalid slug" }), {
+            status: 400, headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        const MIN_VALID_SNAPSHOT = {
+          version: 1,
+          slug: slug,
+          site: { name: "RentikPro Property", description: "Cargando..." },
+          apartments: [],
+          availability: { enabled: false }
+        };
+
+        try {
+          const cachedSnap = await env.SITE_CONFIGS.get(`snap:live:${slug}`);
+          if (cachedSnap) {
+            const etag = await generateETag(cachedSnap);
+            if (request.headers.get("If-None-Match") === etag) {
+              return new Response(null, { status: 304 });
+            }
+            return new Response(cachedSnap, {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json; charset=utf-8",
+                "ETag": etag,
+                "Cache-Control": "public, max-age=300"
+              }
+            });
           }
-          return addCors(new Response(cachedSnap, {
+
+          const site = await env.DB
+            .prepare("SELECT subdomain, property_id, is_published FROM web_sites WHERE subdomain = ?")
+            .bind(slug)
+            .first();
+
+          if (!site || site.is_published === 0) {
+            return new Response(JSON.stringify(MIN_VALID_SNAPSHOT), {
+              status: 200,
+              headers: { "Content-Type": "application/json; charset=utf-8" }
+            });
+          }
+
+          const propertyId = site.property_id;
+          const property = await env.DB
+            .prepare("SELECT id, name, description, logo, phone, email, location, currency, web_calendar_enabled FROM properties WHERE id = ?")
+            .bind(propertyId)
+            .first();
+
+          let aptResults = [];
+          try {
+            const apts = await env.DB.prepare(`
+              SELECT a.id, a.name, a.public_base_price, a.currency,
+                     d.base_price as studio_base_price
+              FROM apartments a
+              LEFT JOIN apartment_pricing_defaults d ON d.apartment_id = a.id
+              WHERE a.property_id = ?
+            `).bind(propertyId).all();
+            aptResults = apts?.results || [];
+          } catch {
+            const apts = await env.DB.prepare("SELECT id, name, currency FROM apartments WHERE property_id = ?").bind(propertyId).all();
+            aptResults = apts?.results || [];
+          }
+
+          const apartments = aptResults.map((a) => ({
+            id: a.id,
+            name: a.name,
+            photos: [],
+            capacity: null,
+            publicBasePrice: (a.studio_base_price ?? a.public_base_price ?? null),
+            currency: a.currency || property?.currency || 'EUR'
+          }));
+
+          const payload = JSON.stringify({
+            version: 1, slug,
+            site: {
+              id: property?.id || propertyId,
+              name: property?.name || slug,
+              description: property?.description ?? null,
+              logoUrl: property?.logo ?? null,
+              contact: {
+                phone: property?.phone ?? null,
+                email: property?.email ?? null,
+                location: property?.location ?? null
+              }
+            },
+            apartments,
+            availability: {
+              enabled: property?.web_calendar_enabled === 1,
+              propertyId: property?.id || propertyId,
+              urlTemplate: `${url.origin}/public/availability?propertyId=${encodeURIComponent(property?.id || propertyId)}&from=YYYY-MM-DD&to=YYYY-MM-DD`
+            }
+          });
+
+          const etag = await generateETag(payload);
+          return new Response(payload, {
             status: 200,
             headers: {
               "Content-Type": "application/json; charset=utf-8",
               "ETag": etag,
               "Cache-Control": "public, max-age=300"
             }
-          }), origin);
+          });
+        } catch (err) {
+          return new Response(JSON.stringify({ error: err.message, fallback: MIN_VALID_SNAPSHOT }), {
+            status: 500, headers: { "Content-Type": "application/json" }
+          });
+        }
+      }
+
+      // GET /public/site-config?slug=...
+      if (path === "/public/site-config" && request.method === "GET") {
+        const slug = url.searchParams.get("slug");
+        if (!slug || typeof slug !== "string" || slug.length > 100) {
+          return new Response(JSON.stringify({ error: "Invalid slug" }), {
+            status: 400, headers: { "Content-Type": "application/json" }
+          });
         }
 
-        // 1) Fallback to DB logic (V0 legacy support)
-        const site = await env.DB
-          .prepare("SELECT subdomain, property_id, is_published FROM web_sites WHERE subdomain = ?")
-          .bind(slug)
-          .first();
-
-        if (!site || site.is_published === 0) {
-          // If not in DB, maybe return min valid instead of 404 to avoid "white screen"
-          return addCors(new Response(JSON.stringify(MIN_VALID_SNAPSHOT), {
-            status: 200,
-            headers: { "Content-Type": "application/json; charset=utf-8" }
-          }), origin);
+        const configStr = await env.SITE_CONFIGS.get(slug);
+        if (!configStr) {
+          return new Response(JSON.stringify({ error: "Not found" }), {
+            status: 404, headers: { "Content-Type": "application/json" }
+          });
         }
 
-        const propertyId = site.property_id;
-        const property = await env.DB
-          .prepare("SELECT id, name, description, logo, phone, email, location, currency, web_calendar_enabled FROM properties WHERE id = ?")
-          .bind(propertyId)
-          .first();
-
-        // (rest of the mapping remains the same, but with min valid fallback)
-        let aptResults = [];
-        try {
-          const apts = await env.DB.prepare(`
-            SELECT a.id, a.name, a.public_base_price, a.currency,
-                   d.base_price as studio_base_price
-            FROM apartments a
-            LEFT JOIN apartment_pricing_defaults d ON d.apartment_id = a.id
-            WHERE a.property_id = ?
-          `).bind(propertyId).all();
-          aptResults = apts?.results || [];
-        } catch {
-          const apts = await env.DB.prepare("SELECT id, name, currency FROM apartments WHERE property_id = ?").bind(propertyId).all();
-          aptResults = apts?.results || [];
+        const etag = await generateETag(configStr);
+        if (request.headers.get("If-None-Match") === etag) {
+          return new Response(null, { status: 304 });
         }
 
-        const apartments = aptResults.map((a) => ({
-          id: a.id,
-          name: a.name,
-          photos: [],
-          capacity: null,
-          publicBasePrice: (a.studio_base_price ?? a.public_base_price ?? null),
-          currency: a.currency || property?.currency || 'EUR'
-        }));
-
-        const payload = JSON.stringify({
-          version: 1, slug,
-          site: {
-            id: property?.id || propertyId,
-            name: property?.name || slug,
-            description: property?.description ?? null,
-            logoUrl: property?.logo ?? null,
-            contact: {
-              phone: property?.phone ?? null,
-              email: property?.email ?? null,
-              location: property?.location ?? null
-            }
-          },
-          apartments,
-          availability: {
-            enabled: property?.web_calendar_enabled === 1,
-            propertyId: property?.id || propertyId,
-            urlTemplate: `${url.origin}/public/availability?propertyId=${encodeURIComponent(property?.id || propertyId)}&from=YYYY-MM-DD&to=YYYY-MM-DD`
-          }
-        });
-
-        const etag = await generateETag(payload);
-        return addCors(new Response(payload, {
+        return new Response(configStr, {
           status: 200,
           headers: {
-            "Content-Type": "application/json; charset=utf-8",
+            "Content-Type": "application/json",
             "ETag": etag,
-            "Cache-Control": "public, max-age=300"
+            "Cache-Control": "public, max-age=600"
           }
-        }), origin);
-
-      } catch (err) {
-        return addCors(new Response(JSON.stringify({ error: err.message, fallback: MIN_VALID_SNAPSHOT }), {
-          status: 500, headers: { "Content-Type": "application/json" }
-        }), origin);
-      }
-    }
-
-    // GET /public/site-config?slug=...
-    if (path === "/public/site-config" && request.method === "GET") {
-      const slug = url.searchParams.get("slug");
-      if (!slug || typeof slug !== "string" || slug.length > 100) {
-        return addCors(new Response(JSON.stringify({ error: "Invalid slug" }), {
-          status: 400, headers: { "Content-Type": "application/json" }
-        }), origin);
+        });
       }
 
-      const configStr = await env.SITE_CONFIGS.get(slug);
-      if (!configStr) {
-        return addCors(new Response(JSON.stringify({ error: "Not found" }), {
-          status: 404, headers: { "Content-Type": "application/json" }
-        }), origin);
+      function getAdminToken(req) {
+        const auth = req.headers.get("Authorization") || "";
+        if (auth.startsWith("Bearer ")) return auth.substring(7);
+        return req.headers.get("X-Admin-Key") || req.headers.get("X-Admin-Token") || "";
       }
 
-      const etag = await generateETag(configStr);
-      if (request.headers.get("If-None-Match") === etag) {
-        return addCors(new Response(null, { status: 304 }), origin);
-      }
-
-      return addCors(new Response(configStr, {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "ETag": etag,
-          "Cache-Control": "public, max-age=600"
+      // --- PUBLISHER BY SLUG ENDPOINTS ---
+      if (path === "/public/staging/snapshot" && request.method === "PUT") {
+        const token = getAdminToken(request);
+        if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
         }
-      }), origin);
-    }
+        const slug = url.searchParams.get("slug");
+        if (!slug) return new Response(JSON.stringify({ error: "Missing slug" }), { status: 400 });
 
-    // Helper for admin auth
-    function getAdminToken(req) {
-      const auth = req.headers.get("Authorization") || "";
-      if (auth.startsWith("Bearer ")) return auth.substring(7);
-      return req.headers.get("X-Admin-Key") || "";
-    }
+        const body = await request.text();
+        const generatedAt = Date.now();
+        await env.SITE_CONFIGS.put(`snap:staging:${slug}`, body, {
+          metadata: { generatedAt, slug, type: 'snapshot' }
+        });
 
-    // --- PUBLISHER BY SLUG ENDPOINTS ---
-    if (path === "/public/staging/snapshot" && request.method === "PUT") {
-      const token = getAdminToken(request);
-      if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
-        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }), origin);
-      }
-      const slug = url.searchParams.get("slug");
-      if (!slug) return addCors(new Response(JSON.stringify({ error: "Missing slug" }), { status: 400 }), origin);
-
-      const body = await request.text();
-      const generatedAt = Date.now();
-      await env.SITE_CONFIGS.put(`snap:staging:${slug}`, body, {
-        metadata: { generatedAt, slug, type: 'snapshot' }
-      });
-
-      return addCors(new Response(JSON.stringify({ ok: true, slug, generatedAt }), {
-        status: 200, headers: { "Content-Type": "application/json" }
-      }), origin);
-    }
-
-    if (path === "/public/commit" && request.method === "POST") {
-      const token = getAdminToken(request);
-      if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
-        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }), origin);
-      }
-      const slug = url.searchParams.get("slug");
-      if (!slug) return addCors(new Response(JSON.stringify({ error: "Missing slug" }), { status: 400 }), origin);
-
-      const { value, metadata } = await env.SITE_CONFIGS.getWithMetadata(`snap:staging:${slug}`);
-      if (!value) return addCors(new Response(JSON.stringify({ error: "Nothing to commit for this slug" }), { status: 404 }), origin);
-
-      await env.SITE_CONFIGS.put(`snap:live:${slug}`, value, {
-        metadata: { ...metadata, committedAt: Date.now() }
-      });
-
-      return addCors(new Response(JSON.stringify({ ok: true, slug }), {
-        status: 200, headers: { "Content-Type": "application/json" }
-      }), origin);
-    }
-
-    // --- PUBLISHER ADMIN ENDPOINTS (PROPERTY_ID BASED) ---
-
-    // POST /admin/site-config/commit?propertyId=...
-    if (path === "/admin/site-config/commit" && request.method === "POST") {
-      const token = getAdminToken(request);
-      if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
-        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }), origin);
+        return new Response(JSON.stringify({ ok: true, slug, generatedAt }), {
+          status: 200, headers: { "Content-Type": "application/json" }
+        });
       }
 
-      try {
+      if (path === "/public/commit" && request.method === "POST") {
+        const token = getAdminToken(request);
+        if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        }
+        const slug = url.searchParams.get("slug");
+        if (!slug) return new Response(JSON.stringify({ error: "Missing slug" }), { status: 400 });
+
+        const { value, metadata } = await env.SITE_CONFIGS.getWithMetadata(`snap:staging:${slug}`);
+        if (!value) return new Response(JSON.stringify({ error: "Nothing to commit for this slug" }), { status: 404 });
+
+        await env.SITE_CONFIGS.put(`snap:live:${slug}`, value, {
+          metadata: { ...metadata, committedAt: Date.now() }
+        });
+
+        return new Response(JSON.stringify({ ok: true, slug }), {
+          status: 200, headers: { "Content-Type": "application/json" }
+        });
+      }
+
+      // --- PUBLISHER ADMIN ENDPOINTS ---
+      if (path === "/admin/site-config/commit" && request.method === "POST") {
+        const token = getAdminToken(request);
+        if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        }
+
         const propertyId = url.searchParams.get("propertyId");
-        if (!propertyId) throw new Error("Missing propertyId");
+        if (!propertyId) return new Response(JSON.stringify({ error: "Missing propertyId" }), { status: 400 });
 
-        // Atomic "Commit": Move staging to final
         async function commitType(type) {
           const stagingKey = `pub:${type}:${propertyId}:staging`;
           const finalKey = `pub:${type}:${propertyId}`;
@@ -273,492 +267,281 @@ export default {
           return false;
         }
 
-        const [snapOk, availOk] = await Promise.all([
-          commitType('snapshot'),
-          commitType('availability')
-        ]);
+        const [snapOk, availOk] = await Promise.all([commitType('snapshot'), commitType('availability')]);
 
-        return addCors(new Response(JSON.stringify({ ok: true, snapshot: snapOk, availability: availOk }), {
+        return new Response(JSON.stringify({ ok: true, snapshot: snapOk, availability: availOk }), {
           status: 200, headers: { "Content-Type": "application/json" }
-        }), origin);
-      } catch (err) {
-        return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
-      }
-    }
-
-    // PUT /admin/site-config
-    if (path === "/admin/site-config" && (request.method === "PUT" || request.method === "POST")) {
-      const token = getAdminToken(request);
-      if (token !== env.ADMIN_TOKEN) {
-        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { "Content-Type": "application/json" }
-        }), origin);
+        });
       }
 
-      try {
+      if (path === "/admin/site-config" && (request.method === "PUT" || request.method === "POST")) {
+        const token = getAdminToken(request);
+        if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        }
+
         const body = await request.json();
-        // Allow slug from query param OR body
         const slug = url.searchParams.get("slug") || body.slug;
-        const config = body.config || body; // Compatibility with both {slug, config} and direct config body
+        const config = body.config || body;
 
-        if (!slug || typeof slug !== "string" || !config || typeof config !== "object") {
-          return addCors(new Response(JSON.stringify({ error: "Invalid payload: missing slug or config", received: { slug, hasConfig: !!config } }), {
-            status: 400, headers: { "Content-Type": "application/json" }
-          }), origin);
+        if (!slug || !config) {
+          return new Response(JSON.stringify({ error: "Missing slug or config" }), { status: 400 });
         }
 
         const configStr = JSON.stringify(config);
-        const bytes = new TextEncoder().encode(configStr).length;
-
         await env.SITE_CONFIGS.put(slug, configStr);
 
-        return addCors(new Response(JSON.stringify({
-          ok: true,
-          slug,
-          bytes,
-          savedAt: new Date().toISOString()
-        }), {
+        return new Response(JSON.stringify({ ok: true, slug, savedAt: new Date().toISOString() }), {
           status: 200, headers: { "Content-Type": "application/json" }
-        }), origin);
-      } catch (err) {
-        return addCors(new Response(JSON.stringify({ error: err.message }), {
-          status: 500, headers: { "Content-Type": "application/json" }
-        }), origin);
-      }
-    }
-
-    // GET /admin/site-config?slug=...
-    if (path === "/admin/site-config" && request.method === "GET") {
-      const token = getAdminToken(request);
-      if (token !== env.ADMIN_TOKEN) {
-        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), {
-          status: 401, headers: { "Content-Type": "application/json" }
-        }), origin);
-      }
-
-      const slug = url.searchParams.get("slug");
-      if (!slug) {
-        return addCors(new Response(JSON.stringify({ error: "Missing slug" }), {
-          status: 400, headers: { "Content-Type": "application/json" }
-        }), origin);
-      }
-
-      const configStr = await env.SITE_CONFIGS.get(slug);
-      if (!configStr) {
-        return addCors(new Response(JSON.stringify({ error: "Not found" }), {
-          status: 404, headers: { "Content-Type": "application/json" }
-        }), origin);
-      }
-
-      return addCors(new Response(configStr, {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "public, max-age=300, s-maxage=900"
-        }
-      }), origin);
-    }
-
-    // --- ENPOINTS NUEVOS (ICAL OUTBOUND) ---    // POST /ical/publish -> Guarda ICS en KV
-    if (path === "/ical/publish" && request.method === "POST") {
-      const adminKey = request.headers.get("X-Admin-Key");
-      if (adminKey !== env.ADMIN_KEY) {
-        return addCors(new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 }), origin);
-      }
-
-      try {
-        const data = await request.json();
-        const { project_id, unit_id, icsText } = data;
-        let { token } = data;
-
-        if (!project_id || !unit_id || !icsText) {
-          return addCors(new Response(JSON.stringify({ error: "Missing data" }), { status: 400 }), origin);
-        }
-
-        // Generar token si no viene uno
-        if (!token) {
-          const rawToken = crypto.getRandomValues(new Uint8Array(24));
-          token = btoa(String.fromCharCode(...rawToken))
-            .replace(/\+/g, "-")
-            .replace(/\//g, "_")
-            .replace(/=+$/, "");
-        }
-
-        // Guardar en KV: RENTIKPRO_FEEDS
-        await env.RENTIKPRO_FEEDS.put(token, icsText, {
-          metadata: { project_id, unit_id, updated: Date.now() }
         });
-
-        const publicUrl = `${url.origin}/ical/${token}.ics`;
-        return addCors(new Response(JSON.stringify({ token, publicUrl }), { status: 200 }), origin);
-      } catch (err) {
-        return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
-      }
-    }
-
-    // GET /ical/:token.ics -> Devuelve ICS desde KV
-    const icalMatch = path.match(/^\/ical\/(.+)\.ics$/);
-    if (icalMatch && request.method === "GET") {
-      const token = icalMatch[1];
-      const ics = await env.RENTIKPRO_FEEDS.get(token);
-
-      if (!ics) {
-        return addCors(new Response("Feed not found", { status: 404 }), origin);
       }
 
-      return addCors(new Response(ics, {
-        status: 200,
-        headers: { "Content-Type": "text/calendar; charset=utf-8" }
-      }), origin);
-    }
+      if (path === "/admin/site-config" && request.method === "GET") {
+        const token = getAdminToken(request);
+        if (token !== env.ADMIN_TOKEN && token !== env.ADMIN_KEY) {
+          return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        }
 
+        const slug = url.searchParams.get("slug");
+        if (!slug) return new Response(JSON.stringify({ error: "Missing slug" }), { status: 400 });
 
-    // --- ENPOINT EXISTENTE (PROXY) ---
+        const configStr = await env.SITE_CONFIGS.get(slug);
+        if (!configStr) return new Response(JSON.stringify({ error: "Not found" }), { status: 404 });
 
-    if (path === "/cm-proxy") {
-      const target = url.searchParams.get("url");
-      if (!target) {
-        return addCors(new Response("Missing url", { status: 400 }), origin);
+        return new Response(configStr, {
+          status: 200, headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=300" }
+        });
       }
 
-      let targetUrl;
-      try {
-        targetUrl = new URL(target);
-      } catch {
-        return addCors(new Response("Invalid url", { status: 400 }), origin);
+      // --- ICAL ENDPOINTS ---
+      if (path === "/ical/publish" && request.method === "POST") {
+        const adminKey = request.headers.get("X-Admin-Key");
+        if (adminKey !== env.ADMIN_KEY) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+
+        const { project_id, unit_id, icsText } = await request.json();
+        let { token } = await request.json();
+
+        if (!project_id || !unit_id || !icsText) return new Response(JSON.stringify({ error: "Missing data" }), { status: 400 });
+
+        if (!token) {
+          token = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(24))))
+            .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        }
+
+        await env.RENTIKPRO_FEEDS.put(token, icsText, { metadata: { project_id, unit_id, updated: Date.now() } });
+        return new Response(JSON.stringify({ token, publicUrl: `${url.origin}/ical/${token}.ics` }), { status: 200 });
       }
 
-      if (!/^https?:$/.test(targetUrl.protocol)) {
-        return addCors(new Response("Invalid protocol", { status: 400 }), origin);
+      const icalMatch = path.match(/^\/ical\/(.+)\.ics$/);
+      if (icalMatch && request.method === "GET") {
+        const ics = await env.RENTIKPRO_FEEDS.get(icalMatch[1]);
+        if (!ics) return new Response("Feed not found", { status: 404 });
+        return new Response(ics, { status: 200, headers: { "Content-Type": "text/calendar; charset=utf-8" } });
       }
 
-      const host = targetUrl.hostname.toLowerCase();
-      const allowed = [
-        "airbnb.com", "booking.com", "ical.booking.com", "admin.booking.com",
-        "calendar.google.com", "outlook.office.com", "vrbo.com", "homeaway.com",
-        "escapadarural.com", "static.escapadarural.com"
-      ];
-      const isAllowed = allowed.some(d => host === d || host.endsWith("." + d));
+      // --- ICAL PROXY ENDPOINT (F5 Fallback) ---
+      if (path === "/ical-proxy" || path === "/cm-proxy") {
+        const target = url.searchParams.get("url");
+        if (!target) return new Response("Missing url", { status: 400 });
 
-      if (!isAllowed) {
-        return addCors(new Response(JSON.stringify({
-          code: "DOMAIN_NOT_ALLOWED",
-          message: "Host not allowed: " + host,
-          host: host
-        }), {
-          status: 403,
-          headers: { "Content-Type": "application/json" }
-        }), origin);
-      }
+        let targetUrl;
+        try { targetUrl = new URL(target); } catch { return new Response("Invalid url", { status: 400 }); }
 
-      const cacheKey = new Request("https://cm-proxy.local/cache?url=" + encodeURIComponent(targetUrl.toString()), { method: "GET" });
-      const cache = caches.default;
-      let cached = await cache.match(cacheKey);
+        const host = targetUrl.hostname.toLowerCase();
+        const allowed = ["airbnb.com", "booking.com", "vrbo.com", "escapadarural.com", "google.com", "ical.me"];
+        if (!allowed.some(d => host === d || host.endsWith("." + d))) {
+          return new Response(JSON.stringify({ error: "Domain not allowed (iCal Proxy)", host }), { status: 403 });
+        }
 
-      if (cached && request.method !== "HEAD") {
-        return addCors(cached, origin);
-      }
+        // Rate limit by client IP or token if present
+        const ip = request.headers.get("CF-Connecting-IP") || "anonymous";
+        const limitRes = await enforceRateLimit(`proxy:${ip}`, env);
+        if (limitRes) return limitRes;
 
-      try {
-        const upstreamReq = new Request(targetUrl.toString(), {
-          method: "GET",
+        const cache = caches.default;
+        let cached = await cache.match(request);
+        if (cached) return cached;
+
+        // Fetch with robust headers to bypass some basic bot detection
+        const resp = await fetch(targetUrl.toString(), {
           headers: {
-            "Accept": "text/calendar,text/plain,*/*"
+            "Accept": "text/calendar,text/plain,*/*",
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 RentikPro/1.0",
+            "Referer": "https://www.google.com/"
           }
         });
-        const resp = await fetch(upstreamReq, { redirect: "follow" });
 
-        const ct = resp.headers.get("content-type") || "text/plain; charset=utf-8";
         const body = await resp.text();
+        const contentType = resp.headers.get("Content-Type") || "";
+        const isHtml = body.trim().toLowerCase().startsWith("<!doctype html") || contentType.includes("text/html");
 
-        const outHeaders = {
-          "Content-Type": ct.includes("text/calendar") ? ct : "text/calendar; charset=utf-8",
-          "Cache-Control": "public, max-age=300",
-          "ETag": resp.headers.get("ETag") || `W/"${body.length}"`,
-        };
-
-        const out = new Response(body, { status: resp.status, headers: outHeaders });
-        if (resp.status >= 200 && resp.status < 300 && body && body.length > 50) {
-          ctx.waitUntil(cache.put(cacheKey, out.clone()));
-        }
-
-        return addCors(request.method === "HEAD" ? new Response(null, { status: resp.status, headers: outHeaders }) : out, origin);
-      } catch (e) {
-        return addCors(new Response("Upstream fetch failed", { status: 502 }), origin);
-      }
-    }
-
-    // --- REUSABLE SECURITY HELPERS ---
-
-    function requirePublicToken(request) {
-      const token = request.headers.get("X-PUBLIC-TOKEN");
-      if (!token) {
-        return addCors(new Response(JSON.stringify({ error: "Missing public token" }), { status: 401 }), request.headers.get("Origin"));
-      }
-      return token;
-    }
-
-    async function enforceRateLimit(token, env) {
-      // Calls Durable Object
-      const id = env.RATE_LIMITER.idFromName(token);
-      const stub = env.RATE_LIMITER.get(id);
-      const doRes = await stub.fetch("http://do/limit");
-      if (doRes.status === 429) {
-        return new Response(JSON.stringify({ error: "rate_limited" }), { status: 429 });
-      }
-      return null; // OK
-    }
-
-    // Resolves site and checks is_published
-    // Returns { site, response } - if response is set, return it immediately (error)
-    async function resolveAndValidateSite(subdomain, env, origin) {
-      if (!subdomain) {
-        return { response: addCors(new Response(JSON.stringify({ error: "Missing subdomain" }), { status: 400 }), origin) };
-      }
-      const site = await env.DB.prepare("SELECT * FROM web_sites WHERE subdomain = ?").bind(subdomain).first();
-      if (!site) {
-        return { response: addCors(new Response(JSON.stringify({ error: "Site not found" }), { status: 404 }), origin) };
-      }
-      if (site.is_published === 0) {
-        return { response: addCors(new Response(JSON.stringify({ error: "Site not published" }), { status: 403 }), origin) };
-      }
-      return { site };
-    }
-
-    function enforceCors(request, site) {
-      const origin = request.headers.get("Origin");
-      if (!origin) return null; // Server-to-server / curl allowed if no Origin
-
-      let allowedOrigins = [];
-      try {
-        allowedOrigins = JSON.parse(site.allowed_origins_json || "[]");
-      } catch (e) { }
-
-      if (!allowedOrigins.includes(origin)) {
-        return new Response(JSON.stringify({ error: "Origin not allowed" }), { status: 403 });
-      }
-      return null; // OK
-    }
-
-    // --- PUBLIC ENDPOINTS ---
-
-    if (path.startsWith("/public/")) {
-      const origin = request.headers.get("Origin");
-
-      // A. Validate Token (401)
-      const tokenOrResponse = requirePublicToken(request);
-      if (tokenOrResponse instanceof Response) return tokenOrResponse;
-      const token = tokenOrResponse;
-
-      // B. Rate Limit (DO) (429)
-      const limitResponse = await enforceRateLimit(token, env);
-      if (limitResponse) return addCors(limitResponse, origin);
-
-      // ROUTING
-
-      // 1. GET /public/site-config
-      if (path === "/public/site-config" && request.method === "GET") {
-        const slug = url.searchParams.get("slug") || url.searchParams.get("subdomain");
-
-        if (!slug) {
-          return addCors(new Response(JSON.stringify({ error: "Missing slug or subdomain" }), { status: 400 }), origin);
-        }
-
-        // 1.1. Try KV First (Fast Path)
-        const cachedConfig = await env.RENTIKPRO_CONFIGS.get(slug);
-        if (cachedConfig) {
-          return new Response(cachedConfig, {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": origin || "*",
-              "Vary": "Origin",
-              "Cache-Control": "public, max-age=300, s-maxage=900"
-            }
+        if (isHtml) {
+          return new Response(JSON.stringify({
+            error: "OTA_BLOCKED",
+            message: "El proveedor bloqueó la petición con una página HTML/Captcha.",
+            status: resp.status,
+            contentType
+          }), {
+            status: 422, // Unprocessable Entity
+            headers: { "Content-Type": "application/json" }
           });
         }
 
-        // 1.2. Fallback to DB
-        const { site, response } = await resolveAndValidateSite(slug, env, origin);
-        if (response) return response;
+        const out = new Response(body, {
+          status: resp.status,
+          headers: {
+            "Content-Type": "text/calendar; charset=utf-8",
+            "Cache-Control": "public, max-age=300",
+            "X-Proxy-Origin": "RentikPro-CF-Worker"
+          }
+        });
 
-        // Token Verification
-        if (site.public_token !== token) {
-          return addCors(new Response(JSON.stringify({ error: "Invalid public token" }), { status: 401 }), origin);
+        if (resp.status === 200) ctx.waitUntil(cache.put(request, out.clone()));
+        return out;
+      }
+
+      // --- PUBLIC API HELPERS ---
+      function requirePublicToken(request) {
+        return request.headers.get("X-PUBLIC-TOKEN") || null;
+      }
+
+      async function enforceRateLimit(token, env) {
+        const id = env.RATE_LIMITER.idFromName(token);
+        const stub = env.RATE_LIMITER.get(id);
+        const res = await stub.fetch("http://do/limit");
+        return res.status === 429 ? new Response(JSON.stringify({ error: "rate_limited" }), { status: 429 }) : null;
+      }
+
+      // --- PUBLIC ENDPOINTS ---
+      if (path.startsWith("/public/")) {
+        const token = requirePublicToken(request);
+
+        // Token is optional for GET, required for POST/PUT (unless ADMIN_KEY is used)
+        if (!token && request.method !== "GET" && path !== "/public/site-config") {
+          // We'll check ADMIN_KEY later for POST /public/site-config
         }
 
-        const corsError = enforceCors(request, site);
-        if (corsError) return corsError;
+        if (token) {
+          const limitRes = await enforceRateLimit(token, env);
+          if (limitRes) return limitRes;
+        }
 
-        try {
-          // If we are here, we might want to return the full JSON from sections_json if available
-          if (site.sections_json) {
-            const fullConfig = JSON.parse(site.sections_json);
-            // Ensure it has the slug
-            fullConfig.slug = site.subdomain;
+        if (path === "/public/site-config" && request.method === "GET") {
+          const slug = url.searchParams.get("slug") || url.searchParams.get("subdomain");
+          if (!slug) return new Response(JSON.stringify({ error: "Missing slug" }), { status: 400 });
 
-            // Populate KV for next time
-            ctx.waitUntil(env.RENTIKPRO_CONFIGS.put(slug, JSON.stringify(fullConfig)));
+          const cached = await env.RENTIKPRO_CONFIGS.get(slug);
+          if (cached) return new Response(cached, { status: 200, headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=300" } });
 
-            return new Response(JSON.stringify(fullConfig), {
+          const site = await env.DB.prepare("SELECT * FROM web_sites WHERE subdomain = ?").bind(slug).first();
+          if (!site) return new Response(JSON.stringify({ error: "Site not found" }), { status: 404 });
+          if (site.is_published === 0) return new Response(JSON.stringify({ error: "Site not published" }), { status: 403 });
+
+          // public_token check only if provided and we want to enforce it, but user asked for public 200.
+          // if (token && site.public_token !== token) return new Response(JSON.stringify({ error: "Invalid public token" }), { status: 401 });
+
+          const config = site.sections_json ? JSON.parse(site.sections_json) : { slug: site.subdomain };
+          ctx.waitUntil(env.RENTIKPRO_CONFIGS.put(slug, JSON.stringify(config)));
+          return new Response(JSON.stringify(config), { status: 200, headers: { "Content-Type": "application/json" } });
+        }
+
+        if (path === "/public/site-config" && request.method === "POST") {
+          const adminKey = request.headers.get("X-Admin-Key");
+          const config = await request.json();
+          if (!config.slug) return new Response(JSON.stringify({ error: "Missing slug" }), { status: 400 });
+
+          if (adminKey !== env.ADMIN_KEY) {
+            if (!token) return new Response(JSON.stringify({ error: "Unauthorized: Missing public token" }), { status: 401 });
+            const site = await env.DB.prepare("SELECT * FROM web_sites WHERE subdomain = ?").bind(config.slug).first();
+            if (site && site.public_token !== token) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 403 });
+          }
+
+          const configStr = JSON.stringify(config);
+          await env.RENTIKPRO_CONFIGS.put(config.slug, configStr);
+          if (config.aliases) {
+            for (const alias of config.aliases) await env.RENTIKPRO_CONFIGS.put(alias, configStr);
+          }
+          return new Response(JSON.stringify({ success: true, slug: config.slug }), { status: 200 });
+        }
+
+        if (path === "/public/availability" && request.method === "GET") {
+          const propertyId = url.searchParams.get("propertyId");
+          if (!propertyId) return new Response(JSON.stringify({ error: "Missing propertyId" }), { status: 400 });
+
+          const { value, metadata } = await env.SITE_CONFIGS.getWithMetadata(`pub:availability:${propertyId}`);
+
+          if (!value) {
+            // Return 200 with empty list instead of 404 to satisfy frontend
+            return new Response(JSON.stringify({ propertyId, availability: [] }), {
               status: 200,
               headers: {
                 "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": origin || "*",
-                "Vary": "Origin",
-                "Cache-Control": "public, max-age=300, s-maxage=900"
+                "Cache-Control": "public, max-age=60"
               }
             });
           }
 
-          // Legacy Legacy Fallback
-          const property = await env.DB.prepare(
-            "SELECT name, location, logo, phone, email FROM properties WHERE id = ?"
-          ).bind(site.property_id).first();
-
-          const features = site.features_json ? JSON.parse(site.features_json) : {};
-
-          const config = {
-            slug: site.subdomain,
-            property: property || { name: site.subdomain },
-            template: site.template_slug,
-            plan: site.plan_type,
-            features: {
-              blogEnabled: !!features.blogEnabled,
-              experiencesEnabled: !!features.experiencesEnabled,
-              showPrices: !!features.showPrices
-            }
-          };
-
-          return new Response(JSON.stringify(config), {
+          return new Response(value, {
             status: 200,
             headers: {
               "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": origin || "*",
-              "Vary": "Origin",
-              "Cache-Control": "public, max-age=300, s-maxage=900"
+              "X-Generated-At": metadata?.generatedAt?.toString() || "",
+              "Cache-Control": "public, max-age=60"
             }
           });
-
-        } catch (err) {
-          return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
         }
-      }
 
-      // 1.1 POST /public/site-config (Public publish endpoint)
-      if (path === "/public/site-config" && request.method === "POST") {
-        const adminKey = request.headers.get("X-Admin-Key");
-        const publicToken = request.headers.get("X-PUBLIC-TOKEN");
+        if (path === "/public/snapshot" && request.method === "GET") {
+          const propertyId = url.searchParams.get("propertyId");
+          if (!propertyId) return new Response(JSON.stringify({ error: "Missing propertyId" }), { status: 400 });
 
-        try {
-          const config = await request.json();
-          if (!config.slug) {
-            return addCors(new Response(JSON.stringify({ error: "Config must have a slug" }), { status: 400 }), origin);
-          }
-
-          // Security: Admin Key OR matching Public Token
-          let siteInDb = null; // Declare siteInDb here for broader scope
-          if (adminKey !== env.ADMIN_KEY) {
-            siteInDb = await env.DB.prepare("SELECT * FROM web_sites WHERE subdomain = ?").bind(config.slug).first();
-            if (siteInDb && siteInDb.public_token !== publicToken) {
-              return addCors(new Response(JSON.stringify({ error: "Unauthorized update" }), { status: 403 }), origin);
-            }
-            if (!siteInDb && !publicToken) {
-              return addCors(new Response(JSON.stringify({ error: "Admin Key or Public Token required for new slugs" }), { status: 401 }), origin);
-            }
-          }
-
-          // Save to KV (Primary Slug)
-          const configStr = JSON.stringify(config);
-          await env.RENTIKPRO_CONFIGS.put(config.slug, configStr);
-
-          // Handle Aliases (e.g. el-rinconcito-matarrana, el-rinconcito-matarraña)
-          let aliases = config.aliases || [];
-          if (config.slug === "el-rinconcito") {
-            // Forced consistency for the requested slugs
-            if (!aliases.includes("el-rinconcito-matarrana")) aliases.push("el-rinconcito-matarrana");
-            if (!aliases.includes("el-rinconcito-matarraña")) aliases.push("el-rinconcito-matarraña");
-          }
-
-          if (Array.isArray(aliases)) {
-            for (const alias of aliases) {
-              if (alias && typeof alias === 'string') {
-                // Normalizar alias si es necesario o guardar tal cual
-                await env.RENTIKPRO_CONFIGS.put(alias, configStr);
+          const { value, metadata } = await env.SITE_CONFIGS.getWithMetadata(`pub:snapshot:${propertyId}`);
+          if (!value) {
+            return new Response(JSON.stringify({ propertyId, site: { name: propertyId }, apartments: [] }), {
+              status: 200,
+              headers: {
+                "Content-Type": "application/json",
+                "Cache-Control": "public, max-age=300"
               }
-            }
+            });
           }
-
-          // Update DB if exists
-          // Re-fetch siteInDb if it wasn't fetched in the auth block (i.e., if adminKey was used)
-          if (!siteInDb) {
-            siteInDb = await env.DB.prepare("SELECT * FROM web_sites WHERE subdomain = ?").bind(config.slug).first();
-          }
-          if (siteInDb) {
-            await env.DB.prepare("UPDATE web_sites SET is_published = 1, sections_json = ? WHERE subdomain = ?")
-              .bind(configStr, config.slug)
-              .run();
-          }
-
-          return new Response(JSON.stringify({ success: true, slug: config.slug, aliases }), {
+          return new Response(value, {
             status: 200,
             headers: {
               "Content-Type": "application/json",
-              "Access-Control-Allow-Origin": origin || "*",
-              "Vary": "Origin"
+              "X-Generated-At": metadata?.generatedAt?.toString() || "",
+              "Cache-Control": "public, max-age=300"
             }
           });
-
-        } catch (err) {
-          return addCors(new Response(JSON.stringify({ error: err.message }), { status: 500 }), origin);
-        }
-      }
-
-      // 2. GET /public/availability
-      if (path === "/public/availability" && request.method === "GET") {
-        const propertyId = url.searchParams.get("propertyId");
-        if (!propertyId) return addCors(new Response("Missing propertyId", { status: 400 }), origin);
-
-        const key = `pub:availability:${propertyId}`;
-        const { value, metadata } = await env.SITE_CONFIGS.getWithMetadata(key);
-
-        if (!value) {
-          return addCors(new Response(JSON.stringify({ error: "Availability not found" }), { status: 404 }), origin);
         }
 
-        return addCors(new Response(value, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "X-Generated-At": metadata?.generatedAt?.toString() || "",
-            "Cache-Control": "public, max-age=60" // Tight cache for occupancy
+        if (path === "/public/apartments" && request.method === "GET") {
+          const propertyId = url.searchParams.get("propertyId");
+          if (!propertyId) return new Response(JSON.stringify({ error: "Missing propertyId" }), { status: 400 });
+
+          // Try to get from snapshot
+          const { value } = await env.SITE_CONFIGS.getWithMetadata(`pub:snapshot:${propertyId}`);
+          if (value) {
+            try {
+              const snap = JSON.parse(value);
+              return new Response(JSON.stringify(snap.apartments || []), {
+                status: 200,
+                headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=300" }
+              });
+            } catch (e) { }
           }
-        }), origin);
-      }
 
-      // 3. GET /public/snapshot
-      if (path === "/public/snapshot" && request.method === "GET") {
-        const propertyId = url.searchParams.get("propertyId");
-        if (!propertyId) return addCors(new Response("Missing propertyId", { status: 400 }), origin);
-
-        const key = `pub:snapshot:${propertyId}`;
-        const { value, metadata } = await env.SITE_CONFIGS.getWithMetadata(key);
-
-        if (!value) {
-          return addCors(new Response(JSON.stringify({ error: "Snapshot not found" }), { status: 404 }), origin);
+          // Generic fallback or empty list
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=300" }
+          });
         }
-
-        return addCors(new Response(value, {
-          status: 200,
-          headers: {
-            "Content-Type": "application/json",
-            "X-Generated-At": metadata?.generatedAt?.toString() || "",
-            "Cache-Control": "public, max-age=300"
-          }
-        }), origin);
       }
+
+      return new Response("Not Found", { status: 404 });
     }
-
-    return new Response("Not Found", { status: 404 });
   }
 };
+
+export { PublicRateLimiterDO } from "./RateLimiter";

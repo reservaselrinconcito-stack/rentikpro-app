@@ -8,12 +8,47 @@ use sha2::Digest;
 use chrono;
 use chrono::{Datelike, Timelike};
 
+use tauri::Manager;
+
+#[tauri::command]
+fn open_devtools(window: tauri::Window) {
+  #[cfg(debug_assertions)]
+  {
+    window.open_devtools();
+  }
+  #[cfg(not(debug_assertions))]
+  {
+    let debug_env = std::env::var("RENTIKPRO_DEBUG").unwrap_or_default();
+    if debug_env == "1" {
+      window.open_devtools();
+    }
+  }
+}
+
 fn main() {
+  let debug_enabled = std::env::var("RENTIKPRO_DEBUG").map(|v| v == "1").unwrap_or(false);
+  
   tauri::Builder::default()
+    .plugin(tauri_plugin_updater::Builder::new().build())
+    .plugin(tauri_plugin_process::init())
     .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_fs::init())
     .plugin(tauri_plugin_shell::init())
+    .setup(move |app| {
+      #[cfg(all(debug_assertions, not(mobile)))]
+      {
+        let window = app.get_webview_window("main").unwrap();
+        window.open_devtools();
+      }
+      
+      if debug_enabled {
+        println!("RentikPro Debug Mode Enabled via RENTIKPRO_DEBUG=1");
+      }
+      
+      Ok(())
+    })
     .invoke_handler(tauri::generate_handler![
+      open_devtools,
       pick_project_folder,
       validate_project_folder,
       open_project_folder,

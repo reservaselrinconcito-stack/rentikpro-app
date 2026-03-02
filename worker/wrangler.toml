@@ -1,5 +1,6 @@
+account_id = "f5416f312829ebbc26f0f2e87f7fed87"
 
-name = "rentikpro-cm-proxy"
+name = "rentikpro-public-api"
 main = "src/index.js"
 compatibility_date = "2025-01-01"
 [durable_objects]
@@ -10,17 +11,17 @@ bindings = [
 
 [[kv_namespaces]]
 binding = "RENTIKPRO_CONFIGS"
-id = "RENTIKPRO_CONFIGS_ID_PLACEHOLDER"
+id = "d948902aae4c488cb7f8eff236362689"
 
 [[kv_namespaces]]
 binding = "SITE_CONFIGS"
-id = "SITE_CONFIGS_ID_PLACEHOLDER"
+id = "4b35c75d600747e9a155a444ba7f16ac"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "rentikpro-db"
-database_id = "RENTIKPRO_DB_ID_PLACEHOLDER"
+database_id = "68401809-a2f4-481a-9b24-22fe64c86b37"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["PublicRateLimiterDO"]
+new_sqlite_classes = ["PublicRateLimiterDO"]
