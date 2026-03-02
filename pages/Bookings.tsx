@@ -45,6 +45,8 @@ export const Bookings: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [filterApartment, setFilterApartment] = useState('ALL');
   const [filterStayStatus, setFilterStayStatus] = useState('ALL');
+  const [filterYear, setFilterYear] = useState('ALL');
+  const [filterMonth, setFilterMonth] = useState('ALL');
   const [includeBlocks, setIncludeBlocks] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -286,6 +288,26 @@ export const Bookings: React.FC = () => {
     return Array.from(channels).sort();
   }, [bookings]);
 
+  const uniqueYears = React.useMemo(() => {
+    const years = new Set(bookings.map(b => b.check_in.split('-')[0]));
+    return Array.from(years).sort((a, b) => b.localeCompare(a)); // Descending years
+  }, [bookings]);
+
+  const months = [
+    { value: '01', label: 'Enero' },
+    { value: '02', label: 'Febrero' },
+    { value: '03', label: 'Marzo' },
+    { value: '04', label: 'Abril' },
+    { value: '05', label: 'Mayo' },
+    { value: '06', label: 'Junio' },
+    { value: '07', label: 'Julio' },
+    { value: '08', label: 'Agosto' },
+    { value: '09', label: 'Septiembre' },
+    { value: '10', label: 'Octubre' },
+    { value: '11', label: 'Noviembre' },
+    { value: '12', label: 'Diciembre' }
+  ];
+
   const processedBookings = React.useMemo(() => {
     let result = [...bookings];
 
@@ -320,6 +342,12 @@ export const Bookings: React.FC = () => {
       }
       if (filterApartment !== 'ALL') {
         result = result.filter(b => b.apartment_id === filterApartment);
+      }
+      if (filterYear !== 'ALL') {
+        result = result.filter(b => b.check_in.startsWith(filterYear));
+      }
+      if (filterMonth !== 'ALL') {
+        result = result.filter(b => b.check_in.split('-')[1] === filterMonth);
       }
     }
 
@@ -385,7 +413,7 @@ export const Bookings: React.FC = () => {
           return 0;
       }
     });
-  }, [bookings, sortBy, allApartments, searchTerm, filterChannel, filterStatus, filterApartment, filterStayStatus, travelers]);
+  }, [bookings, sortBy, allApartments, searchTerm, filterChannel, filterStatus, filterApartment, filterStayStatus, filterYear, filterMonth, travelers]);
 
   const clearFilters = () => {
     setSearchTerm('');
@@ -393,6 +421,8 @@ export const Bookings: React.FC = () => {
     setFilterStatus('ALL');
     setFilterApartment('ALL');
     setFilterStayStatus('ALL');
+    setFilterYear('ALL');
+    setFilterMonth('ALL');
     setIncludeBlocks(false);
   };
 
@@ -761,6 +791,38 @@ export const Bookings: React.FC = () => {
                   <option value="pending">Pendiente</option>
                   <option value="cancelled">Cancelada</option>
                 </select>
+
+                <select
+                  value={filterYear}
+                  onChange={(e) => setFilterYear(e.target.value)}
+                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
+                >
+                  <option value="ALL">Cualquier Año</option>
+                  {uniqueYears.map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+
+                <select
+                  value={filterMonth}
+                  onChange={(e) => setFilterMonth(e.target.value)}
+                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
+                >
+                  <option value="ALL">Cualquier Mes</option>
+                  {months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
+                >
+                  <option value="checkin_asc">Entrada (↓)</option>
+                  <option value="checkin_desc">Entrada (↑)</option>
+                  <option value="checkout_asc">Salida (↓)</option>
+                  <option value="checkout_desc">Salida (↑)</option>
+                  <option value="created_desc">Más recientes</option>
+                  <option value="apartment">Apartamento</option>
+                  <option value="channel">Canal / Origen</option>
+                  <option value="status">Estado</option>
+                </select>
               </div>
 
               <button
@@ -772,7 +834,7 @@ export const Bookings: React.FC = () => {
             </>
           )}
 
-          {(searchTerm || (activeMainTab === 'ALL' && (filterChannel !== 'ALL' || filterStatus !== 'ALL' || filterApartment !== 'ALL' || includeBlocks))) && (
+          {(searchTerm || (activeMainTab === 'ALL' && (filterChannel !== 'ALL' || filterStatus !== 'ALL' || filterApartment !== 'ALL' || filterYear !== 'ALL' || filterMonth !== 'ALL' || includeBlocks))) && (
             <button
               onClick={() => { clearFilters(); }}
               className="flex items-center gap-2 px-4 py-3 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black hover:bg-rose-100 transition-colors"
