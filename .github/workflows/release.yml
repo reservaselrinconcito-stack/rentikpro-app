@@ -103,39 +103,40 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           TARGET="${{ matrix.tauri_args }}"
           TAG="${{ github.ref_name }}"
 
-          if echo "$TARGET" | grep -q "x86_64"; then
+          TRIPLE="$(echo "$TARGET" | sed -n 's/.*--target[[:space:]]\+\([^[:space:]]\+\).*/\1/p')"
+          if [ -z "$TRIPLE" ]; then
+            echo "❌ No target triple found in matrix.tauri_args: $TARGET"
+            exit 1
+          fi
+
+          if echo "$TRIPLE" | grep -q "x86_64"; then
             ARCH="x64"
-          elif echo "$TARGET" | grep -q "aarch64"; then
-            ARCH="arm64"
           else
             ARCH="arm64"
           fi
 
-          echo "Looking for signatures for $ARCH (tag: $TAG)"
+          BASE="src-tauri/target/$TRIPLE/release/bundle/macos"
+          echo "Looking for signatures for $ARCH (triple: $TRIPLE, tag: $TAG)"
+          echo "BASE=$BASE"
 
-          SIG_FILE=$(find src-tauri/target -path "*/bundle/macos/*.app.tar.gz.sig" | head -n 1 || true)
-          if [ -z "$SIG_FILE" ]; then
-            SIG_FILE=$(find src-tauri/target -path "*/bundle/macos/*.sig" | head -n 1 || true)
-          fi
-          if [ -z "$SIG_FILE" ]; then
-            SIG_FILE=$(find src-tauri/target -name "*.app.tar.gz.sig" | head -n 1 || true)
-          fi
+          echo "Artifacts in BASE (first 200):"
+          ls -la "$BASE" 2>/dev/null || true
+          find "$BASE" -type f \( -name "*.sig" -o -name "*.app.tar.gz" \) | sed -n '1,200p' || true
+
+          SIG_FILE="$(find "$BASE" -type f -name "*.app.tar.gz.sig" | head -n 1 || true)"
 
           if [ -z "$SIG_FILE" ]; then
-            echo "⚠️  WARNING: No .sig file found for macOS ($ARCH)."
-            echo "Available .sig files (if any):"
-            find src-tauri/target -name "*.sig" | sed -n '1,200p'
-
+            echo "⚠️  WARNING: No .app.tar.gz.sig found for $ARCH in $BASE"
             if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-              echo "❌ Signing key is configured but no signature was generated."
+              echo "❌ Signing key exists but signature not generated. Fix signing env in tauri-action step."
               exit 1
             fi
-
             exit 0
           fi
 
