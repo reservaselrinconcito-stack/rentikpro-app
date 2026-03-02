@@ -37,23 +37,61 @@ async function handleUpdateCheck(request, env) {
     const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 
     try {
+        const fetchHeaders = {
+            'User-Agent': 'RentikPro-Tauri-v2-Updater',
+            'Accept': 'application/vnd.github.v3+json'
+        };
+
+        if (env.GITHUB_TOKEN) {
+            fetchHeaders['Authorization'] = `Bearer ${env.GITHUB_TOKEN.trim()}`;
+        }
+
         const ghResponse = await fetch(GITHUB_API, {
-            headers: {
-                'User-Agent': 'RentikPro-Tauri-v2-Updater',
-                'Accept': 'application/vnd.github.v3+json',
-                'Authorization': `token ${env.GITHUB_TOKEN}`
-            },
+            headers: fetchHeaders,
         });
 
         if (!ghResponse.ok) {
             const errorMsg = await ghResponse.text();
-            return new Response(JSON.stringify({ error: 'GitHub API error', details: errorMsg }), {
+
+            // If token fails, try one last time WITHOUT token (if token was provided)
+            if (ghResponse.status === 401 && env.GITHUB_TOKEN) {
+                const retryResponse = await fetch(GITHUB_API, {
+                    headers: {
+                        'User-Agent': 'RentikPro-Tauri-v2-Updater',
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
+                if (retryResponse.ok) {
+                    return handleReleaseData(await retryResponse.json(), env);
+                }
+            }
+
+            return new Response(JSON.stringify({
+                error: 'GitHub API error',
                 status: ghResponse.status,
-                headers: { 'Content-Type': 'application/json' }
+                details: errorMsg,
+                hint: ghResponse.status === 401 ? 'Check GITHUB_TOKEN secret in Cloudflare' : undefined
+            }), {
+                status: ghResponse.status,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*'
+                }
             });
         }
 
         const release = await ghResponse.json();
+        return handleReleaseData(release, env);
+    } catch (err) {
+        return new Response(JSON.stringify({ error: 'Internal Server Error', details: err.message }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+        });
+    }
+}
+
+async function handleReleaseData(release, env) {
+    try {
         // Tauri v2 expects a semver version without leading 'v'
         const version = release.tag_name.replace(/^v/, '');
         const notes = release.body || 'Correcciones y mejoras generales.';

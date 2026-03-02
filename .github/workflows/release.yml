@@ -53,3 +53,32 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.tauri_args }}
+
+      - name: Upload Signatures (macOS)
+        if: matrix.os == 'macos-14'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TARGET="${{ matrix.tauri_args }}"
+          ARCH=$(echo $TARGET | grep -oE "arch64|x86_64" || echo "aarch64")
+          # Find the .app.tar.gz.sig and upload it with the correct name for the worker
+          SIG_FILE=$(find src-tauri/target -name "RentikPro.app.tar.gz.sig" | head -n 1)
+          if [ -f "$SIG_FILE" ]; then
+            echo "Uploading $SIG_FILE as RentikPro_${ARCH}.app.tar.gz.sig"
+            gh release upload ${{ github.ref_name }} "$SIG_FILE#RentikPro_${ARCH}.app.tar.gz.sig" --clobber
+          fi
+
+      - name: Upload Signatures (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Find the .exe.sig and upload it
+          $sig_exe = Get-ChildItem -Path src-tauri/target -Filter "RentikPro_*.exe.sig" -Recurse | Select-Object -First 1
+          if ($sig_exe) {
+            $name = $sig_exe.Name
+            echo "Uploading $($sig_exe.FullName) as $name"
+            gh release upload ${{ github.ref_name }} "$($sig_exe.FullName)#$name" --clobber
+          }
