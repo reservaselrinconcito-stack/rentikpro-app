@@ -11,7 +11,7 @@ use chrono::{Datelike, Timelike};
 use tauri::Manager;
 
 #[tauri::command]
-fn open_devtools(window: tauri::Window) {
+fn open_devtools(window: tauri::WebviewWindow) {
   #[cfg(debug_assertions)]
   {
     window.open_devtools();
