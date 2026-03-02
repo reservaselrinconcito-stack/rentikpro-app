@@ -62,11 +62,22 @@ jobs:
         run: |
           TARGET="${{ matrix.tauri_args }}"
           ARCH=$(echo $TARGET | grep -oE "arch64|x86_64" || echo "aarch64")
+          echo "Looking for signatures for $ARCH..."
+          # List all .sig files for debugging
+          find src-tauri/target -name "*.sig"
           # Find the .app.tar.gz.sig and upload it with the correct name for the worker
-          SIG_FILE=$(find src-tauri/target -name "RentikPro.app.tar.gz.sig" | head -n 1)
-          if [ -f "$SIG_FILE" ]; then
+          SIG_FILE=$(find src-tauri/target -name "*.app.tar.gz.sig" | head -n 1)
+          if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
             echo "Uploading $SIG_FILE as RentikPro_${ARCH}.app.tar.gz.sig"
             gh release upload ${{ github.ref_name }} "$SIG_FILE#RentikPro_${ARCH}.app.tar.gz.sig" --clobber
+          else
+            echo "❌ No .app.tar.gz.sig found for $ARCH"
+            # Try finding ANY sig file that looks like a bundle
+            SIG_ANY=$(find src-tauri/target -name "*.sig" | grep -v "latest.json" | head -n 1)
+            if [ -n "$SIG_ANY" ]; then
+               echo "Found alternative sig: $SIG_ANY, uploading as RentikPro_${ARCH}.app.tar.gz.sig"
+               gh release upload ${{ github.ref_name }} "$SIG_ANY#RentikPro_${ARCH}.app.tar.gz.sig" --clobber
+            fi
           fi
 
       - name: Upload Signatures (Windows)
@@ -76,9 +87,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Find the .exe.sig and upload it
-          $sig_exe = Get-ChildItem -Path src-tauri/target -Filter "RentikPro_*.exe.sig" -Recurse | Select-Object -First 1
+          echo "Looking for signatures on Windows..."
+          Get-ChildItem -Path src-tauri/target -Filter "*.sig" -Recurse
+          $sig_exe = Get-ChildItem -Path src-tauri/target -Filter "*.exe.sig" -Recurse | Select-Object -First 1
           if ($sig_exe) {
             $name = $sig_exe.Name
-            echo "Uploading $($sig_exe.FullName) as $name"
+            Write-Host "Uploading $($sig_exe.FullName) as $name"
             gh release upload ${{ github.ref_name }} "$($sig_exe.FullName)#$name" --clobber
+          } else {
+            Write-Host "❌ No .exe.sig found"
+            $any_sig = Get-ChildItem -Path src-tauri/target -Filter "*.sig" -Recurse | Where-Object { $_.Name -notmatch "latest.json" } | Select-Object -First 1
+            if ($any_sig) {
+               Write-Host "Found alternative sig: $($any_sig.Name), uploading as RentikPro_x64-setup.exe.sig"
+               gh release upload ${{ github.ref_name }} "$($any_sig.FullName)#RentikPro_x64-setup.exe.sig" --clobber
+            }
           }
