@@ -55,3 +55,19 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload Tauri signatures
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SIG_DIR="src-tauri/target"
+          mapfile -t SIG_FILES < <(find "$SIG_DIR" -type f -name "*.sig")
+
+          if [ ${#SIG_FILES[@]} -eq 0 ]; then
+            echo "No .sig files found in $SIG_DIR. Failing release to avoid unsigned artifacts." >&2
+            exit 1
+          fi
+
+          echo "Found ${#SIG_FILES[@]} signature(s). Uploading to release ${GITHUB_REF_NAME}."
+          gh release upload "${GITHUB_REF_NAME}" "${SIG_FILES[@]}" --clobber
