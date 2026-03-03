@@ -25,6 +25,43 @@ fn open_devtools(window: tauri::WebviewWindow) {
   }
 }
 
+#[derive(serde::Serialize)]
+struct IcalFetchResult {
+  status: u16,
+  body: String,
+  etag: Option<String>,
+  last_modified: Option<String>,
+  content_type: Option<String>,
+}
+
+#[tauri::command]
+async fn fetch_ical_url(url: String, etag: Option<String>, last_modified: Option<String>) -> Result<IcalFetchResult, String> {
+  let client = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(20))
+    .user_agent("RentikPro/2 (calendar-sync)")
+    .build()
+    .map_err(|e| e.to_string())?;
+
+  let mut req = client.get(&url)
+    .header("Accept", "text/calendar, text/plain, */*");
+
+  if let Some(e) = etag {
+    req = req.header("If-None-Match", e);
+  }
+  if let Some(lm) = last_modified {
+    req = req.header("If-Modified-Since", lm);
+  }
+
+  let resp = req.send().await.map_err(|e| format!("Fetch error: {e}"))?;
+  let status = resp.status().as_u16();
+  let etag_out = resp.headers().get("etag").and_then(|v| v.to_str().ok()).map(String::from);
+  let lm_out = resp.headers().get("last-modified").and_then(|v| v.to_str().ok()).map(String::from);
+  let ct_out = resp.headers().get("content-type").and_then(|v| v.to_str().ok()).map(String::from);
+  let body = resp.text().await.map_err(|e| format!("Read error: {e}"))?;
+
+  Ok(IcalFetchResult { status, body, etag: etag_out, last_modified: lm_out, content_type: ct_out })
+}
+
 fn main() {
   let debug_enabled = std::env::var("RENTIKPRO_DEBUG").map(|v| v == "1").unwrap_or(false);
   
@@ -50,6 +87,7 @@ fn main() {
     })
     .invoke_handler(tauri::generate_handler![
       open_devtools,
+      fetch_ical_url,
       pick_project_folder,
       validate_project_folder,
       open_project_folder,

@@ -4,15 +4,39 @@ import { ChannelConnection, CalendarEvent } from '../../types';
 import { parseICal } from '../iCalParser';
 import { networkMonitor } from '../networkMonitor';
 import { iCalLogger } from '../iCalLogger';
+import { invoke } from '@tauri-apps/api/core';
 
-// Use Tauri's native HTTP client to avoid CORS (no Origin header).
-// Falls back to browser fetch in dev/web mode.
-async function icalFetch(url: string, options: RequestInit): Promise<Response> {
+interface IcalFetchResult {
+   status: number;
+   body: string;
+   etag?: string;
+   last_modified?: string;
+   content_type?: string;
+}
+
+// Fetch via Tauri Rust command (no CORS, no Origin header).
+// Falls back to browser fetch when not in Tauri (dev/web mode).
+async function icalFetch(url: string, etag?: string, lastModified?: string): Promise<{ status: number; body: string; etag?: string; lastModified?: string; contentType?: string }> {
    try {
-      const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
-      return tauriFetch(url, { ...options, connectTimeout: 15000 } as any) as unknown as Response;
+      const result = await invoke<IcalFetchResult>('fetch_ical_url', {
+         url,
+         etag: etag ?? null,
+         lastModified: lastModified ?? null,
+      });
+      return { status: result.status, body: result.body, etag: result.etag, lastModified: result.last_modified, contentType: result.content_type };
    } catch {
-      return fetch(url, options);
+      const headers: HeadersInit = { 'Accept': 'text/calendar, text/plain, */*' };
+      if (etag) headers['If-None-Match'] = etag;
+      if (lastModified) headers['If-Modified-Since'] = lastModified;
+      const resp = await fetch(url, { headers });
+      const body = await resp.text();
+      return {
+         status: resp.status,
+         body,
+         etag: resp.headers.get('etag') ?? undefined,
+         lastModified: resp.headers.get('last-modified') ?? undefined,
+         contentType: resp.headers.get('content-type') ?? undefined,
+      };
    }
 }
 
@@ -30,188 +54,80 @@ export class ICalAdapter implements IChannelAdapter {
    async pullReservations(conn: ChannelConnection): Promise<SyncResult> {
       if (!conn.ical_url) throw new Error("URL iCal vacía");
 
-      // DEMO PROTECTION
       if (typeof window !== 'undefined' && localStorage.getItem('active_project_mode') === 'demo') {
          iCalLogger.logWarn('SYNC', 'Demo mode detected, skipping remote sync.');
          return { events: [], metadataUpdates: {}, log: 'Sincronización omitida (Modo DEMO)' };
       }
 
-      // MOCK SUPPORT
       if (conn.ical_url.startsWith('mock://')) {
          iCalLogger.logInfo('FETCH', 'Using Mock URL', { url: conn.ical_url });
-         return {
-            events: [],
-            metadataUpdates: {},
-            log: 'Simulación completada (Mock)'
-         };
+         return { events: [], metadataUpdates: {}, log: 'Simulación completada (Mock)' };
       }
 
       if (!networkMonitor.isOnline()) throw new Error("Offline");
 
       const isVrbo = /vrbo|abritel|fewo-direkt/i.test(conn.ical_url);
 
-      const headers: HeadersInit = {
-         // NOTE: Do not set forbidden headers like UA in browser fetch.
-         'Accept': 'text/calendar, text/plain, */*'
-      };
-      if (conn.http_etag) headers['If-None-Match'] = conn.http_etag;
+      iCalLogger.logInfo('FETCH', 'Fetching via native HTTP', { url: conn.ical_url.substring(0, 60) + '...' });
 
-      let response: Response | null = null;
-      let usedProxy = false;
+      let result: { status: number; body: string; etag?: string; lastModified?: string; contentType?: string };
+      try {
+         result = await icalFetch(conn.ical_url, conn.http_etag ?? undefined, conn.http_last_modified ?? undefined);
+      } catch (err: any) {
+         iCalLogger.logError('FETCH', `Error: ${err.message}`);
+         throw new Error(`Error de conexión: ${err.message}`);
+      }
 
-      // STRATEGY: Direct vs Proxy
-      if (conn.force_direct) {
-         try {
-            iCalLogger.logInfo('FETCH', 'Forcing Direct Connection', { url: conn.ical_url.substring(0, 50) + '...' });
-            const directRes = await icalFetch(conn.ical_url, { headers, cache: 'no-store' });
-            response = directRes as Response;
-            (response as any)._cachedBody = await directRes.text();
-         } catch (e: any) {
-            iCalLogger.logError('FETCH', `Direct Error: ${e.message}`);
-            throw new Error(`DIRECT ERROR: ${e.message}. Desactiva 'Forzar conexión directa'.`);
+      const { status, body: bodyText, etag: newEtag, lastModified: newLastMod, contentType } = result;
+
+      if (status === 304) {
+         return { events: [], metadataUpdates: {}, log: 'Sin cambios (304 Not Modified)' };
+      }
+
+      if (status === 401 || status === 403) {
+         const looksHtml = (contentType || '').includes('text/html') || bodyText.trim().toLowerCase().startsWith('<!doctype html');
+         if (looksHtml) {
+            iCalLogger.logWarn('VALIDATE', 'Blocked by provider (HTML on error status)', { status });
+            return { events: [], metadataUpdates: {}, status: 'blocked' as any, reason: 'anti-bot', log: 'Bloqueado por proveedor (Anti-bot).' };
          }
-      } else {
-         // USE CENTRALIZED WRAPPER (MINI-BLOQUE F5)
-         try {
-            response = await icalFetch(conn.ical_url, { headers, cache: 'no-store' });
-            usedProxy = false;
-
-            const bodyText = (response as any)._cachedBody || "";
-
-            // Handle Specific Blocks preserved from earlier hardening
-            if (response.status === 401 || response.status === 403 || response.status === 429) {
-                let errorMsg = response.status === 429
-                   ? "Límite de peticiones alcanzado en el proxy."
-                   : "El proveedor bloquea accesos desde navegador. Revisa URL/token o usa integración alternativa.";
-
-                // Defensive: some anti-bot systems return HTML (captcha) with 403/429.
-                const ct = (response.headers.get('Content-Type') || '').toLowerCase();
-                const looksHtml = ct.includes('text/html') || bodyText.trim().toLowerCase().startsWith('<!doctype html') || bodyText.includes('<html');
-                if (looksHtml) {
-                   iCalLogger.logWarn('VALIDATE', 'Blocked by provider (HTML on error status)', { status: response.status, contentType: ct });
-                   return {
-                      events: [],
-                      metadataUpdates: {},
-                      status: 'blocked',
-                      reason: 'anti-bot',
-                      log: 'Bloqueado por proveedor (Anti-bot).'
-                   };
-                }
-
-               // Probar si es JSON (V3 hardening)
-               try {
-                  const data = JSON.parse(bodyText);
-                  if (data.code === "DOMAIN_NOT_ALLOWED") {
-                     errorMsg = `Dominio no permitido en el Proxy: ${data.host || 'desconocido'}.`;
-                     const fatalError = new Error(errorMsg);
-                     (fatalError as any).fatal = true;
-                     throw fatalError;
-                  }
-               } catch (e: any) {
-                  if (e.fatal) throw e;
-                  // Si no es JSON, fallback al texto plano antiguo
-                  if (response.status === 403 && (bodyText.includes("Host not allowed") || bodyText.includes("Dominio no permitido"))) {
-                     errorMsg = "Dominio no permitido en el Proxy central.";
-                     const fatalError = new Error(errorMsg);
-                     (fatalError as any).fatal = true;
-                     throw fatalError;
-                  }
-               }
-                throw new Error(errorMsg);
-             }
-
-            if ((response.status === 400 || response.status === 401) && bodyText.includes("Invalid Token")) {
-               const errorMsg = "Token de Booking inválido o caducado. Por favor, pega un nuevo enlace.";
-               const fatalError = new Error(errorMsg);
-               (fatalError as any).fatal = true;
-               throw fatalError;
-            }
-
-            if (!response.ok && response.status >= 500) {
-               throw new Error(`Proxy error ${response.status}`);
-            }
-
-         } catch (err: any) {
-            iCalLogger.logError('FETCH', `Wrapper Error: ${err.message}`);
-            // If it's a fatal error or we already tried direct fallback logic, rethrow
-            if (err.fatal) throw err;
-
-            // Fallback DIRECT (Simplified from previous version)
-            iCalLogger.logWarn('FETCH', 'Proxy failed. Trying direct fallback...');
-            try {
-               const direct = await icalFetch(conn.ical_url, { headers, cache: 'no-store' });
-               response = direct as Response;
-               (response as any)._cachedBody = await direct.text();
-               usedProxy = false;
-            } catch (dErr: any) {
-               throw new Error(`Error de conexión: ${err.message}. Direct fell back too: ${dErr.message}`);
-            }
+         if (status === 401 && bodyText.includes("Invalid Token")) {
+            const e = new Error("Token de Booking inválido o caducado. Por favor, pega un nuevo enlace.");
+            (e as any).fatal = true; throw e;
          }
+         throw new Error("El proveedor rechazó la petición (403). Revisa la URL o el token.");
       }
 
-      if (!response) throw new Error("No response received");
+      if (status === 429) throw new Error("Límite de peticiones alcanzado (429).");
+      if (status >= 500) throw new Error(`Error del servidor: HTTP ${status}`);
+      if (status >= 400) throw new Error(`HTTP ${status}: ${bodyText.substring(0, 120)}`);
 
-      // 304 NOT MODIFIED
-      if (response.status === 304) {
-         return {
-            events: [],
-            metadataUpdates: {},
-            log: `Sin cambios (304 Not Modified - ${usedProxy ? 'Worker' : 'Direct'})`
-         };
-      }
-
-      // GET BODY (Read from cache if proxy was used, otherwise read now)
-      const bodyText = (response as any)._cachedBody !== undefined
-         ? (response as any)._cachedBody
-         : await response.text();
-
-      if (!response.ok) {
-         const errorDetails = bodyText.substring(0, 160).replace(/\n/g, ' ');
-         throw new Error(`HTTP ${response.status}: ${errorDetails}`);
-      }
-
-      // VALIDATION: Check for HTML (Anti-bot Blocking)
-      const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
-      const isHtml = contentType.includes('text/html') ||
+      const isHtml = (contentType || '').includes('text/html') ||
          bodyText.trim().toLowerCase().startsWith('<!doctype html') ||
          bodyText.includes('<html');
 
       if (isHtml) {
-         const isCaptcha = bodyText.includes('captcha') || bodyText.includes('robot');
-         const platform = isVrbo ? 'VRBO' : 'la plataforma';
-         iCalLogger.logError('VALIDATE', 'Received HTML instead of iCal (Possible blocking)', { contentType });
-         throw new Error(`Bloqueo de seguridad detectado. ${platform} devolvió una página web (HTML) en lugar del calendario. Posible Captcha/Anti-bot.`);
+         iCalLogger.logError('VALIDATE', 'Received HTML instead of iCal', { contentType });
+         throw new Error(`${isVrbo ? 'VRBO' : 'La plataforma'} devolvió HTML en lugar del calendario. Posible Captcha/Anti-bot.`);
       }
 
       if (!bodyText.includes('BEGIN:VCALENDAR')) {
-         iCalLogger.logError('VALIDATE', 'Invalid iCal content (MISSING BEGIN:VCALENDAR)');
-         throw new Error("Contenido inválido (No es iCal). El archivo descargado no parece un calendario válido.");
+         iCalLogger.logError('VALIDATE', 'Invalid iCal (MISSING BEGIN:VCALENDAR)');
+         throw new Error("Contenido inválido: no es un iCal válido.");
       }
 
-      // HASH CHECK
       const currentHash = await hashContent(bodyText);
-      const newEtag = response.headers.get('ETag') || undefined;
-      const newLastMod = response.headers.get('Last-Modified') || undefined;
 
       if (conn.content_hash === currentHash) {
-         return {
-            events: [],
-            metadataUpdates: { http_etag: newEtag },
-            log: `Sin cambios (Hash Local - ${usedProxy ? 'Worker' : 'Direct'})`
-         };
+         return { events: [], metadataUpdates: { http_etag: newEtag }, log: 'Sin cambios (Hash Local)' };
       }
 
-      // PARSE
       const rawEvents = parseICal(bodyText);
-
-      // MINI-BLOQUE B4: Loop Guard - Filter out RentikPro's own exported events
       const validRawEvents = rawEvents.filter(e => {
          const hasDates = e.startDate && e.endDate;
-         const isOwnEvent = e.uid && (e.uid.includes('@rentikpro.'));
+         const isOwnEvent = e.uid && e.uid.includes('@rentikpro.');
          return hasDates && !isOwnEvent;
       });
 
-      // MAP TO CalendarEvent PARTIALS
       const mappedEvents: Partial<CalendarEvent>[] = validRawEvents.map(raw => ({
          external_uid: raw.uid,
          ical_uid: raw.uid,
@@ -226,12 +142,8 @@ export class ICalAdapter implements IChannelAdapter {
 
       return {
          events: mappedEvents,
-         metadataUpdates: {
-            content_hash: currentHash,
-            http_etag: newEtag,
-            http_last_modified: newLastMod
-         },
-         log: `Descarga OK (${validRawEvents.length} eventos) - ${usedProxy ? 'Worker' : 'Direct'}`
+         metadataUpdates: { content_hash: currentHash, http_etag: newEtag, http_last_modified: newLastMod },
+         log: `Descarga OK (${validRawEvents.length} eventos) - Native HTTP`
       };
    }
 
