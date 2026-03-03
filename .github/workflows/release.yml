@@ -61,16 +61,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
           SIG_DIR="src-tauri/target"
-          mapfile -t SIG_FILES < <(find "$SIG_DIR" -type f -name "*.sig")
 
-          if [ ${#SIG_FILES[@]} -eq 0 ]; then
-            echo "No .sig files found in $SIG_DIR. Failing release to avoid unsigned artifacts." >&2
+          echo "Scanning for tauri updater signatures (*.tar.gz.sig) under $SIG_DIR"
+          SIG_FILES=$(find "$SIG_DIR" -type f -name "*.tar.gz.sig" -print | sed -n "1,500p")
+
+          if [ -z "$SIG_FILES" ]; then
+            echo "No *.tar.gz.sig files found in $SIG_DIR. Failing release to avoid unsigned updater artifacts." >&2
+            echo "Debug (first 200 matching macOS bundles):" >&2
+            find "$SIG_DIR" -type f \( -name "*.app.tar.gz" -o -name "*.tar.gz.sig" -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \) | sed -n "1,200p" >&2
             exit 1
           fi
 
-          echo "Found ${#SIG_FILES[@]} signature(s). Uploading to release ${GITHUB_REF_NAME}."
-          gh release upload "${GITHUB_REF_NAME}" "${SIG_FILES[@]}" --clobber
+          echo "Found signatures:"
+          echo "$SIG_FILES"
+
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            echo "Uploading $f"
+            gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
+          done <<< "$SIG_FILES"
 
       - name: Validate release assets
         shell: bash
