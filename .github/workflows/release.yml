@@ -60,7 +60,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          find src-tauri/target -maxdepth 6 -type f \( -name "*.app.tar.gz" -o -name "*.tar.gz.sig" -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \) | sort | sed -n '1,250p'
+          find src-tauri/target -maxdepth 6 -type f \( \
+            -name "*.app.tar.gz" -o -name "*.tar.gz.sig" \
+            -o -name "*.nsis.zip" -o -name "*.nsis.zip.sig" \
+            -o -name "*.msi.zip" -o -name "*.msi.zip.sig" \
+            -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \
+          \) | sort | sed -n '1,250p'
 
       - name: Upload Tauri signatures
         shell: bash
@@ -70,13 +75,21 @@ jobs:
           set -euo pipefail
           SIG_DIR="src-tauri/target"
 
-          echo "Scanning for tauri updater signatures (*.tar.gz.sig) under $SIG_DIR"
-          SIG_FILES=$(find "$SIG_DIR" -type f -name "*.tar.gz.sig" -print | sort)
+          echo "Scanning for tauri updater signatures under $SIG_DIR"
+          # macOS: *.tar.gz.sig  |  Windows: *.nsis.zip.sig or *.msi.zip.sig
+          SIG_FILES=$(find "$SIG_DIR" -type f \( \
+            -name "*.tar.gz.sig" -o -name "*.nsis.zip.sig" -o -name "*.msi.zip.sig" \
+          \) -print | sort)
 
           if [ -z "$SIG_FILES" ]; then
-            echo "No *.tar.gz.sig files found in $SIG_DIR. Failing release to avoid unsigned updater artifacts." >&2
-            echo "Debug (first 200 matching macOS bundles):" >&2
-            find "$SIG_DIR" -type f \( -name "*.app.tar.gz" -o -name "*.tar.gz.sig" -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \) | sed -n "1,200p" >&2
+            echo "No updater signature files found in $SIG_DIR." >&2
+            echo "Debug (bundles found):" >&2
+            find "$SIG_DIR" -type f \( \
+              -name "*.app.tar.gz" -o -name "*.tar.gz.sig" \
+              -o -name "*.nsis.zip" -o -name "*.nsis.zip.sig" \
+              -o -name "*.msi.zip" -o -name "*.msi.zip.sig" \
+              -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \
+            \) | sed -n "1,200p" >&2
             exit 1
           fi
 
@@ -99,12 +112,23 @@ jobs:
 
           ASSETS="$(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name')"
 
-          required_assets=(
-            "RentikPro_x64.app.tar.gz"
-            "RentikPro_x64.app.tar.gz.sig"
-            "RentikPro_aarch64.app.tar.gz"
-            "RentikPro_aarch64.app.tar.gz.sig"
-          )
+          # macOS jobs validate macOS artifacts; Windows job validates Windows artifacts
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            if echo "${{ matrix.args }}" | grep -q "x86_64"; then
+              required_assets=("RentikPro_x64.app.tar.gz" "RentikPro_x64.app.tar.gz.sig")
+            else
+              required_assets=("RentikPro_aarch64.app.tar.gz" "RentikPro_aarch64.app.tar.gz.sig")
+            fi
+          else
+            # Windows: .nsis.zip.sig or .msi.zip.sig — check at least one .sig exists
+            if echo "$ASSETS" | grep -qE '\.(nsis|msi)\.zip\.sig$'; then
+              echo "OK: Windows updater signature found"
+              exit 0
+            else
+              echo "MISSING: Windows updater signature (*.nsis.zip.sig or *.msi.zip.sig)" >&2
+              exit 1
+            fi
+          fi
 
           missing=0
           for required in "${required_assets[@]}"; do
@@ -117,6 +141,6 @@ jobs:
           done
 
           if [ $missing -ne 0 ]; then
-            echo "Release asset validation failed. Missing required updater artifacts." >&2
+            echo "Release asset validation failed." >&2
             exit 1
           fi
