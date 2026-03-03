@@ -16,6 +16,7 @@
 import { ICalAdapter } from './channelAdapters/icalAdapter';
 import { projectManager } from './projectManager';
 import { iCalLogger } from './iCalLogger';
+import { dedupeEvents, computeFingerprint } from './iCalDedupeService';
 import type { ChannelConnection, CalendarEvent } from '../types';
 
 const adapter = new ICalAdapter();
@@ -47,7 +48,56 @@ export const iCalSyncService = {
       const result = await this.syncConnection(conn);
       results.push(result);
     }
+
+    // Cross-connection dedupe: after all syncs, dedupe all active events per apartment
+    try {
+      await this.runDedupeForAll(apartmentId);
+    } catch (e: any) {
+      iCalLogger.logWarn('DEDUPE', `Dedupe step failed (non-fatal): ${e.message}`);
+    }
+
     return results;
+  },
+
+  async runDedupeForAll(apartmentId?: string): Promise<void> {
+    const store = projectManager.getStore();
+    const connections = await store.getChannelConnections(apartmentId);
+    const channelMap = new Map(connections.map((c: ChannelConnection) => [c.id, c.channel_name || '']));
+
+    // Build a map of all events grouped by apartment
+    const allEvents: CalendarEvent[] = await store.getCalendarEvents();
+    const byApartment = new Map<string, CalendarEvent[]>();
+    for (const evt of allEvents) {
+      if (evt.status === 'cancelled') continue;
+      const key = evt.apartment_id || evt.property_id || 'unknown';
+      if (!byApartment.has(key)) byApartment.set(key, []);
+      byApartment.get(key)!.push(evt);
+    }
+
+    for (const [, events] of byApartment) {
+      const { masters, duplicates } = dedupeEvents(events, channelMap);
+      for (const evt of masters) {
+        await store.saveCalendarEvent(evt);
+        // Propagate is_duplicate=0 to linked booking if exists
+        if ((evt as any).booking_id) {
+          await store.executeWithParams(
+            'UPDATE bookings SET is_duplicate = 0 WHERE id = ?',
+            [(evt as any).booking_id]
+          ).catch(() => {});
+        }
+      }
+      for (const evt of duplicates) {
+        await store.saveCalendarEvent(evt);
+        // Propagate is_duplicate=1 to linked booking so calendar filters it out
+        if ((evt as any).booking_id) {
+          await store.executeWithParams(
+            'UPDATE bookings SET is_duplicate = 1 WHERE id = ?',
+            [(evt as any).booking_id]
+          ).catch(() => {});
+        }
+      }
+    }
+    iCalLogger.logInfo('DEDUPE', `Dedupe complete`);
   },
 
   /**
@@ -126,7 +176,7 @@ export const iCalSyncService = {
             }
           } else if (!isCancelled) {
             // New event
-            await store.saveCalendarEvent({
+            const newEvt: CalendarEvent = {
               id: `cev-${conn.id}-${partial.external_uid}-${now}`.slice(0, 64),
               connection_id: conn.id,
               apartment_id: conn.apartment_id,
@@ -142,7 +192,9 @@ export const iCalSyncService = {
               source: conn.channel_name || 'ICAL',
               created_at: now,
               updated_at: now,
-            } as unknown as CalendarEvent);
+            } as unknown as CalendarEvent;
+            (newEvt as any).fingerprint = computeFingerprint(newEvt);
+            await store.saveCalendarEvent(newEvt);
             result.eventsAdded++;
           }
         }

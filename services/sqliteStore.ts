@@ -1483,6 +1483,26 @@ export class SQLiteStore implements IDataStore {
     await this.safeMigration("ALTER TABLE bookings ADD COLUMN ota TEXT", "Add ota to bookings");
     await this.safeMigration("ALTER TABLE bookings ADD COLUMN locator TEXT", "Add locator to bookings");
 
+    // ICAL DEDUPE + FINGERPRINT
+    await this.safeMigration("ALTER TABLE calendar_events ADD COLUMN fingerprint TEXT", "Add fingerprint to calendar_events");
+    await this.safeMigration("ALTER TABLE calendar_events ADD COLUMN master_event_id TEXT", "Add master_event_id to calendar_events");
+    await this.safeMigration("ALTER TABLE calendar_events ADD COLUMN is_duplicate INTEGER DEFAULT 0", "Add is_duplicate to calendar_events");
+    await this.safeMigration("ALTER TABLE calendar_events ADD COLUMN linked_sources TEXT", "Add linked_sources to calendar_events");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN is_duplicate INTEGER DEFAULT 0", "Add is_duplicate to bookings");
+    await this.execute(`CREATE INDEX IF NOT EXISTS idx_cal_events_fp ON calendar_events(fingerprint)`);
+    await this.execute(`CREATE INDEX IF NOT EXISTS idx_cal_events_dup ON calendar_events(is_duplicate, property_id)`);
+
+    // OTA COMMISSIONS
+    await this.execute(`CREATE TABLE IF NOT EXISTS channel_commissions (
+      id TEXT PRIMARY KEY,
+      channel_name TEXT UNIQUE NOT NULL,
+      commission_type TEXT NOT NULL DEFAULT 'percent',
+      commission_value REAL NOT NULL DEFAULT 0,
+      updated_at INTEGER
+    )`);
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN commission_override REAL", "Add commission_override to bookings");
+    await this.safeMigration("ALTER TABLE bookings ADD COLUMN commission_type_override TEXT", "Add commission_type_override to bookings");
+
     // BLOCK APARTMENT PRICE: PRECIO PÚBLICO
     await this.safeMigration("ALTER TABLE apartments ADD COLUMN public_base_price REAL", "Add public_base_price to apartments");
     await this.safeMigration("ALTER TABLE apartments ADD COLUMN currency TEXT DEFAULT 'EUR'", "Add currency to apartments");
@@ -2192,13 +2212,16 @@ export class SQLiteStore implements IDataStore {
     const columns = [
       'id', 'connection_id', 'external_uid', 'property_id', 'apartment_id',
       'start_date', 'end_date', 'status', 'summary', 'description',
-      'raw_data', 'created_at', 'updated_at', 'booking_id'
+      'raw_data', 'created_at', 'updated_at', 'booking_id',
+      'fingerprint', 'master_event_id', 'is_duplicate', 'linked_sources'
     ];
     const values: any[] = [
       evt.id, evt.connection_id, evt.external_uid, evt.property_id,
       evt.apartment_id, evt.start_date, evt.end_date, evt.status,
       evt.summary || null, evt.description || null, evt.raw_data || null,
-      evt.created_at, evt.updated_at, evt.booking_id || null
+      evt.created_at, evt.updated_at, evt.booking_id || null,
+      (evt as any).fingerprint || null, (evt as any).master_event_id || null,
+      (evt as any).is_duplicate ? 1 : 0, (evt as any).linked_sources || null,
     ];
 
     if (this.schemaFlags.calendar_event_kind) {
@@ -2251,6 +2274,23 @@ export class SQLiteStore implements IDataStore {
 
   async deleteCalendarEventsByConnection(connectionId: string): Promise<void> {
     await this.executeWithParams("DELETE FROM calendar_events WHERE connection_id = ?", [connectionId]);
+  }
+
+  async getChannelCommissions(): Promise<any[]> {
+    return this.query("SELECT * FROM channel_commissions ORDER BY channel_name");
+  }
+
+  async saveChannelCommission(commission: { channel_name: string; commission_type: string; commission_value: number }): Promise<void> {
+    const id = `comm_${commission.channel_name.toLowerCase().replace(/\s+/g, '_')}`;
+    await this.executeWithParams(
+      `INSERT OR REPLACE INTO channel_commissions (id, channel_name, commission_type, commission_value, updated_at)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, commission.channel_name, commission.commission_type, commission.commission_value, Date.now()]
+    );
+  }
+
+  async deleteChannelCommission(channelName: string): Promise<void> {
+    await this.executeWithParams("DELETE FROM channel_commissions WHERE channel_name = ?", [channelName]);
   }
 
   // --- PRICING FOUNDATION METHODS ---

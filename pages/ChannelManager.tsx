@@ -72,7 +72,7 @@ export const ChannelManager: React.FC = () => {
    const [publicCurrency, setPublicCurrency] = useState('EUR');
    const [isSavingPrice, setIsSavingPrice] = useState(false);
 
-   const [activeTab, setActiveTab] = useState<'channels' | 'pricing'>('channels');
+   const [activeTab, setActiveTab] = useState<'channels' | 'pricing' | 'commissions'>('channels');
    const [pricingDefaults, setPricingDefaults] = useState<PricingDefaults | null>(null);
    const [nightlyRates, setNightlyRates] = useState<NightlyRateOverride[]>([]);
    const [selectionRange, setSelectionRange] = useState<{ start: string | null, end: string | null }>({ start: null, end: null });
@@ -103,6 +103,27 @@ export const ChannelManager: React.FC = () => {
    // Modals
    const [isConnModalOpen, setIsConnModalOpen] = useState(false);
    const [connForm, setConnForm] = useState<Partial<ChannelConnection>>({ channel_name: 'AIRBNB', ical_url: '', alias: '', priority: 50, enabled: true, force_direct: false });
+
+   // Commissions
+   const [commissions, setCommissions] = useState<Array<{ channel_name: string; commission_type: string; commission_value: number }>>([]);
+   const [commForm, setCommForm] = useState({ channel_name: 'AIRBNB', commission_type: 'percent', commission_value: 15 });
+   const [isSavingComm, setIsSavingComm] = useState(false);
+   useEffect(() => {
+      projectManager.getStore().getChannelCommissions().then(setCommissions).catch(() => {});
+   }, []);
+   const saveCommission = async () => {
+      setIsSavingComm(true);
+      try {
+         await projectManager.getStore().saveChannelCommission(commForm);
+         const updated = await projectManager.getStore().getChannelCommissions();
+         setCommissions(updated);
+         setCommForm({ channel_name: 'AIRBNB', commission_type: 'percent', commission_value: 15 });
+      } finally { setIsSavingComm(false); }
+   };
+   const deleteCommission = async (channelName: string) => {
+      await projectManager.getStore().deleteChannelCommission(channelName);
+      setCommissions(prev => prev.filter((c: any) => c.channel_name !== channelName));
+   };
 
    // ... (existing imports)
 
@@ -702,6 +723,12 @@ export const ChannelManager: React.FC = () => {
                         >
                            <BarChart3 size={14} /> Pricing Studio
                         </button>
+                        <button
+                           onClick={() => setActiveTab('commissions')}
+                           className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black transition-all ${activeTab === 'commissions' ? 'bg-white text-amber-600 shadow-sm border border-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
+                        >
+                           <BarChart3 size={14} /> Comisiones OTA
+                        </button>
                      </div>
 
                      {activeTab === 'channels' ? (
@@ -737,6 +764,56 @@ export const ChannelManager: React.FC = () => {
                               <button onClick={() => setShowLogs(!showLogs)} className="w-full text-left text-xs font-bold uppercase tracking-widest hover:bg-slate-800 transition-colors flex items-center gap-2"><HistoryIcon size={14} /> Log de Sincronización</button>
                            </div>
                         </>
+                     ) : activeTab === 'commissions' ? (
+                        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/20">
+                           <div className="max-w-xl mx-auto space-y-6">
+                              <h3 className="text-xl font-black text-slate-800">Comisiones por Canal OTA</h3>
+                              <p className="text-sm text-slate-500">Define el % o importe fijo que cobra cada OTA. Se aplicará automáticamente al calcular el neto en cada reserva.</p>
+                              {commissions.length > 0 && (
+                                 <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100">
+                                    {commissions.map((c: any) => (
+                                       <div key={c.channel_name} className="flex items-center justify-between px-5 py-4">
+                                          <div>
+                                             <span className="font-black text-slate-800">{c.channel_name}</span>
+                                             <span className="ml-3 text-sm text-slate-500">{c.commission_value}{c.commission_type === 'percent' ? '%' : '€ fijo'}</span>
+                                          </div>
+                                          <button onClick={() => deleteCommission(c.channel_name)} className="text-rose-400 hover:text-rose-600 text-xs font-bold px-3 py-1 rounded-lg hover:bg-rose-50">Eliminar</button>
+                                       </div>
+                                    ))}
+                                 </div>
+                              )}
+                              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+                                 <h4 className="font-black text-sm text-slate-700">Añadir / actualizar comisión</h4>
+                                 <div className="grid grid-cols-3 gap-3">
+                                    <div className="space-y-1">
+                                       <label className="text-[10px] font-black text-slate-400 uppercase">Canal</label>
+                                       <select className="w-full p-3 bg-slate-50 border rounded-xl text-sm font-bold" value={commForm.channel_name} onChange={e => setCommForm({ ...commForm, channel_name: e.target.value })}>
+                                          <option value="AIRBNB">Airbnb</option>
+                                          <option value="BOOKING">Booking.com</option>
+                                          <option value="VRBO">VRBO</option>
+                                          <option value="ESCAPADA_RURAL">Escapada Rural</option>
+                                          <option value="MANUAL">Manual</option>
+                                       </select>
+                                    </div>
+                                    <div className="space-y-1">
+                                       <label className="text-[10px] font-black text-slate-400 uppercase">Tipo</label>
+                                       <select className="w-full p-3 bg-slate-50 border rounded-xl text-sm font-bold" value={commForm.commission_type} onChange={e => setCommForm({ ...commForm, commission_type: e.target.value })}>
+                                          <option value="percent">% Porcentaje</option>
+                                          <option value="fixed">€ Fijo</option>
+                                       </select>
+                                    </div>
+                                    <div className="space-y-1">
+                                       <label className="text-[10px] font-black text-slate-400 uppercase">Valor {commForm.commission_type === 'percent' ? '(%)' : '(€)'}</label>
+                                       <input type="number" min="0" step="0.01" className="w-full p-3 bg-slate-50 border rounded-xl text-sm font-bold" value={commForm.commission_value} onChange={e => setCommForm({ ...commForm, commission_value: Number(e.target.value) })} />
+                                    </div>
+                                 </div>
+                                 <button onClick={saveCommission} disabled={isSavingComm} className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl text-sm disabled:opacity-50">
+                                    {isSavingComm ? 'Guardando...' : 'Guardar comisión'}
+                                 </button>
+                              </div>
+                              <p className="text-xs text-slate-400">La comisión puede sobreescribirse por reserva desde "Gestionar reserva".</p>
+                           </div>
+                        </div>
                      ) : (
                         <div className="flex-1 flex flex-col xl:flex-row min-h-0 overflow-hidden bg-slate-50/20 p-8 gap-8">
                            {/* Calendar & Editor Area */}

@@ -195,8 +195,8 @@ const App: React.FC = () => {
 
       if (cmdCtrl && e.altKey && e.shiftKey && e.key.toUpperCase() === 'D') {
         console.log('[App] Diagnostic shortcut detected');
-        // 1. Open DevTools in Tauri
-        if (isTauri()) {
+        // 1. Open DevTools only in development builds
+        if (isTauri() && import.meta.env.DEV) {
           import('@tauri-apps/api/core').then(({ invoke }) => {
             invoke('open_devtools').catch(err => console.error('Failed to open devtools:', err));
           });

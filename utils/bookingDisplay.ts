@@ -11,22 +11,18 @@ import { Booking, Traveler } from '../types';
 export const getBookingDisplayName = (booking: Booking, traveler?: Traveler): string => {
     let rawName = 'Sin nombre';
 
-    // 1. Prioridad: Traveler vinculado (si tiene datos reales)
     if (traveler) {
         const fullName = `${traveler.nombre || ''} ${traveler.apellidos || ''}`.trim();
         if (fullName) rawName = fullName;
-    }
-    // 2. Prioridad: Nombre manual en reserva (si existe)
-    else if (booking.guest_name && booking.guest_name.trim()) {
+    } else if (booking.guest_name && booking.guest_name.trim()) {
         rawName = booking.guest_name.trim();
-    }
-    // 3. Prioridad: Resumen iCal/OTA (ej: "Juan Perez (Airbnb)")
-    else if (booking.summary && booking.summary.trim()) {
+    } else if (booking.summary && booking.summary.trim()) {
         rawName = booking.summary.trim();
     }
 
-    // CLEANUP: Eliminar prefijos de PAX accidentales (ej: "0 ", "2 ", etc. al principio del nombre)
-    // Algunos iCals o lógica de importación pueden prefijar el pax.
-    // Solo limpiamos si el patrón es "DIGITO(S) ESPACIO Nombre"
-    return rawName.replace(/^\d+\s+/, '').trim() || 'Sin nombre';
+    // Strip leading digits: "0 Nombre" → "Nombre", "0" → "" → fallback "Sin nombre"
+    // Handles: "2 John" (with space), "0" (alone), "42\tName" (tab)
+    const cleaned = rawName.replace(/^\d+[\s]*/, '').trim();
+    if (!cleaned) return 'Sin nombre';
+    return cleaned;
 };

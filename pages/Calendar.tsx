@@ -272,8 +272,10 @@ const CalendarContent: React.FC = () => {
   }, [bookings]);
 
   const displayBookings = useMemo(() => {
-    if (showCovered) return [...confirmed, ...provisionalNotCovered, ...provisionalCovered];
-    return [...confirmed, ...provisionalNotCovered];
+    // Filter out iCal duplicates (same stay from multiple OTA channels)
+    const filterDups = (arr: Booking[]) => arr.filter(b => !(b as any).is_duplicate);
+    if (showCovered) return [...filterDups(confirmed), ...filterDups(provisionalNotCovered), ...filterDups(provisionalCovered)];
+    return [...filterDups(confirmed), ...filterDups(provisionalNotCovered)];
   }, [confirmed, provisionalNotCovered, provisionalCovered, showCovered]);
 
   const getBookingsForDate = (date: Date) => {
@@ -428,7 +430,7 @@ const CalendarContent: React.FC = () => {
               const todayIdx = dayIndexFromLocalDate(new Date());
 
               return (
-                <div className="divide-y divide-slate-50">
+                <div className="divide-y divide-transparent">
                   {visibleWeeks.map((week) => {
                     if (week.length !== 7) return null;
                     const weekStart = week[0].dayIndex;
@@ -436,10 +438,10 @@ const CalendarContent: React.FC = () => {
                     const perApt = weekApartmentLaneAssignments.get(weekStart) || new Map();
 
                     return (
-                      <div key={weekStart} className="p-4">
+                      <div key={weekStart} className="px-3 py-2">
                         {/* Week header row */}
-                        <div className="flex gap-px bg-slate-100 rounded-2xl overflow-hidden">
-                          <div className="bg-slate-50 px-4 py-2" style={{ width: LABEL_W }}>
+                        <div className="flex gap-px bg-slate-50 rounded-xl overflow-hidden mb-1">
+                          <div className="bg-slate-50 px-4 py-1" style={{ width: LABEL_W }}>
                             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Semana</p>
                           </div>
                           <div className="grid grid-cols-7 gap-px flex-1">

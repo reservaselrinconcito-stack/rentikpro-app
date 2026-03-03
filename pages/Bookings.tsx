@@ -57,6 +57,16 @@ export const Bookings: React.FC = () => {
   const [showDebug, setShowDebug] = useState(false);
   const [debugData, setDebugData] = useState<any>(null);
   const [isPulseModalOpen, setIsPulseModalOpen] = useState(false);
+  const [channelCommissions, setChannelCommissions] = useState<Record<string, { type: string; value: number }>>({});
+
+  // Load channel commissions once
+  useEffect(() => {
+    projectManager.getStore().getChannelCommissions().then((rows: any[]) => {
+      const map: Record<string, { type: string; value: number }> = {};
+      for (const r of rows) map[r.channel_name.toUpperCase()] = { type: r.commission_type, value: r.commission_value };
+      setChannelCommissions(map);
+    }).catch(() => {});
+  }, []);
 
   const runDebug = async () => {
     const store = projectManager.getStore();
@@ -1155,6 +1165,56 @@ export const Bookings: React.FC = () => {
                     </select>
                   </div>
                 </div>
+
+                {/* COMMISSION PANEL */}
+                {form.total_price! > 0 && (() => {
+                  const channelKey = (form.source || '').toUpperCase();
+                  const defaultComm = channelCommissions[channelKey];
+                  const overrideVal = (form as any).commission_override;
+                  const overrideType = (form as any).commission_type_override;
+                  const commType = overrideType || defaultComm?.type || 'percent';
+                  const commValue = overrideVal != null ? overrideVal : (defaultComm?.value ?? 0);
+                  const commAmount = commType === 'percent'
+                    ? Math.round(((form.total_price || 0) * commValue / 100) * 100) / 100
+                    : commValue;
+                  const netIncome = Math.round(((form.total_price || 0) - commAmount) * 100) / 100;
+
+                  return (
+                    <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 space-y-3">
+                      <p className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Comisión OTA / Neto</p>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase">Tipo</label>
+                          <select className="w-full p-3 bg-white border rounded-xl font-bold text-sm"
+                            value={commType}
+                            onChange={e => setForm({ ...form, commission_type_override: e.target.value } as any)}>
+                            <option value="percent">%</option>
+                            <option value="fixed">€ fijo</option>
+                          </select>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase">Comisión {commType === 'percent' ? '%' : '€'} {defaultComm && overrideVal == null ? '(por defecto)' : ''}</label>
+                          <input type="number" min="0" step="0.01" className="w-full p-3 bg-white border rounded-xl font-bold text-sm"
+                            value={commValue}
+                            onChange={e => setForm({ ...form, commission_override: Number(e.target.value) } as any)} />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-black text-slate-400 uppercase">Neto propietario</label>
+                          <div className="w-full p-3 bg-white border border-green-200 rounded-xl font-black text-sm text-green-700">
+                            {netIncome}€
+                            {commAmount > 0 && <span className="ml-1 text-[10px] font-normal text-slate-400">(-{commAmount}€)</span>}
+                          </div>
+                        </div>
+                      </div>
+                      {defaultComm && overrideVal != null && (
+                        <button type="button" className="text-[10px] text-amber-500 underline"
+                          onClick={() => setForm({ ...form, commission_override: null, commission_type_override: null } as any)}>
+                          Restaurar comisión por defecto ({defaultComm.value}{defaultComm.type === 'percent' ? '%' : '€'})
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
