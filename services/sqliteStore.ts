@@ -3672,13 +3672,13 @@ export class SQLiteStore implements IDataStore {
     await this.executeWithParams(
       `INSERT OR REPLACE INTO apartments (
         id, property_id, name, color, created_at, updated_at, is_active, deleted_at,
-        ical_export_token, ical_last_publish, ical_event_count,
+        ical_export_token, ical_out_url, ical_last_publish, ical_event_count,
         public_base_price, currency, project_id
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         a.id, a.property_id, a.name || 'Unidad', a.color || '#4F46E5',
         a.created_at || now, (a as any).updated_at || now, a.is_active !== false ? 1 : 0, (a as any).deleted_at || null,
-        a.ical_export_token || null, a.ical_last_publish || null, a.ical_event_count || null,
+        a.ical_export_token || null, a.ical_out_url || null, a.ical_last_publish || null, a.ical_event_count || null,
         a.publicBasePrice ?? null, a.currency || 'EUR', projectId
       ]
     );
