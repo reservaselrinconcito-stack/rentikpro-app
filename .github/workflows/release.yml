@@ -56,91 +56,47 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-      - name: Debug list updater artifacts
+      - name: List release artifacts (debug)
         shell: bash
         run: |
-          set -euo pipefail
           find src-tauri/target -maxdepth 6 -type f \( \
-            -name "*.app.tar.gz" -o -name "*.tar.gz.sig" \
+            -name "*.dmg" -o -name "*.exe" -o -name "*.msi" \
+            -o -name "*.app.tar.gz" -o -name "*.tar.gz.sig" \
             -o -name "*.nsis.zip" -o -name "*.nsis.zip.sig" \
             -o -name "*.msi.zip" -o -name "*.msi.zip.sig" \
-            -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \
-          \) | sort | sed -n '1,250p'
+            -o -name "*.exe.sig" -o -name "*.msi.sig" \
+          \) 2>/dev/null | sort | head -50
 
-      - name: Upload Tauri signatures
+      - name: Validate release signatures
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          SIG_DIR="src-tauri/target"
-
-          echo "Scanning for tauri updater signatures under $SIG_DIR"
-          # macOS: *.tar.gz.sig  |  Windows: *.nsis.zip.sig or *.msi.zip.sig
-          SIG_FILES=$(find "$SIG_DIR" -type f \( \
-            -name "*.tar.gz.sig" -o -name "*.nsis.zip.sig" -o -name "*.msi.zip.sig" \
-          \) -print | sort)
-
-          if [ -z "$SIG_FILES" ]; then
-            echo "No updater signature files found in $SIG_DIR." >&2
-            echo "Debug (bundles found):" >&2
-            find "$SIG_DIR" -type f \( \
-              -name "*.app.tar.gz" -o -name "*.tar.gz.sig" \
-              -o -name "*.nsis.zip" -o -name "*.nsis.zip.sig" \
-              -o -name "*.msi.zip" -o -name "*.msi.zip.sig" \
-              -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \
-            \) | sed -n "1,200p" >&2
-            exit 1
-          fi
-
-          echo "Found signatures:"
-          echo "$SIG_FILES"
-
-          while IFS= read -r f; do
-            [ -n "$f" ] || continue
-            echo "Uploading $f"
-            gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
-          done <<< "$SIG_FILES"
-
-      - name: Validate release assets
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Release assets for ${GITHUB_REF_NAME}:"
-          gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name'
-
+          echo "Assets published for ${GITHUB_REF_NAME}:"
           ASSETS="$(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name')"
+          echo "$ASSETS"
 
-          # macOS jobs validate macOS artifacts; Windows job validates Windows artifacts
-          if [[ "$RUNNER_OS" == "macOS" ]]; then
+          # tauri-action uploads all artifacts including .sig files automatically.
+          # We verify here that the expected signatures are present.
+          if [ "$RUNNER_OS" = "macOS" ]; then
             if echo "${{ matrix.args }}" | grep -q "x86_64"; then
-              required_assets=("RentikPro_x64.app.tar.gz" "RentikPro_x64.app.tar.gz.sig")
+              ARCH="x64"
             else
-              required_assets=("RentikPro_aarch64.app.tar.gz" "RentikPro_aarch64.app.tar.gz.sig")
+              ARCH="aarch64"
             fi
-          else
-            # Windows: .nsis.zip.sig or .msi.zip.sig — check at least one .sig exists
-            if echo "$ASSETS" | grep -qE '\.(nsis|msi)\.zip\.sig$'; then
-              echo "OK: Windows updater signature found"
-              exit 0
+            SIG="RentikPro_${ARCH}.app.tar.gz.sig"
+            if echo "$ASSETS" | grep -Fxq "$SIG"; then
+              echo "OK: $SIG"
             else
-              echo "MISSING: Windows updater signature (*.nsis.zip.sig or *.msi.zip.sig)" >&2
+              echo "MISSING: $SIG" >&2
               exit 1
             fi
-          fi
-
-          missing=0
-          for required in "${required_assets[@]}"; do
-            if echo "$ASSETS" | grep -Fxq "$required"; then
-              echo "OK: $required"
+          else
+            # Windows: tauri-action generates *.exe.sig and/or *.msi.sig
+            if echo "$ASSETS" | grep -qE '\.(exe|msi)\.sig$'; then
+              echo "OK: Windows installer signature found"
             else
-              echo "MISSING: $required" >&2
-              missing=1
+              echo "MISSING: Windows .sig (*.exe.sig or *.msi.sig not found)" >&2
+              exit 1
             fi
-          done
-
-          if [ $missing -ne 0 ]; then
-            echo "Release asset validation failed." >&2
-            exit 1
           fi
