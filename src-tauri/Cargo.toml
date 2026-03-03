@@ -1,6 +1,6 @@
 [package]
 name = "rentikpro"
-version = "2.1.39"
+version = "2.1.40"
 description = "RentikPro desktop wrapper"
 authors = ["RentikPro"]
 edition = "2021"
