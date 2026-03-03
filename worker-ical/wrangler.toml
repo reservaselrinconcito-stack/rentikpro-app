@@ -1,0 +1,12 @@
+name = "rentikpro-ical"
+main = "index.js"
+compatibility_date = "2026-03-01"
+
+account_id = "f5416f312829ebbc26f0f2e87f7fed87"
+
+[[kv_namespaces]]
+binding = "ICAL_KV"
+id = "24c9665f80274867a40085ae9ea97ca6"
+
+[vars]
+ADMIN_KEY = "rentikpro_ical_2024"

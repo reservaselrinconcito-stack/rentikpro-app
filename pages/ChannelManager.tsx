@@ -72,7 +72,9 @@ export const ChannelManager: React.FC = () => {
    const [publicCurrency, setPublicCurrency] = useState('EUR');
    const [isSavingPrice, setIsSavingPrice] = useState(false);
 
-   const [activeTab, setActiveTab] = useState<'channels' | 'pricing' | 'commissions'>('channels');
+   const [activeTab, setActiveTab] = useState<'channels' | 'pricing' | 'commissions' | 'export'>('channels');
+   const [exportPublishing, setExportPublishing] = useState<Record<string, boolean>>({});
+   const [exportCopied, setExportCopied] = useState<Record<string, boolean>>({});
    const [pricingDefaults, setPricingDefaults] = useState<PricingDefaults | null>(null);
    const [nightlyRates, setNightlyRates] = useState<NightlyRateOverride[]>([]);
    const [selectionRange, setSelectionRange] = useState<{ start: string | null, end: string | null }>({ start: null, end: null });
@@ -420,6 +422,21 @@ export const ChannelManager: React.FC = () => {
       }
    };
 
+   const handleExportPublish = async (aptId: string) => {
+      setExportPublishing(p => ({ ...p, [aptId]: true }));
+      const res = await iCalExportService.publishApartment(aptId);
+      setExportPublishing(p => ({ ...p, [aptId]: false }));
+      if (res.success) { toast.success('Feed publicado correctamente'); loadData(); }
+      else toast.error('Error al publicar: ' + res.error);
+   };
+
+   const handleCopyUrl = (aptId: string, url: string) => {
+      navigator.clipboard.writeText(url).then(() => {
+         setExportCopied(p => ({ ...p, [aptId]: true }));
+         setTimeout(() => setExportCopied(p => ({ ...p, [aptId]: false })), 2000);
+      });
+   };
+
    // --- CONFLICT RESOLUTION LOGIC ---
 
    const resolveConflict = async (winnerId: string, loserId: string) => {
@@ -729,6 +746,12 @@ export const ChannelManager: React.FC = () => {
                         >
                            <BarChart3 size={14} /> Comisiones OTA
                         </button>
+                        <button
+                           onClick={() => setActiveTab('export')}
+                           className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black transition-all ${activeTab === 'export' ? 'bg-white text-emerald-600 shadow-sm border border-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
+                        >
+                           <Share2 size={14} /> Feed de Salida
+                        </button>
                      </div>
 
                      {activeTab === 'channels' ? (
@@ -812,6 +835,88 @@ export const ChannelManager: React.FC = () => {
                                  </button>
                               </div>
                               <p className="text-xs text-slate-400">La comisión puede sobreescribirse por reserva desde "Gestionar reserva".</p>
+                           </div>
+                        </div>
+                     ) : activeTab === 'export' ? (
+                        <div className="flex-1 overflow-y-auto p-8 custom-scrollbar bg-slate-50/20">
+                           <div className="max-w-2xl mx-auto space-y-6">
+                              <div>
+                                 <h3 className="text-xl font-black text-slate-800 flex items-center gap-2"><Share2 size={18} className="text-emerald-600" /> Feed de Salida iCal</h3>
+                                 <p className="text-sm text-slate-500 mt-1">Genera una URL pública por apartamento para que las OTAs (Airbnb, Booking, VRBO…) puedan leer tus bloqueos y reservas confirmadas.</p>
+                              </div>
+                              {selectedApt ? (
+                                 <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                                    <div className="flex items-center gap-4 px-6 py-5 border-b border-slate-100">
+                                       <div className="w-10 h-10 rounded-2xl flex items-center justify-center text-white font-black text-sm" style={{ background: selectedApt.color || '#6366f1' }}>{(selectedApt.name || 'A')[0].toUpperCase()}</div>
+                                       <div className="flex-1 min-w-0">
+                                          <p className="font-black text-slate-800">{selectedApt.name}</p>
+                                          <p className="text-xs text-slate-400">{selectedApt.ical_event_count != null ? `${selectedApt.ical_event_count} eventos publicados` : 'Sin publicar aún'}</p>
+                                       </div>
+                                       {selectedApt.ical_last_publish && (
+                                          <span className="text-[10px] text-slate-400 bg-slate-50 border border-slate-100 rounded-lg px-2 py-1 font-bold">
+                                             Publicado {new Date(selectedApt.ical_last_publish).toLocaleDateString('es-ES')}
+                                          </span>
+                                       )}
+                                    </div>
+                                    <div className="px-6 py-5 space-y-4">
+                                       {selectedApt.ical_out_url ? (
+                                          <>
+                                             <div>
+                                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 block">URL del Feed (copia en tu OTA)</label>
+                                                <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3">
+                                                   <code className="flex-1 text-xs font-mono text-slate-700 truncate">{selectedApt.ical_out_url}</code>
+                                                   <button
+                                                      onClick={() => handleCopyUrl(selectedApt.id, selectedApt.ical_out_url!)}
+                                                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all ${exportCopied[selectedApt.id] ? 'bg-emerald-100 text-emerald-700' : 'bg-white border border-slate-200 text-slate-600 hover:border-indigo-300'}`}
+                                                   >
+                                                      {exportCopied[selectedApt.id] ? <><Check size={12} /> Copiado</> : <><Copy size={12} /> Copiar</>}
+                                                   </button>
+                                                </div>
+                                             </div>
+                                             <div className="grid grid-cols-2 gap-3">
+                                                <a href={selectedApt.ical_out_url} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 py-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-black text-slate-600 transition-all">
+                                                   <ExternalLink size={13} /> Ver .ics
+                                                </a>
+                                                <button
+                                                   onClick={() => handleExportPublish(selectedApt.id)}
+                                                   disabled={exportPublishing[selectedApt.id]}
+                                                   className="flex items-center justify-center gap-2 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-black transition-all"
+                                                >
+                                                   {exportPublishing[selectedApt.id] ? <RefreshCw size={13} className="animate-spin" /> : <UploadCloud size={13} />}
+                                                   {exportPublishing[selectedApt.id] ? 'Publicando…' : 'Re-publicar ahora'}
+                                                </button>
+                                             </div>
+                                          </>
+                                       ) : (
+                                          <div className="text-center py-6 space-y-3">
+                                             <p className="text-sm text-slate-500">Este apartamento no tiene feed público todavía.</p>
+                                             <button
+                                                onClick={() => handleExportPublish(selectedApt.id)}
+                                                disabled={exportPublishing[selectedApt.id]}
+                                                className="flex items-center justify-center gap-2 mx-auto px-6 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-2xl text-sm font-black transition-all shadow-lg"
+                                             >
+                                                {exportPublishing[selectedApt.id] ? <RefreshCw size={15} className="animate-spin" /> : <UploadCloud size={15} />}
+                                                {exportPublishing[selectedApt.id] ? 'Generando feed…' : 'Generar feed iCal'}
+                                             </button>
+                                          </div>
+                                       )}
+                                    </div>
+                                    <div className="px-6 py-4 bg-amber-50 border-t border-amber-100">
+                                       <p className="text-xs text-amber-700 font-bold flex items-center gap-2"><AlertCircle size={13} /> Pega esta URL en la sección "Sincronizar calendario" de cada OTA. La URL es pública pero no listada.</p>
+                                    </div>
+                                 </div>
+                              ) : (
+                                 <div className="py-20 text-center text-slate-400 text-sm">Selecciona un apartamento para ver su feed iCal.</div>
+                              )}
+                              <div className="bg-slate-100 rounded-2xl p-5 space-y-2">
+                                 <p className="text-xs font-black text-slate-600 uppercase tracking-widest">¿Cómo funciona?</p>
+                                 <ol className="list-decimal list-inside text-xs text-slate-500 space-y-1">
+                                    <li>Pulsa "Generar feed iCal" → se sube un archivo .ics público a la nube.</li>
+                                    <li>Copia la URL y pégala en Airbnb / Booking / VRBO como "Calendario externo".</li>
+                                    <li>Las OTAs leerán tus bloqueos y reservas confirmadas automáticamente.</li>
+                                    <li>Cada vez que creas o modificas una reserva, el feed se re-publica solo.</li>
+                                 </ol>
+                              </div>
                            </div>
                         </div>
                      ) : (
