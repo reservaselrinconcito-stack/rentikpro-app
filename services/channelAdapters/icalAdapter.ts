@@ -197,7 +197,7 @@ export class ICalAdapter implements IChannelAdapter {
       // MINI-BLOQUE B4: Loop Guard - Filter out RentikPro's own exported events
       const validRawEvents = rawEvents.filter(e => {
          const hasDates = e.startDate && e.endDate;
-         const isOwnEvent = e.uid && e.uid.endsWith('@rentikpro.com');
+         const isOwnEvent = e.uid && (e.uid.includes('@rentikpro.'));
          return hasDates && !isOwnEvent;
       });
 

@@ -36,7 +36,7 @@ export class PublishAdapter {
 
         const adminKey = import.meta.env.VITE_PUBLIC_WORKER_ADMIN_KEY || '';
         if (!adminKey) {
-            toast.error('VITE_PUBLIC_WORKER_ADMIN_KEY no configurado');
+            toast.error('Admin key no configurada. Ve a Configuración → Editor Web para añadirla.');
             return null;
         }
 
