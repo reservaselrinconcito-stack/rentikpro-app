@@ -92,19 +92,21 @@ jobs:
             echo "Uploading $APP_TAR as RentikPro_${ARCH_SHORT}.app.tar.gz"
             gh release upload ${{ github.ref_name }} "$APP_TAR#RentikPro_${ARCH_SHORT}.app.tar.gz" --clobber
             
-            # Signature for the tar.gz
+            # Signature for the tar.gz - check multiple possible locations
             SIG_FILE="${APP_TAR}.sig"
-            if [ -f "$SIG_FILE" ]; then
+            if [ ! -f "$SIG_FILE" ]; then
+              SIG_FILE=$(find "$BUNDLE_DIR" -name "*.app.tar.gz.sig" | head -n 1)
+            fi
+            if [ -z "$SIG_FILE" ] || [ ! -f "$SIG_FILE" ]; then
+              SIG_FILE=$(find "$BUNDLE_DIR" -name "*.sig" | head -n 1)
+            fi
+
+            if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
               echo "Uploading signature $SIG_FILE as RentikPro_${ARCH_SHORT}.app.tar.gz.sig"
               gh release upload ${{ github.ref_name }} "$SIG_FILE#RentikPro_${ARCH_SHORT}.app.tar.gz.sig" --clobber
             else
-              echo "⚠️ WARNING: No signature found at $SIG_FILE"
-              # Final attempt to find it anywhere
-              SIG_ALT=$(find "$BUNDLE_DIR" -name "*.sig" | head -n 1)
-              if [ -n "$SIG_ALT" ]; then
-                echo "Uploading ALT signature $SIG_ALT as RentikPro_${ARCH_SHORT}.app.tar.gz.sig"
-                gh release upload ${{ github.ref_name }} "$SIG_ALT#RentikPro_${ARCH_SHORT}.app.tar.gz.sig" --clobber
-              fi
+              echo "⚠️ WARNING: No signature found for $ARCH_SHORT in $BUNDLE_DIR"
+              find src-tauri/target -name "*.sig"
             fi
           fi
 

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "RentikPro",
-  "version": "2.1.22",
+  "version": "2.1.23",
   "identifier": "com.rentikpro.app",
   "build": {
     "beforeDevCommand": "npm run dev:tauri",
@@ -11,7 +11,6 @@
   },
   "plugins": {
     "updater": {
-      "active": true,
       "endpoints": [
         "https://rentikpro-updates.reservas-elrinconcito.workers.dev/latest.json"
       ],
