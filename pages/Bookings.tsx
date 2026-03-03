@@ -762,75 +762,94 @@ export const Bookings: React.FC = () => {
 
           {activeMainTab === 'ALL' && (
             <>
-              <div className="flex gap-2 flex-wrap">
-                <select
-                  value={filterApartment}
-                  onChange={(e) => setFilterApartment(e.target.value)}
-                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
-                >
-                  <option value="ALL">Todos los Apartamentos</option>
-                  {allApartments.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
+              <div className="flex gap-3 flex-wrap items-center">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Apartamento</span>
+                  <select
+                    value={filterApartment}
+                    onChange={(e) => setFilterApartment(e.target.value)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300 min-w-[160px]"
+                  >
+                    <option value="ALL">Todo</option>
+                    {allApartments.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
 
-                <select
-                  value={filterChannel}
-                  onChange={(e) => setFilterChannel(e.target.value)}
-                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
-                >
-                  <option value="ALL">Todos los Canales</option>
-                  {uniqueChannels.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Origen</span>
+                  <select
+                    value={filterChannel}
+                    onChange={(e) => setFilterChannel(e.target.value)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300 min-w-[120px]"
+                  >
+                    <option value="ALL">Cualquier Canal</option>
+                    {uniqueChannels.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
 
-                <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
-                >
-                  <option value="ALL">Todos los Estados</option>
-                  <option value="confirmed">Confirmada</option>
-                  <option value="pending">Pendiente</option>
-                  <option value="cancelled">Cancelada</option>
-                </select>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Estado</span>
+                  <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300 min-w-[120px]"
+                  >
+                    <option value="ALL">Cualquier Estado</option>
+                    <option value="confirmed">Confirmada</option>
+                    <option value="pending">Pendiente</option>
+                    <option value="cancelled">Cancelada</option>
+                  </select>
+                </div>
 
-                <select
-                  value={filterYear}
-                  onChange={(e) => setFilterYear(e.target.value)}
-                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
-                >
-                  <option value="ALL">Cualquier Año</option>
-                  {uniqueYears.map(y => <option key={y} value={y}>{y}</option>)}
-                </select>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Año</span>
+                  <select
+                    value={filterYear}
+                    onChange={(e) => setFilterYear(e.target.value)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
+                  >
+                    <option value="ALL">Año</option>
+                    {uniqueYears.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
 
-                <select
-                  value={filterMonth}
-                  onChange={(e) => setFilterMonth(e.target.value)}
-                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
-                >
-                  <option value="ALL">Cualquier Mes</option>
-                  {months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as any)}
-                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
-                >
-                  <option value="checkin_asc">Entrada (↓)</option>
-                  <option value="checkin_desc">Entrada (↑)</option>
-                  <option value="checkout_asc">Salida (↓)</option>
-                  <option value="checkout_desc">Salida (↑)</option>
-                  <option value="created_desc">Más recientes</option>
-                  <option value="apartment">Apartamento</option>
-                  <option value="channel">Canal / Origen</option>
-                  <option value="status">Estado</option>
-                </select>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Mes</span>
+                  <select
+                    value={filterMonth}
+                    onChange={(e) => setFilterMonth(e.target.value)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
+                  >
+                    <option value="ALL">Mes</option>
+                    {months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Ordenar por</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-indigo-600 outline-none focus:border-indigo-400 min-w-[150px]"
+                  >
+                    <option value="checkin_asc">Entrada (↓)</option>
+                    <option value="checkin_desc">Entrada (↑)</option>
+                    <option value="checkout_asc">Salida (↓)</option>
+                    <option value="checkout_desc">Salida (↑)</option>
+                    <option value="created_desc">Más recientes</option>
+                    <option value="apartment">Apartamento</option>
+                  </select>
+                </div>
               </div>
 
-              <button
-                onClick={() => setIncludeBlocks(!includeBlocks)}
-                className={`px-4 py-3 rounded-2xl text-xs font-black transition-all border ${includeBlocks ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
-              >
-                {includeBlocks ? '✓ Mostrando Bloqueos' : 'Mostrar Bloqueos'}
-              </button>
+              <div className="flex flex-col gap-1 self-end">
+                <button
+                  onClick={() => setIncludeBlocks(!includeBlocks)}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all border mt-auto ${includeBlocks ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+                >
+                  {includeBlocks ? '✓ Bloqueos' : 'Ver Bloqueos'}
+                </button>
+              </div>
             </>
           )}
 

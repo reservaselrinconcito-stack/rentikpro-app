@@ -812,6 +812,12 @@ const CalendarContent: React.FC = () => {
           >
             {showCovered ? 'Ocultar Cubiertos' : 'Ver Cubiertos'}
           </button>
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-6 py-2.5 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg shadow-slate-100"
+          >
+            <Plus size={14} /> Añadir Reserva
+          </button>
         </div>
       </div>
 
