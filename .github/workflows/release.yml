@@ -3,44 +3,38 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   release:
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-14
-            tauri_args: "--target aarch64-apple-darwin"
+            args: "--target x86_64-apple-darwin"
           - os: macos-14
-            tauri_args: "--target x86_64-apple-darwin"
+            args: "--target aarch64-apple-darwin"
           - os: windows-latest
-            tauri_args: ""
+            args: ""
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm install
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.tauri_args != '' && (matrix.tauri_args == '--target aarch64-apple-darwin' && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || '' }}
-
-      - name: Build Tauri App (Signed)
+      - name: Build & Release (Tauri v2)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,112 +43,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "RentikPro ${{ github.ref_name }}"
-          releaseBody: "Assets de instalación y actualización automática."
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.tauri_args }}
-
-      - name: Debug artifacts
-        shell: bash
-        run: |
-          echo "Listing all files in target (depth 10):"
-          find src-tauri/target -maxdepth 10 -type f \( -name "*.sig" -o -name "*.app.tar.gz" -o -name "*.exe" -o -name "*.msi" -o -name "*.dmg" \) || true
-
-      - name: Upload Stable macOS Assets
-        if: matrix.os == 'macos-14'
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          TARGET="${{ matrix.tauri_args }}"
-          # Extract triple more reliably
-          TRIPLE=$(echo $TARGET | grep -oE "[a-zA-Z0-9_-]+-apple-darwin")
-          BUNDLE_DIR="src-tauri/target/${TRIPLE}/release/bundle"
-
-          ARCH=$(echo "$TRIPLE" | grep -oE "aarch64|x86_64")
-          if [ "$ARCH" == "x86_64" ]; then
-            ARCH_SHORT="x64"
-          else
-            ARCH_SHORT="aarch64"
-          fi
-
-          echo "Triple: $TRIPLE, Arch: $ARCH_SHORT"
-
-          DMG_FILE=$(find "$BUNDLE_DIR/dmg" -name "*.dmg" | head -n 1)
-          if [ -n "$DMG_FILE" ]; then
-            echo "Uploading $DMG_FILE as RentikPro-mac-${ARCH_SHORT}.dmg"
-            gh release upload ${{ github.ref_name }} "$DMG_FILE#RentikPro-mac-${ARCH_SHORT}.dmg" --clobber
-          fi
-
-          APP_TAR=$(find "$BUNDLE_DIR/macos" -name "*.app.tar.gz" | head -n 1)
-          if [ -n "$APP_TAR" ]; then
-            echo "Uploading $APP_TAR as RentikPro_${ARCH_SHORT}.app.tar.gz"
-            gh release upload ${{ github.ref_name }} "$APP_TAR#RentikPro_${ARCH_SHORT}.app.tar.gz" --clobber
-            
-            # Signature for the tar.gz - check multiple possible locations
-            SIG_FILE="${APP_TAR}.sig"
-            if [ ! -f "$SIG_FILE" ]; then
-              SIG_FILE=$(find "$BUNDLE_DIR" -name "*.app.tar.gz.sig" | head -n 1)
-            fi
-            if [ -z "$SIG_FILE" ] || [ ! -f "$SIG_FILE" ]; then
-              SIG_FILE=$(find "$BUNDLE_DIR" -name "*.sig" | head -n 1)
-            fi
-
-            if [ -n "$SIG_FILE" ] && [ -f "$SIG_FILE" ]; then
-              echo "Uploading signature $SIG_FILE as RentikPro_${ARCH_SHORT}.app.tar.gz.sig"
-              gh release upload ${{ github.ref_name }} "$SIG_FILE#RentikPro_${ARCH_SHORT}.app.tar.gz.sig" --clobber
-            else
-              echo "⚠️ WARNING: No signature found for $ARCH_SHORT in $BUNDLE_DIR"
-              find src-tauri/target -name "*.sig"
-            fi
-          fi
-
-      - name: Upload Signatures (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Find the .exe.sig and upload it
-          $bundleDir = "src-tauri/target/release/bundle"
-          if (Test-Path $bundleDir) {
-            $sig_exe = Get-ChildItem -Path $bundleDir -Filter "*.exe.sig" -Recurse | Select-Object -First 1
-            if ($sig_exe) {
-              Write-Host "Uploading $($sig_exe.FullName) as RentikPro-win.exe.sig"
-              gh release upload ${{ github.ref_name }} "$($sig_exe.FullName)#RentikPro-win.exe.sig" --clobber
-              # Also upload as the setup name the worker expects
-              gh release upload ${{ github.ref_name }} "$($sig_exe.FullName)#RentikPro_x64-setup.exe.sig" --clobber
-            }
-          }
-
-      - name: Upload Stable Windows Assets
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $bundleDir = "src-tauri/target/release/bundle"
-          if (Test-Path $bundleDir) {
-            $exe = Get-ChildItem -Path $bundleDir -Recurse -Filter "*.exe" | Where-Object { $_.Name -notmatch "uninstall" } | Select-Object -First 1
-            if ($exe) {
-              Write-Host "Uploading $($exe.FullName) as RentikPro-win.exe"
-              gh release upload ${{ github.ref_name }} "$($exe.FullName)#RentikPro-win.exe" --clobber
-            } else {
-              Write-Host "❌ No .exe found under $bundleDir"
-            }
-
-            $msi = Get-ChildItem -Path $bundleDir -Recurse -Filter "*.msi" | Select-Object -First 1
-            if ($msi) {
-              Write-Host "Uploading $($msi.FullName) as RentikPro-win.msi"
-              gh release upload ${{ github.ref_name }} "$($msi.FullName)#RentikPro-win.msi" --clobber
-            }
-
-            $msiZip = Get-ChildItem -Path $bundleDir -Recurse -Filter "*.msi.zip" | Select-Object -First 1
-            if ($msiZip) {
-              Write-Host "Uploading $($msiZip.FullName) as RentikPro-win.msi.zip"
-              gh release upload ${{ github.ref_name }} "$($msiZip.FullName)#RentikPro-win.msi.zip" --clobber
-            }
-          } else {
-            Write-Host "❌ Bundle directory not found: $bundleDir"
-          }
+          args: ${{ matrix.args }}
