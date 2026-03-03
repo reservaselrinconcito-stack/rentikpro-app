@@ -18,6 +18,7 @@ import { isDbReady, getDbReady } from '../services/sqliteStore';
 import { useMaintenance } from '../src/hooks/useMaintenance';
 import { MaintenanceOverlay } from '../src/components/MaintenanceOverlay';
 import { DemoBanner } from './DemoBanner';
+import { UpdateButton } from './UpdateButton';
 
 
 interface LayoutProps {
@@ -416,6 +417,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
             <div className="mt-3 px-2">
               <SyncStatusBadge />
             </div>
+
+            <UpdateButton />
           </div>
           <nav className="flex-1 px-4 pb-6 space-y-1.5 overflow-y-auto custom-scrollbar">
             <NavContent />
@@ -476,6 +479,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
                   </div>
                 </button>
                 {/* UI SCALE CONTROLS - Mobile Drawer */}
+                <UpdateButton />
                 <div className="mt-4">
                   <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest leading-none mb-2 ml-1">Tamaño de Interfaz</p>
                   <ZoomControls />
