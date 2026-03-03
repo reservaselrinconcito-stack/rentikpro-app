@@ -79,6 +79,7 @@
         { "path": "$HOME/Desktop/**" }
       ]
     },
-    "updater:default"
+    "updater:default",
+    "http:default"
   ]
 }

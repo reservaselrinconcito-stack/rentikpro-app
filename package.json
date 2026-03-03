@@ -1,7 +1,7 @@
 {
   "name": "rentikpro",
   "private": true,
-  "version": "2.1.40",
+  "version": "2.1.41",
   "type": "module",
   "scripts": {
     "dev:web": "vite",
@@ -40,6 +40,7 @@
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-fs": "^2.0.0",
+    "@tauri-apps/plugin-http": "^2.5.7",
     "@tauri-apps/plugin-process": "^2.0.0",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "@tauri-apps/plugin-updater": "^2.0.0",

@@ -2,9 +2,19 @@
 import { IChannelAdapter, SyncResult } from './types';
 import { ChannelConnection, CalendarEvent } from '../../types';
 import { parseICal } from '../iCalParser';
-import { getProxyUrl, rotateProxy } from '../syncEngine';
 import { networkMonitor } from '../networkMonitor';
 import { iCalLogger } from '../iCalLogger';
+
+// Use Tauri's native HTTP client to avoid CORS (no Origin header).
+// Falls back to browser fetch in dev/web mode.
+async function icalFetch(url: string, options: RequestInit): Promise<Response> {
+   try {
+      const { fetch: tauriFetch } = await import('@tauri-apps/plugin-http');
+      return tauriFetch(url, { ...options, connectTimeout: 15000 } as any) as unknown as Response;
+   } catch {
+      return fetch(url, options);
+   }
+}
 
 
 // Helper for hashing
@@ -53,7 +63,7 @@ export class ICalAdapter implements IChannelAdapter {
       if (conn.force_direct) {
          try {
             iCalLogger.logInfo('FETCH', 'Forcing Direct Connection', { url: conn.ical_url.substring(0, 50) + '...' });
-            const directRes = await fetch(conn.ical_url, { headers, cache: 'no-store' });
+            const directRes = await icalFetch(conn.ical_url, { headers, cache: 'no-store' });
             response = directRes as Response;
             (response as any)._cachedBody = await directRes.text();
          } catch (e: any) {
@@ -63,7 +73,7 @@ export class ICalAdapter implements IChannelAdapter {
       } else {
          // USE CENTRALIZED WRAPPER (MINI-BLOQUE F5)
          try {
-            response = await fetch(conn.ical_url, { headers, cache: 'no-store' });
+            response = await icalFetch(conn.ical_url, { headers, cache: 'no-store' });
             usedProxy = false;
 
             const bodyText = (response as any)._cachedBody || "";
@@ -129,7 +139,7 @@ export class ICalAdapter implements IChannelAdapter {
             // Fallback DIRECT (Simplified from previous version)
             iCalLogger.logWarn('FETCH', 'Proxy failed. Trying direct fallback...');
             try {
-               const direct = await fetch(conn.ical_url, { headers, cache: 'no-store' });
+               const direct = await icalFetch(conn.ical_url, { headers, cache: 'no-store' });
                response = direct as Response;
                (response as any)._cachedBody = await direct.text();
                usedProxy = false;
