@@ -1,6 +1,5 @@
 /**
  * UpdateService — Tauri v2 updater wrapper
- * Exposes: check(), downloadAndInstall(), state, version
  */
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -60,20 +59,25 @@ class UpdateService {
 
   async downloadAndInstall(): Promise<void> {
     if (!this._update) return;
+    let downloaded = 0;
     this.emit({ state: 'downloading', downloadedBytes: 0, totalBytes: undefined });
     try {
       await this._update.downloadAndInstall((progress) => {
         if (progress.event === 'Progress') {
+          downloaded += progress.data.chunkLength ?? 0;
           this.emit({
             state: 'downloading',
-            downloadedBytes: progress.data.chunkLength,
+            downloadedBytes: downloaded,
             totalBytes: progress.data.contentLength ?? undefined,
           });
         } else if (progress.event === 'Finished') {
           this.emit({ state: 'ready' });
         }
       });
-      this.emit({ state: 'ready' });
+      // Fallback: if Finished event never fires, mark ready after await resolves
+      if (this.status.state === 'downloading') {
+        this.emit({ state: 'ready' });
+      }
     } catch (err: any) {
       this.emit({ state: 'error', error: this.humanizeError(err) });
     }
@@ -85,14 +89,17 @@ class UpdateService {
 
   private humanizeError(err: any): string {
     const msg = String(err?.message || err || '');
-    if (msg.includes('network') || msg.includes('fetch') || msg.includes('connect')) {
+    if (msg.includes('up to date') || msg.includes('no update')) {
+      return 'Ya tienes la última versión instalada.';
+    }
+    if (msg.includes('network') || msg.includes('fetch') || msg.includes('connect') || msg.includes('NETWORK')) {
       return 'Sin conexión a internet. Comprueba tu red e inténtalo de nuevo.';
     }
     if (msg.includes('signature') || msg.includes('sig')) {
-      return 'Error de firma: la actualización no es válida.';
+      return 'Error de firma: la actualización no pudo verificarse.';
     }
-    if (msg.includes('release JSON') || msg.includes('valid release')) {
-      return 'No se puede contactar con el servidor de actualizaciones.';
+    if (msg.includes('release JSON') || msg.includes('valid release') || msg.includes('404')) {
+      return 'No se encuentra el servidor de actualizaciones.';
     }
     return msg || 'Error desconocido al buscar actualizaciones.';
   }
