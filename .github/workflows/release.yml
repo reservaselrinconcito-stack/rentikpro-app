@@ -28,8 +28,6 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.args != '' && (contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || 'x86_64-apple-darwin') || '' }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -51,36 +49,3 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
-
-      - name: Debug artifacts
-        shell: bash
-        run: |
-          echo "Looking for signatures and bundles..."
-          find src-tauri/target -maxdepth 10 -type f \( -name "*.sig" -o -name "*.app.tar.gz" -o -name "*.exe" \) || true
-
-      - name: Upload Signatures (macOS)
-        if: matrix.os == 'macos-14'
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Find and upload .sig files for the tar.gz
-          for sig in $(find src-tauri/target -name "*.app.tar.gz.sig"); do
-            ARCH="aarch64"
-            if [[ "$sig" == *"x86_64"* ]]; then ARCH="x64"; fi
-            echo "Uploading $sig as RentikPro_${ARCH}.app.tar.gz.sig"
-            gh release upload ${{ github.ref_name }} "$sig#RentikPro_${ARCH}.app.tar.gz.sig" --clobber
-          done
-
-      - name: Upload Signatures (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $sig = Get-ChildItem -Path src-tauri/target -Filter "*.exe.sig" -Recurse | Select-Object -First 1
-          if ($sig) {
-            Write-Host "Uploading $($sig.FullName) as RentikPro-win.exe.sig"
-            gh release upload ${{ github.ref_name }} "$($sig.FullName)#RentikPro-win.exe.sig" --clobber
-            gh release upload ${{ github.ref_name }} "$($sig.FullName)#RentikPro_x64-setup.exe.sig" --clobber
-          }
