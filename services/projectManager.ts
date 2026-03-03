@@ -9,6 +9,9 @@ import { demoGenerator } from './demoGenerator';
 import { ProjectFileProvider } from './projectFileProvider';
 import { syncCoordinator } from './syncCoordinator';
 import { isTauri as isTauriRuntime } from '../utils/isTauri';
+import { getStorageAdapter } from './storageAdapter';
+import { isDemoMode } from '../utils/demoMode';
+
 // Native imports moved to dynamic imports for web-safe operation
 
 
@@ -41,9 +44,20 @@ export class ProjectManager {
 
   async initialize(): Promise<void> {
     const isTauri = isTauriRuntime();
+    const isDemo = isDemoMode();
+    const adapter = getStorageAdapter();
+
+    // Priority 0: Web Demo Mode — Auto-load demo project and bypass startup.
+    if (!isTauri && isDemo) {
+      logger.log("[ProjectManager] Web Demo Mode detected. Auto-loading demo project...");
+      await this.createDemoProject();
+      return;
+    }
+
 
     // Priority 1 (Tauri): Single Workspace — auto-open last workspace if available.
-    if (isTauri) {
+    // Skip if in demo mode to force memory/IDB-based demo data.
+    if (isTauri && !isDemo) {
       // Emit boot state so UI shows "Leyendo configuración…"
       try {
         const { setWorkspaceBootState } = await import('../src/services/workspaceBootState');
@@ -66,6 +80,7 @@ export class ProjectManager {
           localStorage.setItem('rp_workspace_name', name);
 
           await this.loadProjectFromSqliteBytes(opened.dbBytes, {
+
             projectId,
             name,
             mode: 'real',
@@ -192,8 +207,12 @@ export class ProjectManager {
   // --- ACTIVE PROPERTY CONTEXT ---
 
   getActivePropertyId(): string {
+    // Note: getActivePropertyId is currently synchronous in some places, 
+    // so we keep using localStorage directly for this simple string if needed, 
+    // or we should update it to async. For now, since it's just for UI state:
     return localStorage.getItem('activePropertyId') || 'prop_default';
   }
+
 
   setActivePropertyId(id: string) {
     localStorage.setItem('activePropertyId', id);
@@ -424,8 +443,9 @@ export class ProjectManager {
     console.log('[SAVE:PM] begin', { projectId: this.currentProjectId });
     if (!this.store || !this.currentProjectId) return;
     const isTauri = isTauriRuntime();
-    const workspacePath = isTauri ? (localStorage.getItem('rp_workspace_path') || '') : '';
-    const folderPath = isTauri ? (localStorage.getItem('rp_last_project_path') || '') : '';
+    const isDemo = this.currentProjectMode === 'demo';
+    const workspacePath = (isTauri && !isDemo) ? (localStorage.getItem('rp_workspace_path') || '') : '';
+    const folderPath = (isTauri && !isDemo) ? (localStorage.getItem('rp_last_project_path') || '') : '';
 
     // NEW (Tauri): Single Workspace mode.
     // Source-of-truth is database.sqlite on disk; IDB is optional fallback only.

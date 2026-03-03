@@ -1,4 +1,20 @@
 
+export type {
+  IDataStore, Property, Apartment, Traveler, Stay, AccountingMovement,
+  Booking, FiscalProfile, DataOnlyBackup, StructureOnlyBackup,
+  MarketingTemplate, MarketingEmailTemplate, MarketingLog, MarketingEmailLog, MarketingCampaign, Coupon,
+  RegistryUnit, RegistryPresentation, WebSite,
+  CleaningTask, CleaningTemplate,
+  MaintenanceIssue, MaintenancePhoto,
+  CommunicationAccount, Conversation, Message, MessageAttachment, ConversationStatus,
+  AiPersona, AiKnowledgeFact, AiAuditLog, ChannelConnection, CalendarEvent, MediaAsset,
+  PricingRuleSet, PricingRule, BookingPriceSnapshot,
+  CancellationPolicy, RatePlan, PricingModifier, Fee, UserSettings,
+  ProvisionalBooking, BookingPolicy, PolicyScope, EmailIngest, EmailIngestStatus,
+  PaymentMode, DepositType, DepositDue, RemainingDue, SecurityDepositMethod, CancellationPolicyType,
+  CheckInRequest, PropertySnapshot, SiteDraft, SiteOverrides,
+  PricingDefaults, NightlyRateOverride
+} from '../types';
 import {
   IDataStore, Property, Apartment, Traveler, Stay, AccountingMovement,
   Booking, FiscalProfile, DataOnlyBackup, StructureOnlyBackup,
@@ -15,6 +31,7 @@ import {
   CheckInRequest, PropertySnapshot, SiteDraft, SiteOverrides,
   PricingDefaults, NightlyRateOverride
 } from '../types';
+
 import { PaymentScheduleItem, CheckoutResult, checkoutService } from './checkoutService';
 import { logger } from './logger';
 import { APP_VERSION, SCHEMA_VERSION } from '../src/version';
@@ -22,6 +39,7 @@ import { notifyDataChanged } from './dataRefresher';
 import { guestService } from './guestService';
 import { isProvisionalBlock, isProvisionalBooking } from '../utils/bookingClassification';
 import { ensureValidStay } from '../utils/dateLogic';
+import { isDemoMode } from '../utils/demoMode';
 
 const DEFAULT_POLICY: BookingPolicy = {
   id: 'default_policy',
@@ -70,8 +88,7 @@ export async function getDbReady(): Promise<any> {
 function __assertNotMaintenance() {
   if (isMaintenanceMode()) {
     throw new Error(
-      `DB is in maintenance mode${
-        getMaintenanceReason() ? `: ${getMaintenanceReason()}` : ''
+      `DB is in maintenance mode${getMaintenanceReason() ? `: ${getMaintenanceReason()}` : ''
       }`
     );
   }
@@ -176,8 +193,14 @@ export class SQLiteStore implements IDataStore {
     }
     this.SQL = await initSqlJs({
       // Keep SQLite fully local (works offline + Tauri dev/build)
-      locateFile: (file: string) => `/vendor/sqljs/${file}`
+      // Use BASE_URL to support subfolder deployments (demo Mode)
+      locateFile: (file: string) => {
+        const base = (import.meta as any).env?.BASE_URL || '/';
+        const prefix = base.endsWith('/') ? base : `${base}/`;
+        return `${prefix}vendor/sqljs/${file}`;
+      }
     });
+
     return this.SQL;
   }
 
@@ -2371,8 +2394,30 @@ export class SQLiteStore implements IDataStore {
     // 1. Ensure schema exists (vital for File Mode)
     await this.ensureWebSitesSchema();
 
-    // 2. Atomic UPSERT using modern SQLite syntax
-    // We use INSERT INTO ... ON CONFLICT DO UPDATE to ensure strict persistence
+    // 2. Identify Demo Mode & Handle Subdomain Conflicts
+    const isDemo = isDemoMode();
+
+    // If it's a demo but doesn't have the canonical ID, let's assign it to ensure UPSERT by ID works
+    if (isDemo && w.id !== 'web_demo_1') {
+      w.id = 'web_demo_1';
+    }
+
+    // Check for subdomain uniqueness (UNIQUE constraint failed: web_sites.subdomain)
+    const conflict = await this.query("SELECT id FROM web_sites WHERE subdomain = ? AND id != ?", [w.subdomain, w.id]);
+    if (conflict.length > 0) {
+      if (isDemo) {
+        // In demo, overwrite the existing record with the same subdomain
+        w.id = conflict[0].id;
+      } else {
+        // In production, generating a unique suffix
+        w.subdomain = `${w.subdomain}-${Math.floor(Date.now() % 10000)}`;
+      }
+    }
+
+    // [WEBBUILDER] create_site/upsert_site {subdomain, websiteId}
+    logger.log(`[WEBBUILDER] upsert_site {subdomain: "${w.subdomain}", websiteId: "${w.id}", isDemoMode: ${isDemo}}`);
+
+    // 3. Atomic UPSERT using modern SQLite syntax
     const sql = `
       INSERT INTO web_sites (
         id, property_id, name, subdomain, template_slug, plan_type,
@@ -2408,34 +2453,29 @@ export class SQLiteStore implements IDataStore {
       w.property_id,
       w.name || null,
       w.subdomain,
-      w.template_slug,
-      w.plan_type,
+      w.template_slug || 'builder-standard',
+      w.plan_type || 'STARTER',
       w.primary_domain || null,
-      w.public_token,
+      w.public_token || '',
       w.is_published ? 1 : 0,
-      w.theme_config || '{}',
+      typeof w.theme_config === 'string' ? w.theme_config : JSON.stringify(w.theme_config || {}),
       w.seo_title || '',
       w.seo_description || '',
-      w.sections_json || '[]',
-      w.booking_config || '{}',
-      w.property_ids_json || '[]',
-      w.allowed_origins_json || '[]',
-      w.features_json || '{}',
-      w.config_json || '{}',
-      w.subdomain || '',
+      typeof w.sections_json === 'string' ? w.sections_json : JSON.stringify(w.sections_json || []),
+      typeof w.booking_config === 'string' ? w.booking_config : JSON.stringify(w.booking_config || {}),
+      typeof w.property_ids_json === 'string' ? w.property_ids_json : JSON.stringify(w.property_ids_json || []),
+      typeof w.allowed_origins_json === 'string' ? w.allowed_origins_json : JSON.stringify(w.allowed_origins_json || []),
+      typeof w.features_json === 'string' ? w.features_json : JSON.stringify(w.features_json || {}),
+      typeof w.config_json === 'string' ? w.config_json : JSON.stringify(w.config_json || {}),
+      w.subdomain || '', // slug mapped to subdomain for simplicity
       w.created_at || now,
-      w.updated_at || now
+      now
     ];
 
     await this.executeWithParams(sql, row);
 
-    // Log result
-    try {
-      const changes = this.db.getRowsModified ? this.db.getRowsModified() : 'unknown';
-      logger.log(`[WEB:SAVE] sql ok changes=${changes} id=${w.id}`);
-    } catch (e) {
-      logger.log(`[WEB:SAVE] sql ok (changes check failed) id=${w.id}`);
-    }
+    // Notify result
+    logger.log(`[WEB:SAVE] sql ok id=${w.id} subdomain=${w.subdomain}`);
 
     // Notify file-mode autosave
     this.onWriteHook?.();

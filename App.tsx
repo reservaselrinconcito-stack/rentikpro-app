@@ -43,7 +43,7 @@ const Importers = lazyWithRetry(() => import('./pages/Importers').then(m => ({ d
 const Calendar = lazyWithRetry(() => import('./pages/Calendar').then(m => ({ default: m.Calendar })));
 const Marketing = lazyWithRetry(() => import('./pages/Marketing').then(m => ({ default: m.Marketing })));
 const Registry = lazyWithRetry(() => import('./pages/Registry').then(m => ({ default: m.Registry })));
-const WebsiteBuilder = lazyWithRetry(() => import('./pages/WebsiteBuilder').then(m => ({ default: m.WebsiteBuilder })));
+const WebsiteBuilderRoute = lazyWithRetry(() => import('./src/pages/WebsiteBuilderRoute'));
 const Diagnostics = lazyWithRetry(() => import('./pages/Diagnostics').then(m => ({ default: m.Diagnostics })));
 const Communications = lazyWithRetry(() => import('./pages/Communications').then(m => ({ default: m.Communications })));
 const ChannelManager = lazyWithRetry(() => import('./pages/ChannelManager').then(m => ({ default: m.ChannelManager })));
@@ -54,7 +54,9 @@ const EmailBookings = lazyWithRetry(() => import('./pages/EmailBookings').then(m
 
 import { Toaster } from 'sonner';
 import { VersionChecker } from './components/VersionChecker';
+import { AutoUpdater } from './components/AutoUpdater';
 import { isTauri } from './utils/isTauri';
+import { isDemoMode } from './utils/demoMode';
 
 // Boot-aware loading component — subscribes to the workspace state machine
 // so users always see exactly what is happening.
@@ -137,7 +139,11 @@ const App: React.FC = () => {
           // Don't auto-load; fall through to show StartupScreen
         } else if (projectManager.isProjectLoaded()) {
           setIsProjectOpen(true);
+        } else if (isDemoMode()) {
+          // If initialize() auto-loaded a demo, ensure we mark the project as open.
+          if (projectManager.isProjectLoaded()) setIsProjectOpen(true);
         } else if (CORE_MODE) {
+
           // CORE_MODE: always allow entering the app offline without login/licensing.
           // If nothing is loaded, create a local blank project as a safe default.
           // EXCEPTION (Tauri): do NOT fall back to IDB projects automatically.
@@ -181,13 +187,26 @@ const App: React.FC = () => {
       init();
     }
 
-    // 2. Global Error Handler for initial mounting (optional but good)
-    const handleError = (event: ErrorEvent) => {
-      // If critical error occurs very early
-      // console.error("Global captured:", event.error);
+    // [DIAGNOSTICS] Shortcut listener (Cmd+Alt+Shift+D)
+    const handleDiagShortcut = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toUpperCase().includes('MAC');
+      const cmdCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (cmdCtrl && e.altKey && e.shiftKey && e.key.toUpperCase() === 'D') {
+        console.log('[App] Diagnostic shortcut detected');
+        // 1. Open DevTools in Tauri
+        if (isTauri()) {
+          import('@tauri-apps/api/core').then(({ invoke }) => {
+            invoke('open_devtools').catch(err => console.error('Failed to open devtools:', err));
+          });
+        }
+        // 2. Clear current project state and go to diagnostics directly if not open
+        window.location.hash = '#/diagnostics?diag=1';
+      }
     };
-    window.addEventListener('error', handleError);
-    return () => window.removeEventListener('error', handleError);
+
+    window.addEventListener('keydown', handleDiagShortcut);
+    return () => window.removeEventListener('keydown', handleDiagShortcut);
   }, []);
 
   // UseEffect for Project Context Updates
@@ -238,6 +257,7 @@ const App: React.FC = () => {
     <ErrorBoundary onError={(error) => setBootError(error)}>
       <Router>
         <Toaster />
+        <AutoUpdater />
         <VersionChecker />
         {initializing ? (
           <BootProgress />
@@ -264,7 +284,7 @@ const App: React.FC = () => {
                 <Route path="/accounting" element={<Accounting />} />
                 <Route path="/registry" element={<Registry />} />
                 <Route path="/email-bookings" element={<EmailBookings />} />
-                <Route path="/website-builder" element={<WebsiteBuilder />} />
+                <Route path="/website-builder" element={<WebsiteBuilderRoute />} />
                 <Route path="/settings" element={<Settings onSave={handleSave} />} />
                 <Route path="/comms" element={<Communications />} />
                 <Route path="/buzon" element={<Navigate to="/comms" replace />} />

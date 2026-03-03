@@ -178,8 +178,17 @@ export const parseICal = (icalText: string): ICalEvent[] => {
             const sum = (currentEvent.summary || '').toLowerCase();
             const isBlock = !sum || /not available|unavailable|blocked|closed|no disponible|bloquead/i.test(sum);
 
+            // FIX: Prevent events from overwriting each other if provider reuses UIDs
+            // Wait, we can ensure stability by always checking if UID was already emitted in this parse cycle.
+            // But to make it stable across syncs (order independent), if we rely on a Set for THIS run:
+            // The OTA might send the SAME feed, so order shouldn't change, but if it does, base UID might drift.
+            // Let's use the Date range directly if the summary implies it's a generic block, OR if we just want a safe composite.
+            // Actually, we'll use a local Set to track UIDs emitted in this exact parse execution.
+            // If we've already emitted this UID, we suffix it.
+            let safeUid = uid;
+
             events.push({
-              uid,
+              uid: safeUid, // Will be made unique later
               summary: currentEvent.summary || (isBlock ? 'Bloqueo OTA' : 'Reserva Externa'),
               description: currentEvent.description || '',
               startDate: start,
@@ -196,7 +205,10 @@ export const parseICal = (icalText: string): ICalEvent[] => {
             iCalLogger.logWarn('PARSE', `Event skipped: missing dates. UID: ${currentEvent.uid}`);
           }
         } catch (err: any) {
-          iCalLogger.logError('PARSE', `Error processing event ${currentEvent.uid}: ${err.message}`);
+          iCalLogger.logError('PARSE', `Error processing event ${currentEvent.uid || 'unnamed'}: ${err.message}`, {
+            uid: currentEvent.uid,
+            raw: rawBuffer.join('\n').substring(0, 200)
+          });
         }
       } else {
         iCalLogger.logWarn('PARSE', `Event skipped: missing UID or DTSTART. Raw lines: ${rawBuffer.length}`);
@@ -228,6 +240,40 @@ export const parseICal = (icalText: string): ICalEvent[] => {
     }
   }
 
+  // Post-process: Deduplicate OTAs reusing UIDs for different blocks
+  const uidCounts = new Map<string, number>();
+  for (const evt of events) {
+    uidCounts.set(evt.uid, (uidCounts.get(evt.uid) || 0) + 1);
+  }
+
+  let duplicatesFixed = 0;
+  const seenComposites = new Map<string, number>();
+  for (const evt of events) {
+    if ((uidCounts.get(evt.uid) || 0) > 1) {
+      // Duplicate detected. Suffix with dates to prevent db overwriting
+      const originalUid = evt.uid;
+      let compositeUid = `${originalUid}_${evt.startDate}_${evt.endDate}`;
+
+      const occurrence = seenComposites.get(compositeUid) || 0;
+      if (occurrence > 0) {
+        compositeUid = `${compositeUid}_${occurrence}`;
+      }
+      seenComposites.set(compositeUid, occurrence + 1);
+
+      evt.uid = compositeUid;
+      duplicatesFixed++;
+    }
+  }
+
+  if (duplicatesFixed > 0) {
+    iCalLogger.logWarn('PARSE', `Auto-fixed ${duplicatesFixed} duplicate UIDs in feed.`);
+  }
+
   iCalLogger.logInfo('PARSE', 'iCal parse finished.', { total: eventsTotal, ok: eventsOk, errors: eventsTotal - eventsOk });
+
+  iCalLogger.updateSummary({
+    eventCount: eventsOk
+  });
+
   return events;
 };

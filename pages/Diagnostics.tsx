@@ -7,12 +7,15 @@ import {
     Activity, ShieldCheck, AlertTriangle, Database,
     Save, Layout, CheckCircle2, XCircle, Search,
     RefreshCw, Info, Copy, ExternalLink, Clock, MapPin,
-    Wrench, RotateCcw, AlertCircle
+    Wrench, RotateCcw, AlertCircle, FileText as LogIcon
 } from 'lucide-react';
 import { APP_VERSION } from '../src/version';
+import { iCalLogger } from '../services/iCalLogger';
+import { syncEngine, getProxyUrl } from '../services/syncEngine';
 import { toast } from 'sonner';
 import { notifyDataChanged } from '../services/dataRefresher';
 import { copyToClipboard } from '../utils/clipboard';
+import { syncScheduler } from '../services/syncScheduler';
 
 interface DiagResult {
     label: string;
@@ -541,8 +544,8 @@ export const Diagnostics: React.FC = () => {
                             <div className="space-y-3 pt-4 border-t border-slate-100">
                                 {checks.map((c, i) => (
                                     <div key={i} className={`p-4 rounded-2xl border flex items-center justify-between ${c.status === 'ok' ? 'bg-emerald-50 border-emerald-100' :
-                                            c.status === 'warn' ? 'bg-amber-50 border-amber-100' :
-                                                'bg-rose-50 border-rose-100'
+                                        c.status === 'warn' ? 'bg-amber-50 border-amber-100' :
+                                            'bg-rose-50 border-rose-100'
                                         }`}>
                                         <div className="flex items-center gap-3">
                                             {c.status === 'ok' ? <CheckCircle2 className="text-emerald-600" /> :
@@ -794,6 +797,90 @@ export const Diagnostics: React.FC = () => {
                 </div>
 
                 <div className="space-y-8">
+                    <Section title="Panel de Diagnóstico iCal" icon={Clock}>
+                        <div className="space-y-6">
+                            {/* Summary Table */}
+                            <div className="bg-white border border-slate-100 rounded-3xl overflow-hidden">
+                                <table className="min-w-full text-xs">
+                                    <tbody className="divide-y divide-slate-100">
+                                        <DiagRow label="Última Sincronización" value={iCalLogger.getSummary().lastSyncAt ? new Date(iCalLogger.getSummary().lastSyncAt!).toLocaleString() : 'Nunca'} />
+                                        <DiagRow
+                                            label="Proxy Utilizado"
+                                            value={iCalLogger.getSummary().lastProxyUsed ? (iCalLogger.getSummary().lastProxyUsed!.includes('reservas-elrinconcito') ? '♻️ Fallback Proxy' : iCalLogger.getSummary().lastProxyUsed!) : 'Directo/Auto'}
+                                            status={iCalLogger.getSummary().lastProxyUsed?.includes('reservas-elrinconcito') ? 'warn' : 'ok'}
+                                        />
+                                        <DiagRow
+                                            label="URL iCal"
+                                            value={iCalLogger.getSummary().lastUrl
+                                                ? (iCalLogger.getSummary().lastUrl!.substring(0, 10) + '...' + iCalLogger.getSummary().lastUrl!.substring(iCalLogger.getSummary().lastUrl!.length - 15))
+                                                : 'N/A'}
+                                        />
+                                        <DiagRow
+                                            label="Estado HTTP"
+                                            value={iCalLogger.getSummary().lastStatus ? `${iCalLogger.getSummary().lastStatus}` : 'N/A'}
+                                            status={iCalLogger.getSummary().lastStatus === 200 ? 'ok' : (iCalLogger.getSummary().lastStatus ? 'fail' : 'warn')}
+                                        />
+                                        <DiagRow label="Content-Type" value={iCalLogger.getSummary().lastContentType || 'N/A'} />
+                                        <DiagRow label="Bytes Descargados" value={iCalLogger.getSummary().lastSize ? `${iCalLogger.getSummary().lastSize} bytes` : 'N/A'} />
+                                        <DiagRow label="Eventos Parseados" value={`${iCalLogger.getSummary().eventCount}`} />
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Last Error */}
+                            {iCalLogger.getSummary().lastError && (
+                                <div className="p-4 bg-rose-50 border border-rose-100 rounded-2xl">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-rose-400 mb-1">Último Error Detectado</p>
+                                    <p className="text-xs font-bold text-rose-700">{iCalLogger.getSummary().lastError}</p>
+                                </div>
+                            )}
+
+                            {/* Actions */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <button
+                                    onClick={async () => {
+                                        toast.promise(syncScheduler.triggerNow(), {
+                                            loading: 'Sincronizando iCal...',
+                                            success: () => {
+                                                runDiagnostics();
+                                                return 'Sincronización completada';
+                                            },
+                                            error: (err) => `Error: ${err.message || 'Fallo de red'}`
+                                        });
+                                    }}
+                                    className="flex items-center justify-center gap-2 py-3 bg-indigo-600 text-white rounded-2xl font-black text-xs hover:bg-indigo-700 transition-all"
+                                >
+                                    <RefreshCw size={14} /> Reintentar Sync
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const report = iCalLogger.getReport();
+                                        void copyToClipboard(report).then((ok) => {
+                                            if (ok) toast.success('Informe de diagnóstico copiado');
+                                            else toast.error('Error al copiar');
+                                        });
+                                    }}
+                                    className="flex items-center justify-center gap-2 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs hover:bg-slate-800 transition-all"
+                                >
+                                    <Copy size={14} /> Copiar Informe
+                                </button>
+                            </div>
+
+                            {/* Recent Logs Snippet */}
+                            <div>
+                                <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">Logs Recientes (Sesión)</h4>
+                                <div className="p-4 bg-slate-900 rounded-2xl font-mono text-[10px] text-indigo-200 overflow-auto max-h-[200px]">
+                                    {iCalLogger.getLogs().slice(-15).map((l, i) => (
+                                        <div key={i} className={`mb-1 ${l.level === 'ERROR' ? 'text-rose-300' : l.level === 'WARN' ? 'text-amber-200' : ''}`}>
+                                            <span className="opacity-40">[{new Date(l.timestamp).toLocaleTimeString()}]</span> {l.message}
+                                        </div>
+                                    ))}
+                                    {iCalLogger.getLogs().length === 0 && <div className="text-slate-500 italic">Sin actividad registrada.</div>}
+                                </div>
+                            </div>
+                        </div>
+                    </Section>
+
                     <Section title="Navigation Tests" icon={ExternalLink}>
                         <div className="space-y-3">
                             <NavButton label="Inbox / Buzón" target="/buzon" onClick={() => navigate('/buzon')} />
@@ -836,6 +923,19 @@ const DiagCard = ({ title, value, icon: Icon, color }: { title: string, value: s
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{title}</p>
         <p className="text-lg font-black text-slate-800 truncate">{value.length > 20 ? value.substring(0, 20) + '...' : value}</p>
     </div>
+);
+
+const DiagRow = ({ label, value, status }: { label: string, value: string, status?: 'ok' | 'fail' | 'warn' }) => (
+    <tr className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+        <td className="p-4 text-slate-500 font-bold">{label}</td>
+        <td className={`p-4 font-mono text-right ${status === 'ok' ? 'text-emerald-600 font-black' :
+            status === 'fail' ? 'text-rose-600 font-black' :
+                status === 'warn' ? 'text-amber-600 font-black' :
+                    'text-slate-800 font-bold'
+            }`}>
+            {value}
+        </td>
+    </tr>
 );
 
 const Section = ({ title, icon: Icon, children }: { title: string, icon: any, children: React.ReactNode }) => (

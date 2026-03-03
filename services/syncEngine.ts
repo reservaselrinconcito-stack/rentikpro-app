@@ -9,7 +9,7 @@ import { isConfirmedBooking, isProvisionalBlock } from '../utils/bookingClassifi
 import { ensureValidStay } from '../utils/dateLogic';
 
 // PROXY ROTATION LOGIC
-const OFFICIAL_WORKER = "https://rentikpro-cm-proxy.reservas-elrinconcito.workers.dev/cm-proxy";
+const OFFICIAL_WORKER = "https://rentikpro-cm-proxy.reservas-elrinconcito.workers.dev/ical-proxy";
 
 const PROXY_LIST = (import.meta as any).env?.PROD
   ? [OFFICIAL_WORKER]
@@ -134,13 +134,17 @@ export class SyncEngine {
     const errors: string[] = [];
     let totalProcessed = 0;
 
+    console.log(`[SyncEngine] Starting syncApartment(apt: ${apartmentId}, isAutomated: ${options?.isAutomated}). Found ${connections.length} connections.`);
+
     // CHECK PROJECT MODE
     if (projectManager.getCurrentMode() === 'demo') {
+      console.log(`[SyncEngine] Skipped: project mode is demo.`);
       return { processed: 0, conflicts: 0, errors: [] };
     }
 
     // CHECK NETWORK
     if (!networkMonitor.isOnline()) {
+      console.log(`[SyncEngine] Skipped: not online.`);
       return { processed: 0, conflicts: 0, errors: ['Modo Offline: No se puede sincronizar.'] };
     }
 

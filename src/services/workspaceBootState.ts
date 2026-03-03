@@ -36,7 +36,6 @@ const listeners: Set<Listener> = new Set();
 
 export function setWorkspaceBootState(s: WorkspaceBootState) {
   bootState = s;
-  console.log("[BootState]", s.state, "path" in s ? (s as any).path : "");
   listeners.forEach((fn) => {
     try { fn(s); } catch { /* never crash the state machine */ }
   });

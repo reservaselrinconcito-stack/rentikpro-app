@@ -1,0 +1,104 @@
+{
+    "meta": {
+        "propertyId": "el-rinconcito-matarrana",
+        "generatedAt": "2026-02-19T00:00:00Z",
+        "templateVersion": "1.0.0"
+    },
+    "theme": {
+        "themeId": "rural-warm",
+        "primaryColor": "orange",
+        "serifFont": "Playfair Display",
+        "sansFont": "Inter"
+    },
+    "locales": {
+        "defaultLocale": "es",
+        "enabled": [
+            "es",
+            "en"
+        ]
+    },
+    "brand": {
+        "name": "El Rinconcito Matarraña",
+        "shortName": "El Rinconcito",
+        "slogan": "Apartamentos rurales en el corazón del Matarraña",
+        "owners": "Toni y Evelyn",
+        "license": "2021-E-RC-453",
+        "phone": "+34 629 83 73 69",
+        "phoneRaw": "34629837369",
+        "email": "reservas.elrinconcito@gmail.com",
+        "rentikproLandingUrl": "https://rentikpro.com",
+        "rentikproContactUrl": "https://rentikpro.com/contacto"
+    },
+    "social": {
+        "instagram": "https://instagram.com/elrinconcitomatarranya",
+        "facebook": "https://m.facebook.com/elrinconcito.rinconcito.5",
+        "googleMaps": "https://www.google.com/maps/place/ElRinconcito/@40.8071848,0.0641494,17z",
+        "whatsapp": "https://api.whatsapp.com/send?phone=34629837369"
+    },
+    "seo": {
+        "defaultTitle": "El Rinconcito Matarraña — Apartamentos Rurales en Fuentespalda, Teruel",
+        "titleTemplate": "%s | El Rinconcito Matarraña",
+        "defaultDescription": "Apartamentos rurales con encanto en Fuentespalda (Teruel). Naturaleza, estrellas, gastronomía y aventura en el corazón de la 'Toscana española'. Desde 90€/noche.",
+        "siteUrl": "https://www.elrinconcitomatarraña.com",
+        "ogImage": "https://cdn.turisapps.com/site-2302/c7da52d5-fa23-4989-8f2d-2ef267e6cab8/main.webp",
+        "locale": "es_ES",
+        "currency": "EUR"
+    },
+    "locations": [
+        {
+            "id": "rinconcito",
+            "name": "El Rinconcito Matarraña",
+            "town": "Fuentespalda",
+            "province": "Teruel",
+            "addressLine": "Calle San Lorenzo 4",
+            "postalCode": "44587",
+            "lat": 40.80713190255378,
+            "lon": 0.06415288424000742,
+            "status": "active"
+        }
+    ],
+    "apartments": [
+        {
+            "slug": "los-almendros",
+            "name": "LOS ALMENDROS",
+            "locationId": "rinconcito",
+            "status": "active",
+            "priceFrom": 90,
+            "sizeM2": 50,
+            "capacity": 4,
+            "bedrooms": 1,
+            "bathrooms": 1,
+            "description": "Acogedor y luminoso, perfecto para familias...",
+            "photos": [
+                "https://cdn.turisapps.com/site-2302/c7da52d5-fa23-4989-8f2d-2ef267e6cab8/main.webp"
+            ]
+        }
+    ],
+    "sectionsEnabled": {
+        "home": true,
+        "apartments": true,
+        "availability": true,
+        "experiences": true,
+        "guides": true,
+        "blog": true,
+        "contact": true,
+        "rentikpro": true,
+        "comingSoon": true
+    },
+    "integrations": {
+        "rentikpro": {
+            "apiBase": "https://api.rentikpro.com",
+            "propertyId": "el-rinconcito-matarrana",
+            "publicToken": "",
+            "showBadge": true
+        },
+        "bookingUrl": "https://www.booking.com/...",
+        "airbnbUrl": "https://www.airbnb.es/..."
+    },
+    "content": {
+        "experiences": [],
+        "reviews": [],
+        "blog": [],
+        "faqs": []
+    }
+}

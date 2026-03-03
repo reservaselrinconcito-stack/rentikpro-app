@@ -1,0 +1,1384 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RentikPro — Gestión Profesional de Alquileres de Corta Duración</title>
+    <meta name="description"
+        content="Automatización legal definitiva para viviendas turísticas. Gestiona SES Hospedajes, Policía, INE y N2 desde una sola aplicación local.">
+
+    <!-- Fonts: Inter & Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap"
+        rel="stylesheet">
+
+    <style>
+        :root {
+            --primary: #0ea5e9;
+            --primary-dark: #0284c7;
+            --accent: #4f46e5;
+            --bg-light: #f8fafc;
+            --bg-surface: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --slate-200: #e2e8f0;
+            --slate-800: #1e293b;
+            --slate-900: #0f172a;
+            --max-width: 1200px;
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-light);
+            color: var(--text-main);
+            line-height: 1.6;
+            scroll-behavior: smooth;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            font-family: 'Outfit', sans-serif;
+            letter-spacing: -0.02em;
+        }
+
+        .container {
+            max-width: var(--max-width);
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        section {
+            padding: 8rem 0;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .text-primary {
+            color: var(--primary);
+        }
+
+        .mb-2 {
+            margin-bottom: 0.5rem;
+        }
+
+        .mb-4 {
+            margin-bottom: 1rem;
+        }
+
+        .mb-8 {
+            margin-bottom: 2rem;
+        }
+
+        .mb-12 {
+            margin-bottom: 3rem;
+        }
+
+        /* Navigation */
+        nav {
+            background-color: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(15px);
+            border-bottom: 1px solid var(--slate-200);
+            position: fixed;
+            width: 100%;
+            top: 0;
+            z-index: 1000;
+            transition: var(--transition);
+        }
+
+        .nav-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 5rem;
+        }
+
+        .logo {
+            font-weight: 800;
+            font-size: 1.4rem;
+            color: var(--slate-900);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .logo svg {
+            color: var(--primary);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            text-decoration: none;
+            color: var(--text-muted);
+            font-weight: 500;
+            font-size: 0.95rem;
+            transition: var(--transition);
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.85rem 1.75rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: var(--transition);
+            cursor: pointer;
+            border: 1px solid transparent;
+            font-size: 1rem;
+            gap: 0.5rem;
+        }
+
+        .btn-primary {
+            background-color: var(--slate-900);
+            color: white;
+            box-shadow: 0 4px 12px rgba(15, 23, 42, 0.15);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--slate-800);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
+        }
+
+        .btn-secondary {
+            background-color: white;
+            color: var(--slate-900);
+            border-color: var(--slate-200);
+        }
+
+        .btn-secondary:hover {
+            background-color: #fefefe;
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding-top: 12rem;
+            padding-bottom: 10rem;
+            position: relative;
+            background: radial-gradient(circle at top right, rgba(14, 165, 233, 0.05), transparent 60%);
+        }
+
+        .hero-grid {
+            display: grid;
+            grid-template-columns: 1.2fr 1fr;
+            gap: 4rem;
+            align-items: center;
+        }
+
+        .hero-title {
+            font-size: 4.5rem;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            color: var(--slate-900);
+        }
+
+        .hero-title span {
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero-subtitle {
+            font-size: 1.25rem;
+            color: var(--text-muted);
+            margin-bottom: 2.5rem;
+            max-width: 540px;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 1rem;
+        }
+
+        .hero-image {
+            position: relative;
+            transform: perspective(1000px) rotateY(-5deg);
+            transition: var(--transition);
+        }
+
+        .hero-image:hover {
+            transform: perspective(1000px) rotateY(0deg) translateY(-10px);
+        }
+
+        .hero-image img {
+            width: 100%;
+            height: auto;
+            border-radius: 1.5rem;
+            box-shadow: 0 40px 80px -20px rgba(15, 23, 42, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        /* Pain points */
+        .pain-points {
+            background-color: white;
+        }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2.5rem;
+        }
+
+        .card {
+            padding: 2.5rem;
+            background: var(--bg-surface);
+            border-radius: 1.25rem;
+            border: 1px solid var(--slate-200);
+            transition: var(--transition);
+            position: relative;
+        }
+
+        .card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 16px 32px -8px rgba(14, 165, 233, 0.1);
+            transform: translateY(-8px);
+        }
+
+        .icon-box {
+            width: 56px;
+            height: 56px;
+            background-color: rgba(14, 165, 233, 0.1);
+            border-radius: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            color: var(--primary);
+        }
+
+        .section-tag {
+            display: inline-block;
+            padding: 0.35rem 0.85rem;
+            background-color: rgba(14, 165, 233, 0.1);
+            color: var(--primary-dark);
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 1rem;
+        }
+
+        /* Solutions */
+        .solutions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+
+        .sol-card {
+            background: var(--slate-900);
+            color: white;
+            padding: 3rem;
+            border-radius: 2rem;
+            transition: var(--transition);
+        }
+
+        .sol-card:hover {
+            transform: scale(1.02);
+            box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.4);
+        }
+
+        .sol-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .sol-card p {
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 2rem;
+        }
+
+        /* How it works */
+        .timeline {
+            position: relative;
+            max-width: 800px;
+            margin: 4rem auto 0;
+        }
+
+        .step {
+            display: flex;
+            gap: 2rem;
+            margin-bottom: 4rem;
+            position: relative;
+        }
+
+        .step-number {
+            flex-shrink: 0;
+            width: 48px;
+            height: 48px;
+            background: var(--primary);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            font-weight: 800;
+            font-size: 1.25rem;
+            z-index: 1;
+        }
+
+        .step::after {
+            content: '';
+            position: absolute;
+            left: 24px;
+            top: 48px;
+            width: 2px;
+            height: calc(100% + 2rem);
+            background: var(--slate-200);
+        }
+
+        .step:last-child::after {
+            display: none;
+        }
+
+        .step-content h3 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .step-content p {
+            color: var(--text-muted);
+        }
+
+        /* Diff Section */
+        .diff-section {
+            background: var(--slate-900);
+            color: white;
+            padding: 6rem 0;
+        }
+
+        .diff-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+        }
+
+        .diff-item {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 2.5rem;
+        }
+
+        .diff-icon {
+            color: var(--primary);
+            flex-shrink: 0;
+        }
+
+        /* Footer */
+        footer {
+            background-color: var(--slate-900);
+            color: white;
+            padding: 6rem 0 3rem 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .footer-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr;
+            gap: 4rem;
+            margin-bottom: 4rem;
+        }
+
+        .footer-logo {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .footer-desc {
+            color: rgba(255, 255, 255, 0.4);
+            max-width: 320px;
+            font-size: 0.95rem;
+        }
+
+        .footer-heading {
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 1.5rem;
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        .footer-links {
+            list-style: none;
+        }
+
+        .footer-links li {
+            margin-bottom: 0.75rem;
+        }
+
+        .footer-links a {
+            color: rgba(255, 255, 255, 0.5);
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: var(--transition);
+        }
+
+        .footer-links a:hover {
+            color: var(--primary);
+        }
+
+        .copyright {
+            padding-top: 3rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            text-align: center;
+            color: rgba(255, 255, 255, 0.3);
+            font-size: 0.85rem;
+        }
+
+        /* Solutions Section Styles */
+        .sol-block {
+            display: grid;
+            grid-template-columns: 1.1fr 2fr;
+            gap: 5rem;
+            align-items: center;
+        }
+
+        .sol-block.reverse {
+            grid-template-columns: 2fr 1.1fr;
+        }
+
+        .subgrid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .feature-item {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            background: white;
+            padding: 1.25rem;
+            border-radius: 1rem;
+            border: 1px solid var(--slate-200);
+            transition: var(--transition);
+        }
+
+        .feature-item:hover {
+            border-color: var(--primary);
+            box-shadow: 0 8px 24px -12px rgba(14, 165, 233, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .dark-feature {
+            background: rgba(255, 255, 255, 0.05) !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        }
+
+        .dark-feature:hover {
+            border-color: var(--primary) !important;
+            background: rgba(255, 255, 255, 0.08) !important;
+        }
+
+        /* Screenshots Section */
+        .screenshots-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-top: 4rem;
+        }
+
+        .screenshot-card {
+            background: white;
+            border-radius: 1.5rem;
+            overflow: hidden;
+            border: 1px solid var(--slate-200);
+            transition: var(--transition);
+        }
+
+        .screenshot-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.1);
+        }
+
+        .screenshot-img {
+            width: 100%;
+            height: 220px;
+            object-fit: cover;
+            border-bottom: 1px solid var(--slate-100);
+            background: var(--slate-50);
+        }
+
+        .screenshot-info {
+            padding: 1.5rem;
+        }
+
+        .screenshot-info h4 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: var(--slate-900);
+        }
+
+        .screenshot-info p {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        /* Modules Section */
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+            margin-top: 3rem;
+        }
+
+        .module-card {
+            background: white;
+            padding: 2.5rem;
+            border-radius: 2.5rem;
+            border: 1px solid var(--slate-200);
+            transition: var(--transition);
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .module-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 20px 40px -15px rgba(14, 165, 233, 0.15);
+            transform: translateY(-5px);
+        }
+
+        .module-tag {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            background: rgba(14, 165, 233, 0.1);
+            color: var(--primary-dark);
+            border-radius: 100px;
+            font-size: 0.7rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            align-self: flex-start;
+        }
+
+        .module-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .module-list li {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 0.9rem;
+            color: var(--text-main);
+            margin-bottom: 0.75rem;
+        }
+
+        .module-list li svg {
+            color: var(--primary);
+            flex-shrink: 0;
+        }
+
+        .badge-soon {
+            background: var(--slate-100);
+            color: var(--slate-500);
+            font-size: 0.65rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-weight: 700;
+            margin-left: auto;
+        }
+
+        /* Integrations Section */
+        .integrations-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-top: 3rem;
+        }
+
+        .integration-item {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 1.5rem;
+            border: 1px solid var(--slate-100);
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            transition: var(--transition);
+        }
+
+        .integration-item:hover {
+            border-color: var(--primary);
+            transform: scale(1.03);
+            box-shadow: 0 10px 20px -10px rgba(0, 0, 0, 0.05);
+        }
+
+        /* For Who Section */
+        .target-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 2rem;
+            margin-top: 4rem;
+        }
+
+        .target-card {
+            background: linear-gradient(180deg, white 0%, #f8fafc 100%);
+            padding: 3rem;
+            border-radius: 2.5rem;
+            text-align: center;
+            border: 1px solid var(--slate-200);
+            transition: var(--transition);
+        }
+
+        .target-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-5px);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .hero-grid {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+
+            .hero-title {
+                font-size: 3.5rem;
+            }
+
+            .hero-subtitle {
+                margin: 0 auto 2.5rem;
+            }
+
+            .hero-actions {
+                justify-content: center;
+            }
+
+            .hero-image {
+                transform: none;
+            }
+
+            .grid-3,
+            .modules-grid,
+            .target-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .sol-block,
+            .sol-block.reverse {
+                grid-template-columns: 1fr;
+                gap: 3rem;
+                text-align: center;
+            }
+
+            .sol-block .icon-box {
+                margin: 0 auto 1.5rem;
+            }
+
+            .diff-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .footer-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .hero-title {
+                font-size: 2.8rem;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .footer-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .subgrid {
+                grid-template-columns: 1fr;
+            }
+
+            .card,
+            .module-card,
+            .target-card {
+                padding: 2rem !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <nav>
+        <div class="container nav-content">
+            <a href="#" class="logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                    stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+                RENTIKPRO
+            </a>
+            <div class="nav-links">
+                <a href="#capturas">Capturas</a>
+                <a href="#modulos">Módulos</a>
+                <a href="#proceso">Proceso</a>
+                <a href="#tecnico">Ventajas</a>
+                <a href="#" class="btn btn-secondary" style="padding: 0.6rem 1.2rem; font-size: 0.9rem;">Ver Demo</a>
+                <a href="#" class="btn btn-primary" style="padding: 0.6rem 1.2rem; font-size: 0.9rem;">Descargar</a>
+            </div>
+        </div>
+    </nav>
+
+    <main>
+        <!-- Hero Section -->
+        <section class="container hero">
+            <div class="hero-grid">
+                <div class="hero-content">
+                    <span class="section-tag">Automatización Legal 100% Local</span>
+                    <h1 class="hero-title">Gestiona tu vivienda turística <span>sin errores legales</span></h1>
+                    <p class="hero-subtitle">
+                        Automatiza SES Hospedajes, Policía, INE y N2 desde una sola aplicación local. Sin suscripciones,
+                        sin servidores externos, con control total.
+                    </p>
+                    <div class="hero-actions">
+                        <a href="#" class="btn btn-primary">
+                            Descargar (Prueba Gratuita)
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                        </a>
+                        <a href="#modulos" class="btn btn-secondary">Explorar Módulos</a>
+                    </div>
+                </div>
+                <div class="hero-image">
+                    <img src="assets/dashboard.png" alt="RentikPro Dashboard Interface Mockup">
+                </div>
+            </div>
+        </section>
+
+        <!-- Screenshots Section -->
+        <section id="capturas" style="background: white; border-top: 1px solid var(--slate-100);">
+            <div class="container">
+                <div class="text-center mb-12">
+                    <span class="section-tag">Interfaz Real</span>
+                    <h2 style="font-size: 2.5rem; font-weight: 800; margin-bottom: 1rem;">Una experiencia premium en tu
+                        escritorio</h2>
+                    <p class="text-muted" style="max-width: 600px; margin: 0 auto;">Diseñado para ser intuitivo, rápido
+                        y extremadamente potente. Sin distracciones, solo gestión.</p>
+                </div>
+
+                <div class="screenshots-grid">
+                    <div class="screenshot-card">
+                        <img src="assets/calendar.png" class="screenshot-img" alt="Calendario Unificado">
+                        <div class="screenshot-info">
+                            <h4>Channel Manager & Calendario</h4>
+                            <p>Controla todas tus fuentes iCal y bloqueos manuales desde una vista centralizada.</p>
+                        </div>
+                    </div>
+                    <div class="screenshot-card">
+                        <img src="assets/legal.png" class="screenshot-img" alt="Cumplimiento Legal">
+                        <div class="screenshot-info">
+                            <h4>Cumplimiento Legal (N2/SES)</h4>
+                            <p>Generación automatizada de reportes para Policía, SES Hospedajes e INE con validación.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="screenshot-card">
+                        <img src="assets/accounting.png" class="screenshot-img" alt="Contabilidad">
+                        <div class="screenshot-info">
+                            <h4>Contabilidad y Finanzas</h4>
+                            <p>Gestión de ingresos, gastos y reportes de rentabilidad por propiedad en tiempo real.</p>
+                        </div>
+                    </div>
+                    <div class="screenshot-card">
+                        <img src="assets/builder.png" class="screenshot-img" alt="Editor Web">
+                        <div class="screenshot-info">
+                            <h4>Website Builder</h4>
+                            <p>Crea y publica páginas web para tus propiedades con un solo click y dominio propio.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Dolor Section -->
+        <section class="pain-points">
+            <div class="container">
+                <div class="text-center mb-12">
+                    <span class="section-tag">El problema</span>
+                    <h2 style="font-size: 2.5rem; font-weight: 800; margin-bottom: 1rem;">Cumplir la ley no debería ser
+                        tu trabajo a tiempo completo</h2>
+                    <p class="text-muted" style="max-width: 600px; margin: 0 auto;">Los errores en los envíos de datos
+                        pueden acarrear sanciones graves y pérdida de tiempo innecesaria.</p>
+                </div>
+
+                <div class="grid-3">
+                    <div class="card">
+                        <div class="icon-box">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="8" x2="12" y2="12"></line>
+                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                            </svg>
+                        </div>
+                        <h3 class="mb-4">Errores en N2</h3>
+                        <p class="text-muted">Los rechazos del Registro por formatos incorrectos o datos incompletos son
+                            cosa del pasado.</p>
+                    </div>
+
+                    <div class="card">
+                        <div class="icon-box">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path
+                                    d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z">
+                                </path>
+                                <line x1="12" y1="9" x2="12" y2="13"></line>
+                                <line x1="12" y1="17" x2="12.01" y2="17"></line>
+                            </svg>
+                        </div>
+                        <h3 class="mb-4">Multas evitables</h3>
+                        <p class="text-muted">Asegura que cada huésped sea reportado correctamente a SES Hospedajes y
+                            Policía Nacional.</p>
+                    </div>
+
+                    <div class="card">
+                        <div class="icon-box">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                            </svg>
+                        </div>
+                        <h3 class="mb-4">Caos de Archivos</h3>
+                        <p class="text-muted">Olvida el manejo manual de los incompatibles CSV de Check-in Scan hacia la
+                            app de N2.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Modules Section -->
+        <section id="modulos" style="background: var(--bg-light); border-top: 1px solid var(--slate-200);">
+            <div class="container">
+                <div class="text-center mb-12">
+                    <span class="section-tag">Capacidades</span>
+                    <h2 style="font-size: 2.8rem; font-weight: 800; margin-bottom: 1.5rem; color: var(--slate-900);">
+                        Módulos diseñados para <span style="color: var(--primary);">tu éxito</span>
+                    </h2>
+                    <p class="text-muted" style="max-width: 760px; margin: 0 auto; font-size: 1.15rem;">
+                        No es solo un generador de archivos. RentikPro es el cerebro operativo de tu negocio turístico,
+                        100% local y privado.
+                    </p>
+                </div>
+
+                <div class="modules-grid">
+                    <!-- A. Cumplimiento legal -->
+                    <div class="module-card">
+                        <span class="module-tag">Legal ES</span>
+                        <h3 style="font-size: 1.4rem; font-weight: 800;">Cumplimiento Legal</h3>
+                        <ul class="module-list">
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> SES Hospedajes Automático</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Policía Nacional / E-Hotel</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> INE XML Generador</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> N2 Compatible Nativo</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Validación previa de datos</li>
+                        </ul>
+                    </div>
+
+                    <!-- B. Channel Manager -->
+                    <div class="module-card">
+                        <span class="module-tag">Canales</span>
+                        <h3 style="font-size: 1.4rem; font-weight: 800;">Channel Manager</h3>
+                        <ul class="module-list">
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Conexión iCal (Multi-OTA)</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Sync Instantáneo Import/Export</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Prevención Overbooking</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Reglas de Disponibilidad</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Proxy Rotativo Integrado</li>
+                        </ul>
+                    </div>
+
+                    <!-- C. Calendario -->
+                    <div class="module-card">
+                        <span class="module-tag">Operativa</span>
+                        <h3 style="font-size: 1.4rem; font-weight: 800;">Calendario Unificado</h3>
+                        <ul class="module-list">
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Vista Multipropiedad</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Bloqueos Manuales</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Histórico de Reservas</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Exportación iCal Pública</li>
+                        </ul>
+                    </div>
+
+                    <!-- D. Editor web -->
+                    <div class="module-card">
+                        <span class="module-tag">Marketing</span>
+                        <h3 style="font-size: 1.4rem; font-weight: 800;">Website Builder</h3>
+                        <ul class="module-list">
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Plantillas Premium</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Editor Visual Intuitivo</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Publicación 1-Click (Cloudflare)</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Dominio / Slug Personalizado</li>
+                        </ul>
+                    </div>
+
+                    <!-- E. Contabilidad -->
+                    <div class="module-card">
+                        <span class="module-tag">Finanzas</span>
+                        <h3 style="font-size: 1.4rem; font-weight: 800;">Contabilidad</h3>
+                        <ul class="module-list">
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Registro de Ingresos y Gastos</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Resúmenes Mensuales / Trimestrales</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Reportes de Rentabilidad</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Export PDF/CSV <span class="badge-soon">Próximamente</span></li>
+                        </ul>
+                    </div>
+
+                    <!-- F. Operativa -->
+                    <div class="module-card">
+                        <span class="module-tag">Host</span>
+                        <h3 style="font-size: 1.4rem; font-weight: 800;">Gestión de Huéspedes</h3>
+                        <ul class="module-list">
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Fichas de Cliente Completas</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Multi-propiedad nativo</li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Check-in Digital Integrado <span class="badge-soon">Próximamente</span></li>
+                            <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg> Mensajería Directa <span class="badge-soon">Próximamente</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Cómo funciona -->
+        <section id="proceso" class="pain-points">
+            <div class="container">
+                <div class="text-center mb-12">
+                    <span class="section-tag">Flujo de Trabajo</span>
+                    <h2 style="font-size: 2.5rem; font-weight: 800; margin-bottom: 1rem;">Automatización en 4 pasos</h2>
+                </div>
+
+                <div class="timeline">
+                    <div class="step">
+                        <div class="step-number">1</div>
+                        <div class="step-content">
+                            <h3>Importar & Sincronizar</h3>
+                            <p>Conecta tus canales vía iCal o importa reservas desde Check-in Scan con un solo click.
+                            </p>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">2</div>
+                        <div class="step-content">
+                            <h3>Validar Datos</h3>
+                            <p>El motor inteligente verifica que la información del huésped cumpla con los requisitos
+                                legales.</p>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">3</div>
+                        <div class="step-content">
+                            <h3>Publicar Disponibilidad</h3>
+                            <p>Actualiza tus calendarios y tu página web propia automáticamente tras cada cambio.</p>
+                        </div>
+                    </div>
+                    <div class="step">
+                        <div class="step-number">4</div>
+                        <div class="step-content">
+                            <h3>Reportar & Contabilizar</h3>
+                            <p>Genera los archivos para Policía/SES y actualiza tus reportes de ingresos y gastos.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Integraciones Section -->
+        <section id="integraciones" style="background: white; border-top: 1px solid var(--slate-100);">
+            <div class="container">
+                <div class="text-center mb-12">
+                    <span class="section-tag">Conectividad</span>
+                    <h2 style="font-size: 2.5rem; font-weight: 800; margin-bottom: 1rem;">Se integra con tu ecosistema
+                    </h2>
+                </div>
+
+                <div class="integrations-grid">
+                    <div class="integration-item">
+                        <div style="background: #FF5A5F; color: white; padding: 0.5rem; border-radius: 0.5rem;"><svg
+                                width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            </svg></div>
+                        <span style="font-weight: 700;">Airbnb (iCal)</span>
+                    </div>
+                    <div class="integration-item">
+                        <div style="background: #003580; color: white; padding: 0.5rem; border-radius: 0.5rem;"><svg
+                                width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="16" y1="2" x2="16" y2="6"></line>
+                                <line x1="8" y1="2" x2="8" y2="6"></line>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                            </svg></div>
+                        <span style="font-weight: 700;">Booking.com (iCal)</span>
+                    </div>
+                    <div class="integration-item">
+                        <div style="background: #4285F4; color: white; padding: 0.5rem; border-radius: 0.5rem;"><svg
+                                width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                <circle cx="12" cy="10" r="3"></circle>
+                            </svg></div>
+                        <span style="font-weight: 700;">Google Calendar</span>
+                    </div>
+                    <div class="integration-item">
+                        <div style="background: #F38020; color: white; padding: 0.5rem; border-radius: 0.5rem;"><svg
+                                width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                            </svg></div>
+                        <span style="font-weight: 700;">Cloudflare API</span>
+                    </div>
+                    <div class="integration-item">
+                        <div
+                            style="background: var(--slate-900); color: white; padding: 0.5rem; border-radius: 0.5rem;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z">
+                                </path>
+                            </svg>
+                        </div>
+                        <span style="font-weight: 700;">Check-in Scan (N2)</span>
+                    </div>
+                    <div class="integration-item">
+                        <div
+                            style="background: var(--slate-100); color: var(--slate-400); padding: 0.5rem; border-radius: 0.5rem;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                        </div>
+                        <span style="font-weight: 700; color: var(--slate-400);">Próximamente...</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- For Whom Section -->
+        <section id="quien" style="background: var(--bg-light); border-top: 1px solid var(--slate-100);">
+            <div class="container">
+                <div class="text-center mb-12">
+                    <span class="section-tag">Audiencia</span>
+                    <h2 style="font-size: 2.5rem; font-weight: 800; margin-bottom: 1rem;">Diseñado para profesionales
+                        del alquiler</h2>
+                </div>
+
+                <div class="target-grid">
+                    <div class="target-card">
+                        <div style="color: var(--primary); margin-bottom: 1.5rem;"><svg width="48" height="48"
+                                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="12" cy="7" r="4"></circle>
+                            </svg></div>
+                        <h3 style="font-size: 1.5rem; font-weight: 800; margin-bottom: 1rem;">Propietarios</h3>
+                        <p class="text-muted">Que gestionan sus propias viviendas y buscan simplicidad, legalidad y
+                            control total sin pagar suscripciones mensuales.</p>
+                    </div>
+                    <div class="target-card">
+                        <div style="color: var(--accent); margin-bottom: 1.5rem;"><svg width="48" height="48"
+                                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                                <circle cx="9" cy="7" r="4"></circle>
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                            </svg></div>
+                        <h3 style="font-size: 1.5rem; font-weight: 800; margin-bottom: 1rem;">Gestores</h3>
+                        <p class="text-muted">Profesionales que necesitan agilidad para cumplir la ley en nombre de
+                            terceros con una herramienta robusta y local.</p>
+                    </div>
+                    <div class="target-card">
+                        <div style="color: var(--slate-900); margin-bottom: 1.5rem;"><svg width="48" height="48"
+                                viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M3 21h18"></path>
+                                <path d="M3 7v1a3 3 0 0 0 6 0V7m0 1a3 3 0 0 0 6 0V7m0 1a3 3 0 0 0 6 0V7H3l2-4h14l2 4">
+                                </path>
+                                <path d="M5 21V10.85"></path>
+                                <path d="M19 21V10.85"></path>
+                                <path d="M9 21v-4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v4"></path>
+                            </svg></div>
+                        <h3 style="font-size: 1.5rem; font-weight: 800; margin-bottom: 1rem;">Empresas</h3>
+                        <p class="text-muted">Multi-propiedad con grandes carteras que exigen soberanía sobre sus datos
+                            y automatización escalable sin servidores centralizados.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Diferencias Section -->
+        <section id="tecnico" class="diff-section">
+            <div class="container">
+                <div class="diff-grid">
+                    <div>
+                        <span class="section-tag" style="background: rgba(255,255,255,0.1); color: white;">Ventajas
+                            RentikPro</span>
+                        <h2 style="font-size: 2.5rem; font-weight: 800; margin-bottom: 2rem;">¿Por qué somos diferentes?
+                        </h2>
+
+                        <div class="diff-item">
+                            <div class="diff-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="20 6 9 17 4 12"></polyline>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3>Cumplimiento RGPD por diseño</h3>
+                                <p style="color: rgba(255,255,255,0.5);">Al no centralizar datos en servidores externos,
+                                    el cumplimiento de la protección de datos es inmediato y transparente.</p>
+                            </div>
+                        </div>
+
+                        <div class="diff-item">
+                            <div class="diff-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3>Sin dependencia de conexión</h3>
+                                <p style="color: rgba(255,255,255,0.5);">Trabaja en cualquier lugar. Tu base de datos es
+                                    un archivo SQLite local que siempre está contigo.</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div
+                        style="background: rgba(14, 165, 233, 0.05); padding: 4rem; border-radius: 2rem; border: 1px solid rgba(255,255,255,0.1);">
+                        <div style="font-family: monospace; color: var(--primary);">
+                            <div class="mb-2">// RentikPro Architecture Overview</div>
+                            <div style="color: white; padding-left: 1.5rem;">
+                                Core: "Local-First Desktop Engine",<br>
+                                Storage: "Encrypted SQLite",<br>
+                                Bridge: "Native N2 Mapper",<br>
+                                Privacy: "Zero-Server Policy",<br>
+                                Auth: "Secure Local Key"<br>
+                            </div>
+                            <div class="mt-8"
+                                style="padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.85rem; color: rgba(255,255,255,0.4);">
+                                Status: Stable Version 2.4.0<br>
+                                Verified: SES Hospedajes compatible<br>
+                                Sync: 100% Data Sovereignty
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Final CTA -->
+        <section class="container text-center">
+            <div
+                style="background: linear-gradient(135deg, var(--slate-900) 0%, #0c1222 100%); padding: 6rem; border-radius: 3rem; color: white;">
+                <h2 style="font-size: 3rem; font-weight: 800; margin-bottom: 1.5rem;">Empieza hoy sin riesgos</h2>
+                <p
+                    style="color: rgba(255,255,255,0.6); font-size: 1.25rem; margin-bottom: 3rem; max-width: 600px; margin-left: auto; margin-right: auto;">
+                    Únete a los gestores que ya han automatizado su cumplimiento legal con una herramienta profesional y
+                    segura.
+                </p>
+                <div class="hero-actions">
+                    <a href="#" class="btn btn-primary" style="background: var(--primary);">
+                        Descargar prueba gratuita
+                    </a>
+                    <a href="#" class="btn btn-secondary"
+                        style="background: transparent; color: white; border-color: rgba(255,255,255,0.2);">
+                        Ver Demo Interactiva
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <div class="footer-grid">
+                <div>
+                    <div class="footer-logo">RENTIKPRO</div>
+                    <p class="footer-desc">
+                        La herramienta definitiva para la soberanía del dato en la gestión de alquileres vacacionales en
+                        España.
+                    </p>
+                </div>
+                <div>
+                    <h4 class="footer-heading">Producto</h4>
+                    <ul class="footer-links">
+                        <li><a href="#modulos">Módulos</a></li>
+                        <li><a href="#proceso">Cómo funciona</a></li>
+                        <li><a href="#tecnico">Ventajas</a></li>
+                        <li><a href="#">Roadmap</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="footer-heading">Recursos</h4>
+                    <ul class="footer-links">
+                        <li><a href="#">Documentación</a></li>
+                        <li><a href="#">Guía SES Hospedajes</a></li>
+                        <li><a href="#">Manual N2</a></li>
+                        <li><a href="#">Soporte</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h4 class="footer-heading">Legal</h4>
+                    <ul class="footer-links">
+                        <li><a href="#">Privacidad</a></li>
+                        <li><a href="#">Términos</a></li>
+                        <li><a href="#">Licencia</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="copyright">
+                &copy; 2026 RENTIKPRO. Automatización legal y gestión de activos. Todos los derechos reservados.
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        // Simple scroll effect for nav
+        window.addEventListener('scroll', () => {
+            const nav = document.querySelector('nav');
+            if (window.scrollY > 50) {
+                nav.style.padding = '0.5rem 0';
+                nav.style.boxShadow = '0 10px 30px -10px rgba(15, 23, 42, 0.08)';
+            } else {
+                nav.style.padding = '0';
+                nav.style.boxShadow = 'none';
+            }
+        });
+    </script>
+
+</body>
+
+</html>

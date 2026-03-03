@@ -1,0 +1,1688 @@
+<!DOCTYPE html>
+<html lang="es"  class="s-2302">
+<head>
+    <meta charset="utf-8">
+        <meta name="distribution" content="global" >
+    <meta http-equiv="Content-Language" content="es"/>
+
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <link rel="preconnect" href="https://maps.google.com">
+    <link rel="preconnect" href="https://maps.gstatic.com">
+    <link rel="preconnect" href="https://fonts.google.com">
+    <link rel="preload" href="/public/default/cookieconsent.umd.js" as="script">
+    <link rel="preload" href="/public/default/cookieconsent-config.js?v=1771358086" as="script">
+    <link rel="stylesheet" href="https://kit.fontawesome.com/2b77b628bd.css" crossorigin="anonymous">
+
+    
+    
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;700&family=Open+Sans:wght@400&family=Open+Sans+Condensed:wght@300;700&display=swap" rel="preload" as="style" onload="this.rel='stylesheet'">
+    <link href="https://cdn.jsdelivr.net/gh/orestbida/cookieconsent@v3.1.0/dist/cookieconsent.css" rel="stylesheet">
+
+            	
+
+	
+					
+
+			<link rel="stylesheet" href="https://www.elrinconcitomatarraña.com/public/styles/../default/bootstrap/css/bootstrap.min.css?v=6.1"  
+			>
+
+	
+					
+
+			<link rel="stylesheet" href="https://www.elrinconcitomatarraña.com/public/styles/../default/tooltip.css"  
+			>
+
+	
+					
+
+			<link rel="stylesheet" href="https://www.elrinconcitomatarraña.com/public/styles/style.css?v=1771358086&style=all&params=YToyMDp7czo4OiJtaW5pbWl6ZSI7czoxOiIwIjtzOjExOiJsYXlvdXRfbmFtZSI7czoyNToiRXh0ZW5kZWQgQmxhbmNhIHkgQ2VsZXN0ZSI7czoxMToibGF5b3V0X2ZpbGUiO3M6NzoidGhlbWUyMSI7czoxNzoibGF5b3V0X2ZpbGVfZXh0cmEiO3M6MDoiIjtzOjExOiJsYXlvdXRfZGF0YSI7YToxODp7czo1NDoiYm9va2luZ19hbHRlcm5hdGl2ZV9tZW51X3doZW5fYm9va2luZ193aWRnZXRfYWN0aXZhdGVkIjtzOjI6Im5vIjtzOjIzOiJib29raW5nX3dpZGdldF9wb3NpdGlvbiI7czoxMzoic2xpZGVyLWJvdHRvbSI7czoxMzoiYm9va19wb3NpdGlvbiI7czo0OiJtZW51IjtzOjExOiJmb290ZXJfdHlwZSI7czo4OiJleHRlbmRlZCI7czoxMDoiaG9tZV9zdHlsZSI7czo4OiJleHRlbmRlZCI7czoxMzoibG9nb19wb3NpdGlvbiI7czo1OiJhbG9uZSI7czoxMDoibWVudV9hbGlnbiI7czo2OiJjZW50ZXIiO3M6MTA6Im1lbnVfZmxvYXQiO3M6ODoiYWN0aXZhZG8iO3M6MTI6Im9waW5pb25fbWVudSI7czoxNjoibGlzdGFkbyBjb24gaW5mbyI7czoxMToicGFnZV9sYXlvdXQiO3M6NDoiZnVsbCI7czoxNDoicGFnZV9tYXhfd2lkdGgiO3M6MzoiYmlnIjtzOjE2OiJzaWRlYmFyX3Bvc2l0aW9uIjtzOjY6ImZvb3RlciI7czoxMjoic2xpZGVyX2VmZWN0IjtzOjQ6ImZhZGUiO3M6MTI6InNsaWRlcl93aWR0aCI7czo0OiJmdWxsIjtzOjIzOiJ3aWRnZXRfYWRkcmVzc19wb3NpdGlvbiI7czo3OiJzaWRlYmFyIjtzOjI0OiJ3aWRnZXRfcGFydG5lcnNfcG9zaXRpb24iO3M6NjoiZm9vdGVyIjtzOjIxOiJ3aWRnZXRfcGFydG5lcnNfc3R5bGUiO3M6NDoiZGFyayI7czoyMzoid2lkZ2V0X3dlYXRoZXJfcG9zaXRpb24iO3M6NzoiY29udGVudCI7fXM6MTM6ImxheW91dF9jdXN0b20iO2E6MTp7czoxMDoiY29sb3JfbWFpbiI7czo3OiIjMzg5NmI2Ijt9czoxMzoibGF5b3V0X3BhcmFtcyI7czoxMjoiaGVhZGVyPXdoaXRlIjtzOjE0OiJsYXlvdXRfdmVyc2lvbiI7czoxOiIyIjtzOjQ6ImZpbGUiO3M6NToic3R5bGUiO3M6MTA6ImZvbnRzX2JvZHkiO3M6MTY6IidSb2JvdG86MzAwLDcwMCciO3M6MTI6ImZvbnRzX2hlYWRlciI7czoxMToiJ09wZW4gU2FucyciO3M6OToiZm9udHNfY3RhIjtzOjI5OiInT3BlbiBTYW5zIENvbmRlbnNlZDozMDAsNzAwJyI7czoxNToiYm9keV9mb250d2VpZ2h0IjtzOjg6IjMwMCw3MDAnIjtzOjE1OiJib2R5X2ZvbnRmYW1pbHkiO3M6ODoiJ1JvYm90byciO3M6MTc6ImhlYWRlcl9mb250d2VpZ2h0IjtOO3M6MTc6ImhlYWRlcl9mb250ZmFtaWx5IjtzOjExOiInT3BlbiBTYW5zJyI7czoxNDoiY3RhX2ZvbnR3ZWlnaHQiO3M6ODoiMzAwLDcwMCciO3M6MTQ6ImN0YV9mb250ZmFtaWx5IjtzOjIxOiInT3BlbiBTYW5zIENvbmRlbnNlZCciO3M6MjA6ImJvZHlfZm9udHdlaWdodF9ib2xkIjtzOjM6IjcwMCI7czoyMjoiYm9keV9mb250d2VpZ2h0X25vcm1hbCI7czozOiIzMDAiO30="  
+			>
+
+	    <style>
+        body .navbar-default { background-color: transparent; border-color: transparent; }
+    </style>
+
+    <script defer type="module" src="/public/default/cookieconsent-config.js?v=1771358086"></script>
+
+    
+    <script src="/public/default/lazysizes.min.js" async></script>
+    <script src="/public/default/ls.unveilhooks.min.js" async></script>
+
+    <script>
+    var booking_dateFormat = false;
+    var booking_default_nights = false;
+    var booking_popup = true;
+    var booking_action = false;
+    var booking_actionxs = false;
+    var CSSLoad = false;
+
+    var modal = false;
+
+            var carrousel = true;
+                var cookie = false;
+                 var float_Navbar = true;
+                var full_score = false;
+    
+    var lang = "es";
+
+    </script>
+
+    
+
+
+            <META NAME="ROBOTS" CONTENT="INDEX, FOLLOW">
+    
+
+        
+
+    
+    
+    
+        <meta name="keywords" content="apartamento Los Almendros, apartamento rural Matarra&ntilde;a, alojamiento familiar Fuentespalda, apartamento 4 personas Matarra&ntilde;a, turismo rural Teruel, apartamento con vistas naturaleza Arag&oacute;n, escapada rural Matarra&ntilde;a">
+    <title>Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda</title>
+        <meta name="description" content="Apartamento Los Almendros en Fuentespalda, Matarra&ntilde;a. Alojamiento rural ideal para familias, con vistas a la naturaleza y escapadas en Teruel.<br />
+">
+
+
+
+    
+<!-- twitter card -->
+<meta name="twitter:card" content="summary">
+	<meta name="twitter:url" content="https://www.elrinconcitomatarraña.com/es/room/8548/LOS-ALMENDROS">
+	<meta name="twitter:description" content="Apartamento Los Almendros en Fuentespalda, Matarra&ntilde;a. Alojamiento rural ideal para familias, con vistas a la naturaleza y escapadas en Teruel.
+">
+	<meta name="twitter:image" content="https://cdn.turisapps.com/site-2302/b77bd5e4-5a90-4fe9-99b5-9a4deff07698/main.webp">
+
+
+<!-- Open Graph data - Facebook -->
+	<meta property="og:site_name" content="Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda">
+	<meta property="og:description" content="Apartamento Los Almendros en Fuentespalda, Matarra&ntilde;a. Alojamiento rural ideal para familias, con vistas a la naturaleza y escapadas en Teruel.
+">
+	<meta property="og:image" content="https://cdn.turisapps.com/site-2302/b77bd5e4-5a90-4fe9-99b5-9a4deff07698/main.webp">
+	<link rel="image_src" href="https://cdn.turisapps.com/site-2302/b77bd5e4-5a90-4fe9-99b5-9a4deff07698/main.webp" >
+			<meta property="og:url" content="https://www.elrinconcitomatarraña.com/es/room/8548/LOS-ALMENDROS">
+	<meta property="og:type" content="website">
+
+    <meta name="author" content="turisapps">
+        
+
+    <link rel="shortcut icon" href="/favicon.png?v=4">
+    <link rel='apple-touch-icon' type='image/png' href="/favicon.png?v=4">
+    <link rel='apple-touch-icon' type='image/png' sizes='114x114' href="/favicon.png?v=4">
+    <link rel='icon' type='image/png' href="/favicon.png?v=4">
+
+
+
+    
+	
+
+
+    <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
+    <!--[if lt IE 9]>
+        
+			
+		
+		<script src="https://www.elrinconcitomatarraña.com/public/scripts/../default/html5shiv.js" defer></script>
+			
+		
+		<script src="https://www.elrinconcitomatarraña.com/public/scripts/../default/respond.min.js" defer></script>
+	
+
+
+    <![endif]-->
+
+    <!-- Carga de js para IE-->
+    <!--[if IE]>
+        
+			
+		
+		<script src="https://www.elrinconcitomatarraña.com/public/scripts/../zor/scripts/ajax.min.js?v=5" defer></script>
+			
+		
+		<script src="https://www.elrinconcitomatarraña.com/public/scripts/../default/js-after.js?v=119" defer></script>
+	
+
+
+    <![endif]-->
+
+             <link rel="canonical" href="https://www.elrinconcitomatarraña.com/es/room/8548/LOS-ALMENDROS">
+    
+
+    <style>
+        .async-load {display: none}
+        .css-loaded.async-hide, .css-loaded .async-hide { display: none }
+    </style>
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-2R4VDHZXQE"></script>
+<script type="text/javascript">
+    window["ga-disable-G-2R4VDHZXQE"] = true;
+    var ga_main = false;
+    var ga_custom = false;
+
+        window["ga-disable-G-2R4VDHZXQE"] = false;
+
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+
+    // Cookie consent defaults
+    gtag('consent', 'default', {
+        ad_storage: 'denied',
+        ad_user_data: 'denied',
+        ad_personalization: 'denied',
+        analytics_storage: 'denied',
+        functionality_storage: 'denied',
+        personalization_storage: 'denied',
+        security_storage: 'denied',
+        wait_for_update: 500,
+    });
+
+    function updateConsent(categories) {
+        const adsEnabled = categories.includes("advertising");
+        const analyticsEnabled = categories.includes("analytics");
+        const functionalityEnabled = categories.includes("functionality");
+        const securityEnabled = categories.includes("security");
+
+        gtag('consent', 'update', {
+            ad_storage: adsEnabled ? 'granted' : 'denied',
+            ad_user_data: adsEnabled ? 'granted' : 'denied',
+            ad_personalization: adsEnabled ? 'granted' : 'denied',
+            analytics_storage: analyticsEnabled ? 'granted' : 'denied',
+            functionality_storage: functionalityEnabled ? 'granted' : 'denied',
+            personalization_storage: functionalityEnabled ? 'granted' : 'denied',
+            security_storage: securityEnabled ? 'granted' : 'denied',
+        });
+    }
+
+    // Consent granted
+    window.addEventListener('cc:onConsent', ({detail}) => {
+        updateConsent(detail.cookie.categories);
+    });
+
+    window.addEventListener('cc:onChange', ({detail}) => {
+        updateConsent(detail.cookie.categories);
+    });
+
+    gtag("js", new Date());
+    gtag("config", "G-2R4VDHZXQE", {
+        "cookie_domain": "www.xn--elrinconcitomatarraa-m7b.com",
+        "cookie_prefix": "main",
+    });
+
+    ga_main = true;
+
+        gtag("config", "G-PQEGJWPF4K", {
+        "cookie_domain": "www.xn--elrinconcitomatarraa-m7b.com",
+        "cookie_prefix": "custom",
+        "groups": "custom",
+        "linker": {
+            "accept_incoming": true
+        }
+    });
+    ga_custom = true;
+
+    function stats_book()
+    {
+        gtag("event", "click", {
+            "event_gategory": "formulario",
+            "event_label": "reserva",
+            "send_to": "custom"
+        });
+    }
+    
+
+    gtag("event", "page_view", { "send_to": "default" });
+    gtag("event", "lang_page", { "lang_page": "es" ,"send_to": "default" });
+    gtag("event", "url_module", { "module": "site" ,"send_to": "default" });
+    gtag("event", "url_controller", { "module": "room-card","send_to": "default" });
+    gtag("event", "url_action", { "module": "index" ,"send_to": "default" });
+
+
+        gtag("event", "page_view", { "send_to": "custom" });
+    gtag("event", "lang_page", { "lang_page": "es" ,"send_to": "custom" });
+    
+    /* Replacement function for legacy ga calls */
+    window._ga = function(type, event, eventCategory, eventAction, eventLabel) {
+        if (type.indexOf("send") === -1) {
+            return;
+        }
+
+        var groups;
+
+        if (type === "main.send") {
+            groups = "default";
+        }
+        else if (type === "custom.send") {
+            groups = "custom";
+        }
+        else {
+            groups = ["default", "custom"];
+        }
+
+        if (event === "pageview") {
+            gtag("event", "page_view", { "page_path": eventCategory.page, "send_to": groups });
+        }
+        else if (event === "event") {
+            gtag("event", eventCategory, {
+                "event_category": eventCategory,
+                "event_action": eventAction,
+                "event_label": eventLabel,
+                "send_to": groups
+            });
+        }
+    }
+    </script>
+
+</head>
+
+<body id="s_room-card" class="s_index menu-position-default page-max-width-big page-layout-full widget-book-true loading">
+
+
+<!--[if lte IE 7]> <div class="navdetector ie7  ie10- ie9- ie8- ie7-" > <![endif]-->
+<!--[if IE 8]>     <div class="navdetector ie8  ie10- ie9- ie8-" > <![endif]-->
+<!--[if IE 9]>     <div class="navdetector ie9  ie10- ie9- ie8-" > <![endif]-->
+<!--[if IE 10]>    <div class="navdetector ie10 ie10- ie9- ie8-" > <![endif]-->
+<!--[if !IE]><!--> <div class="navdetector noie es" >  <!--<![endif]-->
+
+
+
+    <div id='header'>
+        
+        
+        
+                <div class='logo-alone'>
+	<div class='container'>
+		<div class="box">
+			<a href="https://www.elrinconcitomatarraña.com/"><img id='logo' class='full-width' width="330" height="174" src="https://www.elrinconcitomatarraña.com/public/images/sites/2302-logo.png?v=20210329165602" alt="logotipo">
+</a>
+		</div>
+	</div>
+</div>
+
+             
+
+<div class="navbar navbar-default">
+      <div class="container">
+        
+        <div class="navbar-header">
+        <span class="card-info mobile">
+					<a class="card-icon" href="tel:+34629837369" rel="noopener">
+				<span class="glyphicon glyphicon-phone"></span>
+			</a>
+		
+	<a class="card-icon" href="https://www.elrinconcitomatarraña.com/es/book" >
+		<span class="glyphicon glyphicon-calendar"></span>		
+	</a>
+		
+			<a class="card-icon" href="mailto:&#114;&#101;&#115;&#101;&#114;&#118;&#97;&#115;&#46;&#101;&#108;&#114;&#105;&#110;&#99;&#111;&#110;&#99;&#105;&#116;&#111;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109; " rel="noopener">
+				<span class="glyphicon glyphicon-envelope"></span>		
+			</a>
+				<a class="card-icon" href="https://maps.google.com/maps?z=18&q=40.80713190255378,0.06415288424000742 " target="_blank" rel="noopener" >
+			<span class="glyphicon glyphicon-map-marker"></span>		
+		</a>
+	</span>
+                  <button type="button" aria-label="toggle" class="navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+            <span class="icon-bar"></span>
+          </button>
+
+          
+        </div>
+        
+        
+        
+
+        <div class="collapse navbar-collapse navbar-align-center">
+
+            
+<div class="container">
+
+<div id='lang-selector' class='position-default'>
+
+
+    
+    
+            <span class='a'>es</span>
+    
+    
+    
+     | 
+            <a href='https://www.elrinconcitomatarraña.com/en/room/8548/LOS-ALMENDROS'>en</a>
+    
+    
+
+</div>
+</div>
+
+
+          <ul class="nav navbar-nav navbar-center">
+
+                                            <li class="active rooms">
+                    <a href="https://www.elrinconcitomatarraña.com/es/rooms" >Apartamentos</a>
+                  </li>            
+              
+                                            <li class="opinions">
+                    <a href="https://www.elrinconcitomatarraña.com/es/opinions" >Opiniones</a>
+                  </li>            
+              
+                                            <li class="location">
+                    <a href="https://www.elrinconcitomatarraña.com/es/location" >Localizaci&oacute;n y Contacto</a>
+                  </li>            
+              
+                                            <li class="book">
+                    <a href="https://www.elrinconcitomatarraña.com/es/book" >Reservar</a>
+                  </li>            
+              
+            
+
+          </ul>
+
+        </div><!--/.nav-collapse -->
+
+              </div>
+</div>
+
+                                            <a href="https://www.elrinconcitomatarraña.com/">
+                <img id='logo-xs' class="mobile" src="https://www.elrinconcitomatarraña.com/public/images/sites/2302-logo.png?v=20210329165602" width="330" height="174" alt="logotipo">
+            </a>
+        
+            </div>
+
+    
+    <div id='carousel' class='carousel-images content- slider-width-full slider-height-default'>
+        <div id='cont_carousel' class='container'>
+                          
+        <style>
+        
+        @media screen and (min-width: 699px) {
+                                                        #crs-img-131035 {  background: url('https://cdn.turisapps.com/site-2302/b77bd5e4-5a90-4fe9-99b5-9a4deff07698/main.webp') center center no-repeat; background-size: cover  }
+
+                                                                    #crs-img-131044 {  background: url('https://cdn.turisapps.com/site-2302/2a9a315b-736c-4a12-b589-e8a3053210f7/main.webp') center center no-repeat; background-size: cover  }
+
+                                                                    #crs-img-131045 {  background: url('https://cdn.turisapps.com/site-2302/6110293e-2498-41b5-b9ff-0c21ac47cc48/main.webp') center center no-repeat; background-size: cover  }
+
+                                                                    #crs-img-131046 {  background: url('https://cdn.turisapps.com/site-2302/8ab4f832-ba6e-48e2-b2a4-8bdaa2ab05ec/main.webp') center center no-repeat; background-size: cover  }
+
+                                                                    #crs-img-136438 {  background: url('https://cdn.turisapps.com/site-2302/6c9d5447-89c5-46c4-85e9-6f5052732344/main.webp') center center no-repeat; background-size: cover  }
+
+                                                                    #crs-img-138324 {  background: url('https://cdn.turisapps.com/site-2302/fe502273-9638-4050-87d9-867b872aa9c3/main.webp') center center no-repeat; background-size: cover  }
+
+                                                                    #crs-img-138325 {  background: url('https://cdn.turisapps.com/site-2302/db94c9bb-ab4a-47d1-8e78-88f25fbcf3af/main.webp') center center no-repeat; background-size: cover  }
+
+                                                                    #crs-img-138326 {  background: url('https://cdn.turisapps.com/site-2302/d90ba376-60fd-41e3-a566-9c52775f41cc/main.webp') center center no-repeat; background-size: cover  }
+
+                                                                    #crs-img-138327 {  background: url('https://cdn.turisapps.com/site-2302/22bb548f-932a-4ff2-9583-bd5c205bda1e/main.webp') center center no-repeat; background-size: cover  }
+
+                                                                    #crs-img-138328 {  background: url('https://cdn.turisapps.com/site-2302/1e972fb5-f061-4d4c-a726-0107e7e5917a/main.webp') center center no-repeat; background-size: cover  }
+
+                                                                    #crs-img-141910 {  background: url('https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp') center center no-repeat; background-size: cover  }
+
+                            }
+
+        @media screen and (max-width: 699px) {
+        
+            
+                                    #crs-img-131035 {  background: url('https://cdn.turisapps.com/site-2302/b77bd5e4-5a90-4fe9-99b5-9a4deff07698/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+        
+            
+                                    #crs-img-131044 {  background: url('https://cdn.turisapps.com/site-2302/2a9a315b-736c-4a12-b589-e8a3053210f7/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+        
+            
+                                    #crs-img-131045 {  background: url('https://cdn.turisapps.com/site-2302/6110293e-2498-41b5-b9ff-0c21ac47cc48/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+        
+            
+                                    #crs-img-131046 {  background: url('https://cdn.turisapps.com/site-2302/8ab4f832-ba6e-48e2-b2a4-8bdaa2ab05ec/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+        
+            
+                                    #crs-img-136438 {  background: url('https://cdn.turisapps.com/site-2302/6c9d5447-89c5-46c4-85e9-6f5052732344/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+        
+            
+                                    #crs-img-138324 {  background: url('https://cdn.turisapps.com/site-2302/fe502273-9638-4050-87d9-867b872aa9c3/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+        
+            
+                                    #crs-img-138325 {  background: url('https://cdn.turisapps.com/site-2302/db94c9bb-ab4a-47d1-8e78-88f25fbcf3af/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+        
+            
+                                    #crs-img-138326 {  background: url('https://cdn.turisapps.com/site-2302/d90ba376-60fd-41e3-a566-9c52775f41cc/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+        
+            
+                                    #crs-img-138327 {  background: url('https://cdn.turisapps.com/site-2302/22bb548f-932a-4ff2-9583-bd5c205bda1e/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+        
+            
+                                    #crs-img-138328 {  background: url('https://cdn.turisapps.com/site-2302/1e972fb5-f061-4d4c-a726-0107e7e5917a/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+        
+            
+                                    #crs-img-141910 {  background: url('https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp') center center no-repeat; background-size: cover  }
+
+
+             
+                }
+
+      </style>
+      
+      
+    
+        <div  id="myCarousel" class="carousel slide carousel-fade active-default">
+      <!-- Indicators -->
+              <ol class="carousel-indicators">
+                      <li class='order-0 active' data-target="#myCarousel" data-slide-to="0" class="active"></li>
+                      <li class='order-1 ' data-target="#myCarousel" data-slide-to="1" class=""></li>
+                      <li class='order-2 ' data-target="#myCarousel" data-slide-to="2" class=""></li>
+                      <li class='order-3 ' data-target="#myCarousel" data-slide-to="3" class=""></li>
+                      <li class='order-4 ' data-target="#myCarousel" data-slide-to="4" class=""></li>
+                      <li class='order-5 ' data-target="#myCarousel" data-slide-to="5" class=""></li>
+                      <li class='order-6 ' data-target="#myCarousel" data-slide-to="6" class=""></li>
+                      <li class='order-7 ' data-target="#myCarousel" data-slide-to="7" class=""></li>
+                      <li class='order-8 ' data-target="#myCarousel" data-slide-to="8" class=""></li>
+                      <li class='order-9 ' data-target="#myCarousel" data-slide-to="9" class=""></li>
+                      <li class='order-10 ' data-target="#myCarousel" data-slide-to="10" class=""></li>
+                  </ol>
+      
+     
+      <div class="carousel-inner">
+
+                  <div class="item active type-0">
+            <div class="mobile-caption visible-xs color-active"></div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-131035'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title=''  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                      
+            
+          </div>
+
+
+                  <div class="item  type-1">
+            <div class="mobile-caption visible-xs color-active"></div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-131044'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title=''  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                      
+            
+          </div>
+
+
+                  <div class="item  type-0">
+            <div class="mobile-caption visible-xs color-active"></div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-131045'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title=''  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                      
+            
+          </div>
+
+
+                  <div class="item  type-1">
+            <div class="mobile-caption visible-xs color-active"></div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-131046'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title=''  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                      
+            
+          </div>
+
+
+                  <div class="item  type-0">
+            <div class="mobile-caption visible-xs color-active"></div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-136438'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title=''  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                      
+            
+          </div>
+
+
+                  <div class="item  type-1">
+            <div class="mobile-caption visible-xs color-active">Zona de juegos</div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-138324'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title='Zona de juegos'  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                          <div class="carousel-caption">
+                <div class='container'>
+                  <div class='caption'>
+                    <h3>Zona de juegos</h3>
+                  </div>
+                </div>  
+              </div>           
+                      
+            
+          </div>
+
+
+                  <div class="item  type-0">
+            <div class="mobile-caption visible-xs color-active"></div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-138325'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title=''  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                      
+            
+          </div>
+
+
+                  <div class="item  type-1">
+            <div class="mobile-caption visible-xs color-active"></div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-138326'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title=''  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                      
+            
+          </div>
+
+
+                  <div class="item  type-0">
+            <div class="mobile-caption visible-xs color-active"></div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-138327'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title=''  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                      
+            
+          </div>
+
+
+                  <div class="item  type-1">
+            <div class="mobile-caption visible-xs color-active"></div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-138328'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title=''  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                      
+            
+          </div>
+
+
+                  <div class="item  type-0">
+            <div class="mobile-caption visible-xs color-active"></div>
+            <div class='cortine trama-default'></div>
+            <div class='box-img'>
+              <div class='cover-img' id='crs-img-141910'>
+                
+                
+                <img class='real-img lazy hidden' style='display:none !important' alt='Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' title=''  src="https://www.elrinconcitomatarraña.com/public/images/empty.png"  data-src="https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp">
+                
+                
+               
+              </div>
+            </div>
+            
+                      
+            
+          </div>
+
+
+        
+      </div>
+
+                 <a class="left carousel-control" style='display:none' href="#myCarousel"  data-slide="prev" aria-label="prev"><span class="glyphicon glyphicon-chevron-left"></span></a>
+          <a class="right carousel-control" style='display:none' href="#myCarousel" data-slide="next" aria-label="next"><span class="glyphicon glyphicon-chevron-right"></span></a>
+            <div class='spliter spliter-black'>&nbsp;</div>
+    </div><!-- /.carousel -->
+
+
+
+            
+            <div class='spliter spliter-black'>&nbsp;</div>
+            
+
+        </div>
+    </div>
+
+    
+    
+    
+    <div id="main">
+        <div class="container">
+            <div class="row">
+
+                                    <div class='col-xs-12 col-sm-12 col-md-12 content' id='content'>
+                        
+<div class='content-box'>
+
+
+
+
+<h1 class="hidden">elrinconcito</h1>
+
+
+<div class="text-box">
+
+			<h2>LOS ALMENDROS</h2>
+	
+	<!-- 		<h3>
+					</h3>
+	 -->
+
+	    <div class="text">
+        <div class="room-card__details">
+            Personas: 4 — m<sup>2</sup>: 50 — Habitaciones: 1 — Baños: 1        </div>
+    </div>
+
+			<div class="text text-small">
+			<strong>-ESTANCIAS Y EQUIPAMIENTO</strong><br>
+<ul class="bbcode">
+<li>sal&oacute;n (TV, equipo de m&uacute;sica)</li>
+<li>cocina (menaje, microondas, lavadora)</li>
+<li>habitaci&oacute;n &nbsp;(cama doble de 160cm)</li>
+<li>sofa cama</li>
+</ul>
+<br>
+<strong>-SERVICIOS</strong><br>
+<ul class="bbcode">
+<li>Limpieza</li>
+</ul>		</div>
+	
+	<div class="text">
+		<div class="clearfix">&nbsp;</div>
+<div class="services">
+
+	
+			<div class="service-icon tooltip28-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Cama matrimonio" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip27-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Sof&aacute; cama" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip2-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="TV" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip21-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Chimenea" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip5-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Calefacci&oacute;n" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip34-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Ventilador de pie" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip37-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Ropa de cama y toallas" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip22-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Ba&ntilde;o privado" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip33-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Ducha" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip1-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Secador de pelo " data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip20-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Minibar" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip39-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Cafetera" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip16-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Cocina" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip25-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Microondas" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip24-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Lavavajillas" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip4-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Wifi" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip41-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Prohibido fumar" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip50-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Limpieza" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip44-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Atenci&oacute;n 24h" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+			<div class="service-icon tooltip48-black lazyload" data-bg="/public/default/tooltip.png">
+			<img rel="tooltip" data-title="Informaci&oacute;n tur&iacute;stica" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="">
+		</div>
+		<div class="clearfix">&nbsp;</div>
+</div>
+<div class="clearfix">&nbsp;</div>	</div>
+
+	<div class="text">
+		<div class="clearfix">&nbsp;</div>
+			</div>
+</div>
+
+<div class="clearfix">&nbsp;</div>
+<script>
+	var _prices = [];
+	var _currency = [];
+</script>
+
+	<div class="calendar">
+	<script>
+	var _prices = [];
+	var _currency = [];
+</script>
+	
+		
+					
+			<span class="special-styles-2284"></span>
+			<script>
+			_currency[2284] = '&euro;';
+			_prices[2284] = [];
+			_prices[2284][0] = '110';
+			_prices[2284][1] = '80';
+			_prices[2284][2] = '80'
+			_prices[2284][3] = '80';
+			_prices[2284][4] = '80';
+			_prices[2284][5] = '120';
+			_prices[2284][6] = '150';
+			</script>
+
+
+			<h2>Los Almendros</h2>
+			<div class="calendar calendar-2284">
+				<div style="height:295px;width:100%;text-align:center;padding-top:80px;"><img src="https://www.elrinconcitomatarraña.com/public/images/calendar-loader.gif" alt=""></div>
+			</div>
+		
+				
+	
+<script>
+
+	function paintPrice(id)
+	{  	
+	    setTimeout(function () {
+			$j(".calendar-" + id + " td a").each( function (i) 
+			{
+			 	var obj = $j(this);
+			 	var parent = obj.parent();
+				var price = parent.attr('title') || 0;
+
+				var className = 'datepicker-content-' + price;
+
+				if (price == 0)
+					addCSSRule(id ,'.calendar-' + id + ' td a.' + className + ':after {content: "\\a0";}');
+				else
+					addCSSRule(id, '.calendar-' + id + ' td a.' + className + ':after {content: "' + price + ' ' + _currency[id] + '";}');
+
+				obj.addClass(className);
+			});
+		},0);
+	}
+
+	function loaded()
+	{	
+					
+			_dates[2284] = false;
+
+			refresh(
+				2284, 
+				"https://www.elrinconcitomatarraña.com/es/room/2284/LOS-ALMENDROS/refresh/book/format/json"
+				);
+
+		
+		$j(window).resize(function()
+		{
+			
+				width_calendar(2284);
+
+			
+		});
+	}
+
+</script>
+	</div>
+
+
+
+     
+<script>
+
+	function extra_zoom_in(id)
+	{
+		$j('.extra_image_' + id).addClass('open_extra');
+	}
+
+	function extra_zoom_out(id)
+	{
+		$j('.extra_image_' + id).removeClass('open_extra');
+	}
+
+</script>
+
+    
+
+		<div id="room_list" class="element">
+
+
+					<h2 style="margin-top: 60px">Confort y Bienestar</h2>
+		
+
+		
+			
+					
+			
+			
+
+					<div class="row room odd">
+												<a class="image" href="https://www.elrinconcitomatarraña.com/es/room/8550/-quot;LA-ERMITA-quot;" >
+						
+																											<div class="full-width">
+									<div class="lazyload cover-img" data-bg="https://cdn.turisapps.com/site-2302/4bfb1214-2ba5-46ea-9de8-e238c81f5fbe/main.webp" style="background-repeat: no-repeat; background-size: cover !important">
+										<img class="relation" loading="lazy" decoding="async" src="https://www.elrinconcitomatarraña.com/public/images/rel32.png">
+									</div>
+								</div>
+													
+													<div class="color-active price"><span class="from">desde </span><span class="q">90&euro;</span></div>
+						
+												</a>
+						
+						<div class="content">
+															<div class="actions">
+									<a class="btn btn-primary" href="https://www.elrinconcitomatarraña.com/es/room/8550/-quot;LA-ERMITA-quot;">M&aacute;s Info</a>
+								</div>
+								<h4><a href="https://www.elrinconcitomatarraña.com/es/room/8550/-quot;LA-ERMITA-quot;">&quot;LA ERMITA&quot;</a></h4>
+							
+							<div class="desc"><i>Ideal para parejas que buscan tranquilidad. Dispone de cama de matrimonio, un sof&aacute; cama, ambiente r&uacute;stico con detalles modernos y todo lo necesario para una escapada rom&aacute;ntica.</i>
+							<div class="details">
+														
+															<div class="details">
+									<strong>Personas</strong>: 4<br><strong>m<sup>2</sup></strong>: 50<br><strong>Habitaciones</strong>: 1<br><strong>Baños</strong>: 1								</div>
+														</div>
+
+								
+									
+									<div class="clearfix">&nbsp;</div>
+									<div class="services">
+																					<div class="service-icon tooltip28-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Cama matrimonio" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip27-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Sof&aacute; cama" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip2-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="TV" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip21-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Chimenea" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip5-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Calefacci&oacute;n" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip34-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Ventilador de pie" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip37-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Ropa de cama y toallas" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip22-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Ba&ntilde;o privado" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip18-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Productos de ba&ntilde;o" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip33-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Ducha" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip1-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Secador de pelo " data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip20-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Minibar" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip39-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Cafetera" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip16-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Cocina" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip25-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Microondas" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip24-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Lavavajillas" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip14-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Plancha" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip17-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Terraza" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip4-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Wifi" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip41-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Prohibido fumar" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip44-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Atenci&oacute;n 24h" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																			</div>
+									<div class="clearfix">&nbsp;</div>
+															</div>
+
+						</div>
+
+
+					</div>
+
+					
+			
+			
+
+					<div class="row room pair">
+												<a class="image" href="https://www.elrinconcitomatarraña.com/es/room/8549/LA-TIROLINA" >
+						
+																											<div class="full-width">
+									<div class="lazyload cover-img" data-bg="https://cdn.turisapps.com/site-2302/26ca7feb-2c00-403b-ba63-007a984adb56/main.webp" style="background-repeat: no-repeat; background-size: cover !important">
+										<img class="relation" loading="lazy" decoding="async" src="https://www.elrinconcitomatarraña.com/public/images/rel32.png">
+									</div>
+								</div>
+													
+													<div class="color-active price"><span class="from">desde </span><span class="q">150&euro;</span></div>
+						
+												</a>
+						
+						<div class="content">
+															<div class="actions">
+									<a class="btn btn-primary" href="https://www.elrinconcitomatarraña.com/es/room/8549/LA-TIROLINA">M&aacute;s Info</a>
+								</div>
+								<h4><a href="https://www.elrinconcitomatarraña.com/es/room/8549/LA-TIROLINA">LA TIROLINA</a></h4>
+							
+							<div class="desc"><i>Espacioso y funcional, con capacidad para 6 personas( 4 adultos y dos ni&ntilde;os). Destaca por su estilo rural aut&eacute;ntico y por ofrecer un ambiente hogare&ntilde;o en el que relajarse tras un d&iacute;a de excursiones.</i>
+							<div class="details">
+														
+															<div class="details">
+									<strong>Personas</strong>: 6<br><strong>m<sup>2</sup></strong>: 95<br><strong>Habitaciones</strong>: 2<br><strong>Baños</strong>: 2								</div>
+														</div>
+
+								
+									
+									<div class="clearfix">&nbsp;</div>
+									<div class="services">
+																					<div class="service-icon tooltip28-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Cama matrimonio" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip27-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Sof&aacute; cama" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip2-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="TV" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip5-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Calefacci&oacute;n" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip34-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Ventilador de pie" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip37-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Ropa de cama y toallas" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip22-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Ba&ntilde;o privado" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip18-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Productos de ba&ntilde;o" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip15-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Hidromasaje" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip33-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Ducha" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip1-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Secador de pelo " data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip20-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Minibar" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip39-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Cafetera" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip16-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Cocina" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip25-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Microondas" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip24-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Lavavajillas" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip4-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Wifi" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip41-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Prohibido fumar" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip44-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Atenci&oacute;n 24h" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																					<div class="service-icon tooltip48-black lazyload" data-bg="/public/default/tooltip.png">
+																																					<img class="lazyload" rel="tooltip" data-title="Informaci&oacute;n tur&iacute;stica" data-placement="top" data-html="true" src="/public/images/empty25.png" width=25 height=25 alt="relation img">
+												
+																							</div>
+																			</div>
+									<div class="clearfix">&nbsp;</div>
+															</div>
+
+						</div>
+
+
+					</div>
+
+					
+			
+			
+
+					<div class="row room odd">
+												<a class="image" href="https://www.elrinconcitomatarraña.com/es/room/12661/MAS-MATARRANA" >
+						
+						
+						
+												</a>
+						
+						<div class="content">
+															<div class="actions">
+									<a class="btn btn-primary" href="https://www.elrinconcitomatarraña.com/es/room/12661/MAS-MATARRANA">M&aacute;s Info</a>
+								</div>
+								<h4><a href="https://www.elrinconcitomatarraña.com/es/room/12661/MAS-MATARRANA">MAS MATARRA&Ntilde;A</a></h4>
+							
+							<div class="desc">
+							<div class="details">
+														
+														</div>
+
+															</div>
+
+						</div>
+
+
+					</div>
+
+							</div>
+
+    <div class="clearfix"></div>
+
+
+      
+  
+  
+  
+  
+
+  
+
+
+
+
+    <div class="clearfix"></div>
+
+
+        <div class="clearfix"></div>
+
+    
+ </div>
+
+<div class='closer'>
+    <a href="#" class='opener' onclick="$j('#content').addClass('content-acting'); $j('#content .content-box').slideToggle(null,function() { $j('#content').toggleClass('content-closed'); $j('#content').removeClass('content-acting'); }); $j('#content .closer').toggleClass('closed'); return false;"><span class="glyphicon"></span></a>
+</div>
+<div class='extra' style='display:none'>&nbsp;</div>
+                    </div>
+                                 <div class="clearfix"></div>
+            </div>
+              <div class="clearfix"></div>
+
+              
+
+
+        </div>
+
+        <a id="back-to-top" href="#"><i class="glyphicon glyphicon-chevron-up"></i></a>
+    </div>
+
+    <div class='float'>
+        
+     </div>
+
+    
+<div id="footer-wrapper">
+            <div id="footer" class="footer-type-extended">
+        <div class="container">
+             
+            <h3 class="name">elrinconcito</h3>
+            <p class="slogan">Apartamentos rurales en Matarra&ntilde;a</p>
+                                    <div class="row block-info">
+                <div class="col-xs-12 col-sm-4 info info-phone">
+                    <div class="info-icon"><span class="glyphicon glyphicon-earphone"></span></div>
+                    
+                                            <div class="phone fijo"><a href="tel:+34629837369">+34629837369</a></div>
+                    
+                                            <div class="phone mvl"><i class="glyphicon fa fa-whatsapp"></i><a href="https://api.whatsapp.com/send?phone=34629837369" target="_blank" rel="noopener">&nbsp;34629837369</a><br></div>
+                    
+                                    </div>
+                <div class="col-xs-12 col-sm-4 info info-address">
+                    <div class="info-icon"><span class="glyphicon glyphicon-map-marker"></span></div>
+                    <div class="address">
+                        <span class="street-address">Calle San Lorenzo 4</span><span class="post-code">44587</span> <span class="city">Fuentespalda</span> <span class="province">Teruel</span><span class="country">España</span>                    </div>
+                                            <p class="legal_number">
+                            2021-E-RC-453                        </p>
+                                    </div>
+                <div class="col-xs-12 col-sm-4 info info-mail">
+                    <div class="info-icon"><span class="glyphicon glyphicon-envelope"></span></div>
+                    <div class="mail"><a href="mailto:&#114;&#101;&#115;&#101;&#114;&#118;&#97;&#115;&#46;&#101;&#108;&#114;&#105;&#110;&#99;&#111;&#110;&#99;&#105;&#116;&#111;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;">&#114;&#101;&#115;&#101;&#114;&#118;&#97;&#115;&#46;&#101;&#108;&#114;&#105;&#110;&#99;&#111;&#110;&#99;&#105;&#116;&#111;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;</a></div>
+                </div>
+            </div>
+
+            <div class='socialbar'>
+
+	<div class='container'>
+
+		<div class='icons'>
+			<a href="https://m.facebook.com/elrinconcito.rinconcito.5?_rdr" target="_blank" rel="noreferrer" aria-label="Facebook link">
+						<img class="facebook lazyload" data-sizes="auto" data-src="https://www.elrinconcitomatarraña.com/public/images/rrss/facebook.png" srcset="https://www.elrinconcitomatarraña.com/public/images/rrss/facebook_60.png, https://www.elrinconcitomatarraña.com/public/images/rrss/facebook_90.png 1.5x, https://www.elrinconcitomatarraña.com/public/images/rrss/facebook.png 2x" src="https://www.elrinconcitomatarraña.com/public/images/rrss/facebook.png" alt='facebook de Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' >
+		</a>
+	
+	
+	
+	
+	
+			<a href="https://instagram.com/elrinconcitomatarranya?igshid=YjNmNGQ3MDY=" target="_blank" rel="noreferrer" aria-label="Instagram link">
+						<img class="instagram lazyload" data-sizes="auto" data-src="https://www.elrinconcitomatarraña.com/public/images/rrss/instagram.png" srcset="https://www.elrinconcitomatarraña.com/public/images/rrss/instagram_60.png, https://www.elrinconcitomatarraña.com/public/images/rrss/instagram_90.png 1.5x, https://www.elrinconcitomatarraña.com/public/images/rrss/instagram.png 2x" src="https://www.elrinconcitomatarraña.com/public/images/rrss/instagram.png" alt='instagram de Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' >
+		</a>
+	
+	
+	
+	
+			<a href="https://www.booking.com/hotel/es/el-rinconcito-fuentespalda12.es.html?label=gen173nr-1DCAEoggI46AdIM1gEaEaIAQGYAQm4ARjIAQ3YAQPoAQGIAgGoAgS4ApyjjoUGwAIB0gIkM2IzZWE5MWYtMjQ2Mi00ODc3LTk0NTEtNjhjNWM4Y2E0NDM32AIE4AIB;sid=df7756f149f28d75d5ff356454462c0f;age=12" target="_blank" rel="noreferrer" aria-label="Booking link">
+						<img class="booking lazyload" data-sizes="auto" data-src="https://www.elrinconcitomatarraña.com/public/images/rrss/booking.png" srcset="https://www.elrinconcitomatarraña.com/public/images/rrss/booking_60.png, https://www.elrinconcitomatarraña.com/public/images/rrss/booking_90.png 1.5x, https://www.elrinconcitomatarraña.com/public/images/rrss/booking.png 2x" src="https://www.elrinconcitomatarraña.com/public/images/rrss/booking.png" alt='booking de Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' >
+		</a>
+	
+	
+	
+	
+	
+	
+	
+			<a href="https://www.google.com/maps/place/ElRinconcito/@40.8071848,0.0641494,17z/data=!3m1!4b1!4m6!3m5!1s0x12a09dfa3a79a405:0xa1dd7f7dbd6e7f8a!8m2!3d40.8071848!4d0.0641494!16s%2Fg%2F11px94_ddl?entry=ttu&amp;g_ep=EgoyMDI0MDkxNS4wIKXMDSoASAFQAw%3D%3D" target="_blank" rel="noreferrer" aria-label="Goole My Business link">
+						<img class="mybusiness lazyload" data-sizes="auto" data-src="https://www.elrinconcitomatarraña.com/public/images/rrss/mybusiness.png" srcset="https://www.elrinconcitomatarraña.com/public/images/rrss/mybusiness_60.png, https://www.elrinconcitomatarraña.com/public/images/rrss/mybusiness_90.png 1.5x, https://www.elrinconcitomatarraña.com/public/images/rrss/mybusiness.png 2x" src="https://www.elrinconcitomatarraña.com/public/images/rrss/mybusiness.png" alt='google my business de Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' >
+		</a>
+	
+			<a href="https://www.airbnb.es/rooms/577228298619723410?check_in=2024-09-18&amp;check_out=2024-09-23&amp;guests=1&amp;adults=1&amp;s=67&amp;unique_share_id=fda0e219-6b6f-42da-b123-6667934927cc" target="_blank" rel="noreferrer" aria-label="Airbnb link">
+						<img class="airbnb lazyload" data-sizes="auto" data-src="https://www.elrinconcitomatarraña.com/public/images/rrss/airbnb.png" srcset="https://www.elrinconcitomatarraña.com/public/images/rrss/airbnb_60.png, https://www.elrinconcitomatarraña.com/public/images/rrss/airbnb_90.png 1.5x, https://www.elrinconcitomatarraña.com/public/images/rrss/airbnb.png 2x" src="https://www.elrinconcitomatarraña.com/public/images/rrss/airbnb.png" alt='interest de Apartamento Los Almendros | Apartamento rural en Matarra&ntilde;a - Fuentespalda' >
+		</a>
+	
+	
+
+		</div>
+	</div>
+</div>
+
+            
+            <ul class="menu list-unstyled text-right">
+                                    <li class="">
+                        <a href="https://www.elrinconcitomatarraña.com/es/legal-cookies" rel="noopener">
+                            Cookies                        </a>
+                    </li>
+                                <li class="turisapps">	
+	 	 			 		<a title='Diseño Web para Casas Rurales y Hoteles' href="https://www.turisapps.com/diseno-web-hotel-casa-rural" target="_blank" class='pull-right turisapps' rel="noopener">
+			   Technology <img srcset="https://www.elrinconcitomatarraña.com/public/images/turisapps@1.png, https://www.elrinconcitomatarraña.com/public/images/turisapps.png 2x" alt='Diseño Web para Hoteles, Apartamentos y Casas Rurales' src="https://www.elrinconcitomatarraña.com/public/images/turisapps.png"/>
+			</a>
+	 
+</li>
+            </ul>
+        </div>
+    </div>
+    <script type="application/ld+json">
+                         {
+                "@context": "http://schema.org",
+                "@type": "LodgingBusiness",
+                "name": "elrinconcito",
+                "description": "Apartamento Los Almendros en Fuentespalda, Matarra&ntilde;a. Alojamiento rural ideal para familias, con vistas a la naturaleza y escapadas en Teruel.<br />
+",
+                "address": {
+                    "@type": "PostalAddress",
+                    "addressCountry": "ES",
+                    "addressLocality": "Fuentespalda",
+                    "addressRegion": "Teruel",
+                    "postalCode": "44587",
+                    "streetAddress": "Calle San Lorenzo 4"
+                },
+                                "telephone": "+34629837369",
+                                "email": "&#114;&#101;&#115;&#101;&#114;&#118;&#97;&#115;&#46;&#101;&#108;&#114;&#105;&#110;&#99;&#111;&#110;&#99;&#105;&#116;&#111;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;",
+                "logo":
+                {
+                    "@type": "ImageObject",
+                    "url": "https://www.elrinconcitomatarraña.com/public/images/sites/2302-logo.png"
+                },
+                "image": [
+                    "https://cdn.turisapps.com/site-2302/b77bd5e4-5a90-4fe9-99b5-9a4deff07698/main.webp",
+"https://cdn.turisapps.com/site-2302/2a9a315b-736c-4a12-b589-e8a3053210f7/main.webp",
+"https://cdn.turisapps.com/site-2302/6110293e-2498-41b5-b9ff-0c21ac47cc48/main.webp",
+"https://cdn.turisapps.com/site-2302/8ab4f832-ba6e-48e2-b2a4-8bdaa2ab05ec/main.webp",
+"https://cdn.turisapps.com/site-2302/6c9d5447-89c5-46c4-85e9-6f5052732344/main.webp",
+"https://cdn.turisapps.com/site-2302/fe502273-9638-4050-87d9-867b872aa9c3/main.webp",
+"https://cdn.turisapps.com/site-2302/db94c9bb-ab4a-47d1-8e78-88f25fbcf3af/main.webp",
+"https://cdn.turisapps.com/site-2302/d90ba376-60fd-41e3-a566-9c52775f41cc/main.webp",
+"https://cdn.turisapps.com/site-2302/22bb548f-932a-4ff2-9583-bd5c205bda1e/main.webp",
+"https://cdn.turisapps.com/site-2302/1e972fb5-f061-4d4c-a726-0107e7e5917a/main.webp",
+"https://cdn.turisapps.com/site-2302/32d18233-c1a2-400f-a226-f251dcef1447/main.webp"                ],
+                "url": "https://www.elrinconcitomatarraña.com/es/room/8548/LOS-ALMENDROS"
+            }
+        </script>
+</div>
+
+
+
+
+  
+   
+
+<div style=""
+    tabindex="-1"
+    class="modal fade booking-modal-1-0"
+ id="booking-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="modal-title">
+    <div class="modal-dialog">
+      <div class="modal-content color-active">
+        <div class="modal-header color-active">
+          <button type="button" aria-label="close" class="close color-active" onclick="be_close()" data-dismiss="modal" aria-hidden="true">×</button>
+          <h4 id="modal-title" class="modal-title color-active">RESERVA AHORA</h4>
+          
+        </div>
+        <div class="modal-body">
+          <div class="loading">
+            <img src="https://www.elrinconcitomatarraña.com/public/images/loading.gif" loading="lazy" decoding="async" alt="loading">
+          </div>
+          <div class="scroll-wrapper">
+                          <iframe loading="lazy" title="booking"  id="booking-modal-iframe" content="width=1024;" onload="if( typeof be_booking_loaded == 'function') be_booking_loaded()" src="about:blank" style="border:none;" name="booking" sandbox="allow-same-origin allow-scripts allow-popups allow-forms allow-top-navigation" ></iframe>
+                      </div>  
+        </div>
+      </div>
+    </div>
+</div>
+
+	
+<div id="whatsapp">
+    <a href="https://api.whatsapp.com/send?phone=34629837369" target="_blank" rel="noreferrer">
+        <img width="60" height="60" alt="Whatsapp" fetchpriority="low" src="https://www.elrinconcitomatarraña.com/public/images/whatsapp.png">
+    </a>
+</div>
+
+<script>
+    function runEffects()
+    {
+        (function (arr) {
+  arr.forEach(function (item) {
+    if (item.hasOwnProperty('prepend')) {
+      return;
+    }
+    Object.defineProperty(item, 'prepend', {
+      configurable: true,
+      enumerable: true,
+      writable: true,
+      value: function prepend() {
+        var argArr = Array.prototype.slice.call(arguments),
+          docFrag = document.createDocumentFragment();
+
+        argArr.forEach(function (argItem) {
+          var isNode = argItem instanceof Node;
+          docFrag.appendChild(isNode ? argItem : document.createTextNode(String(argItem)));
+        });
+
+        this.insertBefore(docFrag, this.firstChild);
+      }
+    });
+  });
+})([Element.prototype, Document.prototype, DocumentFragment.prototype]);
+
+let i = document.querySelector(".room-selector");
+if ( i ) {
+  let carousel = document.getElementById("carousel");
+  carousel.prepend(i);
+}
+
+createEffect("#room_list .room", "#room_list .room", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatex: 400 } );
+createEffect(".content-box h2", ".content-box h2", { when: 'enter', from: "0.5", to: "0",  opacity: "0", translatey: 20 } );
+
+//createEffect(".home_block", ".home_block", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: 400 } );
+createEffect(".home_block", ".home_block", { when: 'enter', from: "0.5", to: "0.1", scale: "0" } );
+
+
+createEffect("#environment_list .environment", "#environment_list .environment", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: 400 } );
+createEffect("#offers_list .offer", "#offers_list .offer", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: 400 } );
+
+
+createEffect("#footer-wrapper", "#footer-wrapper", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: 800 } );
+
+
+createEffect(".extra_image", ".extra_image", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: -100 } );
+createEffect(".extra_item", ".extra_item", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: -100 } );
+
+
+createEffect(".banner-left", ".banner-left", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatex: -400 } );
+createEffect(".banner-middle", ".banner-middle", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: 400 } );
+createEffect(".banner-right", ".banner-right", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatex: 400 } );
+
+createEffect("#contact-block", "#contact-block", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: 300 } );
+
+// OPINIONS
+createEffect("#opinion_list .opinion", "#opinion_list .opinion", { when: 'view', from: "0.55", to: "0.05", scale: "0" } );
+createEffect("#opinion_form_section", "#opinion_form_section", { when: 'span', from: "1", to: "0",  opacity: "0", translatey: 400} );
+
+// BOOK
+createEffect("#s_book .block", "#s_book .block", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: -100 } );
+createEffect(".book_widget_content_booking", ".book_widget_content_booking", { when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: -100 } );
+
+// CUSTOM-PAGE
+createEffect("#s_page .page_extra-left", 	"#s_page .page_extra-left", 	{ when: 'enter', from: "0.75", to: "0", opacity: "0", translatex: -400 } );
+createEffect("#s_page .page_extra-middle", 	"#s_page .page_extra-middle", 	{ when: 'enter', from: "0.75", to: "0", opacity: "0", translatey: 400 } );
+createEffect("#s_page .page_extra-right", 	"#s_page .page_extra-right", 	{ when: 'enter', from: "0.75", to: "0", opacity: "0", translatex: 400 } );
+createEffect("#s_page .page_extra-full", 	"#s_page .page_extra-full", 	{ when: 'enter', from: "0.75", to: "0", opacity: "0", translatex: 600 } );
+
+
+
+scrollme.init();    }
+</script>
+<script>
+
+    var booking_calendar_id = false;
+    var booking_calendar_type = "turisapps";
+
+    
+</script>
+
+
+
+
+<!-- custom script -->
+<!-- end custom script -->
+
+
+
+<script>
+
+function loadScript(src, callback)
+{
+  var s,
+      r,
+      t;
+  r = false;
+  s = document.createElement('script');
+  s.type = 'text/javascript';
+  s.src = src;
+  s.onload = s.onreadystatechange = function() {
+    //console.log( this.readyState ); //uncomment this line to see which ready states are called.
+    if ( !r && (!this.readyState || this.readyState == 'complete') )
+    {
+      r = true;
+      if(callback)
+      		callback();
+    }
+  };
+  //t = document.getElementsByTagName('script')[0];
+  document.body.appendChild(s);
+}
+
+
+var jv_a_cont = 0;
+var jv_a_files = new Array();
+
+	
+		jv_a_files[0] = "https://www.elrinconcitomatarraña.com/public/scripts/../zor/scripts/ajax.min.js?v=5";
+
+	
+		jv_a_files[1] = "https://www.elrinconcitomatarraña.com/public/scripts/../default/js-after.js?v=119";
+
+
+
+function endload()
+{
+  if(typeof full_loaded == 'function') full_loaded();
+}
+
+function next_file()
+{
+
+	if(jv_a_cont < jv_a_files.length - 1 )
+		loadScript( jv_a_files[jv_a_cont],next_file)
+	else
+		loadScript( jv_a_files[jv_a_cont], endload)
+
+	jv_a_cont++;
+}
+
+
+
+ // Check for browser support of event handling capability
+ if (window.addEventListener)
+ window.addEventListener("load", next_file, false);
+ else if (window.attachEvent)
+ window.attachEvent("onload", next_file);
+ else window.onload = next_file;
+
+  // Check for browser support of event handling capability
+
+ 
+/*
+ if (window.addEventListener)
+ {
+      console.log('load');
+    setTimeout(function(){
+        console.log('load-tick');
+        console.log(document.readyState);
+        if (document.readyState != 'loading') { next_file() ; return;}
+        document.addEventListener("load", next_file, false);
+    },10);
+   
+ }
+ else if (window.attachEvent)
+  {
+    console.log('onload');
+    setTimeout(function(){
+        if (document.readyState == 'loading') { next_file() ; return;}
+        document.attachEvent("onload", next_file);
+    },10);
+     
+  }
+
+  else 
+  {
+    console.log('onload');
+    setTimeout(function(){
+        if (document.readyState == 'loading') { next_file() ; return;}
+        document.onload = next_file;
+    },10);
+  }
+
+*/
+
+/*
+var flagLoaded = false;
+function doLoaded() { flagLoaded = true; }
+
+ if (window.addEventListener)
+ window.addEventListener("load", doLoaded, false);
+ else if (window.attachEvent)
+ window.attachEvent("onload", doLoaded);
+ else window.onload = doLoaded;
+
+var timer = setInterval( tick, 10 );
+function tick()
+{
+
+  console.log('tick');
+
+  if(!flagLoaded )
+    return;
+
+  clearInterval(timer);
+    setTimeout( next_file, 10);
+  }
+*/
+
+
+</script>
+
+
+
+
+
+
+
+
+
+<!-- Build version: 1771358086 -->
+ </body>
+ </html>

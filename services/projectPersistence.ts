@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { isDemoMode } from '../utils/demoMode';
 
 export interface ProjectMetadata {
     id: string;
@@ -10,7 +11,10 @@ export interface ProjectMetadata {
     accountingCount?: number;
 }
 
-const DB_NAME = 'RentikProPersistence';
+const getPersistenceDbName = () => {
+    return isDemoMode() ? 'rp_demo_persistence' : 'RentikProPersistence';
+};
+
 const DB_VERSION = 1;
 const STORE_NAME = 'projects';
 
@@ -41,7 +45,7 @@ export class ProjectPersistence {
         if (this.dbPromise) return this.dbPromise;
 
         this.dbPromise = new Promise((resolve, reject) => {
-            const request = indexedDB.open(DB_NAME, DB_VERSION);
+            const request = indexedDB.open(getPersistenceDbName(), DB_VERSION);
 
             request.onerror = (event) => {
                 logger.error("IndexedDB error:", (event.target as any).error);

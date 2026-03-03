@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Clock } from 'lucide-react';
-import { useStore } from '../services/sqliteStore'; // Assuming generic hook
+import { useStore } from '../hooks/useStore'; // Assuming generic hook
 // In real app, we might need to pass the hold object or fetch it contextually.
 
 interface Props {

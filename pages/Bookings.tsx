@@ -45,6 +45,8 @@ export const Bookings: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [filterApartment, setFilterApartment] = useState('ALL');
   const [filterStayStatus, setFilterStayStatus] = useState('ALL');
+  const [filterYear, setFilterYear] = useState('ALL');
+  const [filterMonth, setFilterMonth] = useState('ALL');
   const [includeBlocks, setIncludeBlocks] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -286,6 +288,26 @@ export const Bookings: React.FC = () => {
     return Array.from(channels).sort();
   }, [bookings]);
 
+  const uniqueYears = React.useMemo(() => {
+    const years = new Set(bookings.map(b => b.check_in.split('-')[0]));
+    return Array.from(years).sort((a, b) => b.localeCompare(a)); // Descending years
+  }, [bookings]);
+
+  const months = [
+    { value: '01', label: 'Enero' },
+    { value: '02', label: 'Febrero' },
+    { value: '03', label: 'Marzo' },
+    { value: '04', label: 'Abril' },
+    { value: '05', label: 'Mayo' },
+    { value: '06', label: 'Junio' },
+    { value: '07', label: 'Julio' },
+    { value: '08', label: 'Agosto' },
+    { value: '09', label: 'Septiembre' },
+    { value: '10', label: 'Octubre' },
+    { value: '11', label: 'Noviembre' },
+    { value: '12', label: 'Diciembre' }
+  ];
+
   const processedBookings = React.useMemo(() => {
     let result = [...bookings];
 
@@ -320,6 +342,12 @@ export const Bookings: React.FC = () => {
       }
       if (filterApartment !== 'ALL') {
         result = result.filter(b => b.apartment_id === filterApartment);
+      }
+      if (filterYear !== 'ALL') {
+        result = result.filter(b => b.check_in.startsWith(filterYear));
+      }
+      if (filterMonth !== 'ALL') {
+        result = result.filter(b => b.check_in.split('-')[1] === filterMonth);
       }
     }
 
@@ -385,7 +413,7 @@ export const Bookings: React.FC = () => {
           return 0;
       }
     });
-  }, [bookings, sortBy, allApartments, searchTerm, filterChannel, filterStatus, filterApartment, filterStayStatus, travelers]);
+  }, [bookings, sortBy, allApartments, searchTerm, filterChannel, filterStatus, filterApartment, filterStayStatus, filterYear, filterMonth, travelers]);
 
   const clearFilters = () => {
     setSearchTerm('');
@@ -393,6 +421,8 @@ export const Bookings: React.FC = () => {
     setFilterStatus('ALL');
     setFilterApartment('ALL');
     setFilterStayStatus('ALL');
+    setFilterYear('ALL');
+    setFilterMonth('ALL');
     setIncludeBlocks(false);
   };
 
@@ -732,47 +762,98 @@ export const Bookings: React.FC = () => {
 
           {activeMainTab === 'ALL' && (
             <>
-              <div className="flex gap-2 flex-wrap">
-                <select
-                  value={filterApartment}
-                  onChange={(e) => setFilterApartment(e.target.value)}
-                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
-                >
-                  <option value="ALL">Todos los Apartamentos</option>
-                  {allApartments.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
+              <div className="flex gap-3 flex-wrap items-center">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Apartamento</span>
+                  <select
+                    value={filterApartment}
+                    onChange={(e) => setFilterApartment(e.target.value)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300 min-w-[160px]"
+                  >
+                    <option value="ALL">Todo</option>
+                    {allApartments.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
 
-                <select
-                  value={filterChannel}
-                  onChange={(e) => setFilterChannel(e.target.value)}
-                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
-                >
-                  <option value="ALL">Todos los Canales</option>
-                  {uniqueChannels.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Origen</span>
+                  <select
+                    value={filterChannel}
+                    onChange={(e) => setFilterChannel(e.target.value)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300 min-w-[120px]"
+                  >
+                    <option value="ALL">Cualquier Canal</option>
+                    {uniqueChannels.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
 
-                <select
-                  value={filterStatus}
-                  onChange={(e) => setFilterStatus(e.target.value)}
-                  className="px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
-                >
-                  <option value="ALL">Todos los Estados</option>
-                  <option value="confirmed">Confirmada</option>
-                  <option value="pending">Pendiente</option>
-                  <option value="cancelled">Cancelada</option>
-                </select>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Estado</span>
+                  <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300 min-w-[120px]"
+                  >
+                    <option value="ALL">Cualquier Estado</option>
+                    <option value="confirmed">Confirmada</option>
+                    <option value="pending">Pendiente</option>
+                    <option value="cancelled">Cancelada</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Año</span>
+                  <select
+                    value={filterYear}
+                    onChange={(e) => setFilterYear(e.target.value)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
+                  >
+                    <option value="ALL">Año</option>
+                    {uniqueYears.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Mes</span>
+                  <select
+                    value={filterMonth}
+                    onChange={(e) => setFilterMonth(e.target.value)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-600 outline-none focus:border-indigo-300"
+                  >
+                    <option value="ALL">Mes</option>
+                    {months.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <span className="text-[9px] font-black text-slate-400 uppercase ml-1">Ordenar por</span>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as any)}
+                    className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-indigo-600 outline-none focus:border-indigo-400 min-w-[150px]"
+                  >
+                    <option value="checkin_asc">Entrada (↓)</option>
+                    <option value="checkin_desc">Entrada (↑)</option>
+                    <option value="checkout_asc">Salida (↓)</option>
+                    <option value="checkout_desc">Salida (↑)</option>
+                    <option value="created_desc">Más recientes</option>
+                    <option value="apartment">Apartamento</option>
+                  </select>
+                </div>
               </div>
 
-              <button
-                onClick={() => setIncludeBlocks(!includeBlocks)}
-                className={`px-4 py-3 rounded-2xl text-xs font-black transition-all border ${includeBlocks ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
-              >
-                {includeBlocks ? '✓ Mostrando Bloqueos' : 'Mostrar Bloqueos'}
-              </button>
+              <div className="flex flex-col gap-1 self-end">
+                <button
+                  onClick={() => setIncludeBlocks(!includeBlocks)}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all border mt-auto ${includeBlocks ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+                >
+                  {includeBlocks ? '✓ Bloqueos' : 'Ver Bloqueos'}
+                </button>
+              </div>
             </>
           )}
 
-          {(searchTerm || (activeMainTab === 'ALL' && (filterChannel !== 'ALL' || filterStatus !== 'ALL' || filterApartment !== 'ALL' || includeBlocks))) && (
+          {(searchTerm || (activeMainTab === 'ALL' && (filterChannel !== 'ALL' || filterStatus !== 'ALL' || filterApartment !== 'ALL' || filterYear !== 'ALL' || filterMonth !== 'ALL' || includeBlocks))) && (
             <button
               onClick={() => { clearFilters(); }}
               className="flex items-center gap-2 px-4 py-3 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black hover:bg-rose-100 transition-colors"

@@ -6,11 +6,16 @@ import packageJson from './package.json';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
-  const buildDate = new Date().toISOString().split('T')[0];
   const isTauri = process.env.VITE_TARGET === 'tauri';
+  const isDemoBuild = process.env.VITE_DEMO === '1';
+
+  // Support VITE_BASE from env or fallback to '/'
+  const base = process.env.VITE_BASE || '/';
 
   return {
+    base,
     server: {
+
       port: 5173,
       host: '0.0.0.0',
     },
@@ -87,11 +92,14 @@ export default defineConfig(({ mode }) => {
       '__APP_VERSION__': JSON.stringify(process.env.npm_package_version || "2.0.0"),
       '__BUILD_TIME__': JSON.stringify(new Date().toISOString()),
       'import.meta.env.VITE_PUBLIC_SITE_BASE_URL': JSON.stringify(process.env.VITE_PUBLIC_SITE_BASE_URL || "https://rp-web-6h9.pages.dev"),
-      'import.meta.env.VITE_PUBLIC_API_BASE': JSON.stringify(process.env.VITE_PUBLIC_API_BASE || "https://rentikpro-public-api.reservas-elrinconcito.workers.dev")
+      'import.meta.env.VITE_PUBLIC_API_BASE': JSON.stringify(process.env.VITE_PUBLIC_API_BASE || "https://rentikpro-public-api.reservas-elrinconcito.workers.dev"),
+      'import.meta.env.VITE_DEMO': JSON.stringify(process.env.VITE_DEMO || "0"),
+      'import.meta.env.VITE_BASE': JSON.stringify(base)
     },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+        '@modules': path.resolve(__dirname, 'src/modules'),
         ...(isTauri ? { 'virtual:pwa-register': path.resolve(__dirname, 'src/pwa-register-stub.ts') } : {}),
       }
     },

@@ -14,9 +14,11 @@ import { ProjectSwitcherModal } from './ProjectSwitcherModal';
 import { CheckCircle, AlertCircle, Cloud, CloudOff } from 'lucide-react';
 import { syncCoordinator } from '../services/syncCoordinator';
 import { isTauri } from '../utils/isTauri';
-import { getDbReady, isDbReady } from '../services/sqliteStore';
+import { isDbReady, getDbReady } from '../services/sqliteStore';
 import { useMaintenance } from '../src/hooks/useMaintenance';
 import { MaintenanceOverlay } from '../src/components/MaintenanceOverlay';
+import { DemoBanner } from './DemoBanner';
+
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -79,6 +81,15 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   const { enabled: maintenanceEnabled, reason: maintenanceReason } = useMaintenance();
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    const pending = sessionStorage.getItem('pendingNavigation');
+    if (pending) {
+      sessionStorage.removeItem('pendingNavigation');
+      navigate(pending);
+    }
+  }, [navigate]);
+
 
   // File-mode save state (polls every 500ms — zero cost when in 'idb' mode)
   const [fileSaveState, setFileSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -260,7 +271,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
       <NavItem to="/registry" icon={Landmark} label="Registro / Ventanilla" onClick={mobile ? handleNavClick : undefined} />
 
       <div className="pt-4 pb-2 px-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Create2Web</div>
-      <NavItem to="/website-builder" icon={Globe} label="Mis Sitios" onClick={mobile ? handleNavClick : undefined} />
+      <NavItem to="/website-builder" icon={Globe} label="Editor web" onClick={mobile ? handleNavClick : undefined} />
 
       <div className="pt-4 pb-2 px-2 text-[10px] font-black uppercase text-slate-400 tracking-widest">Herramientas</div>
       <NavItem to="/importers" icon={ShieldAlert} label="Importadores" onClick={mobile ? handleNavClick : undefined} />
@@ -313,6 +324,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
 
   return (
     <div className="flex flex-col min-h-screen bg-[#f8fafc] bg-none text-slate-900 relative">
+      <DemoBanner />
+
       {/* Background Orbs */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-200/30 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-violet-200/30 rounded-full blur-[120px] pointer-events-none"></div>
@@ -325,7 +338,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-3 text-indigo-600">
             <div className="p-1 rounded-xl shadow-lg shadow-indigo-200 overflow-hidden bg-indigo-600">
-              <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
+              <img src="/favicon.svg" alt="Logo" className="w-8 h-8 object-contain" />
             </div>
             <div className="text-xl font-black leading-none">RentikPro</div>
           </div>
@@ -343,7 +356,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
             <div className="flex flex-col gap-2 mb-10">
               <div className="flex items-center gap-4 text-indigo-600">
                 <div className="p-1.5 rounded-2xl shadow-xl shadow-indigo-200/50 overflow-hidden bg-indigo-600">
-                  <img src="/logo.png" alt="Logo" className="w-9 h-9 object-contain" />
+                  <img src="/favicon.svg" alt="Logo" className="w-9 h-9 object-contain" />
                 </div>
                 <div className="text-2xl font-black tracking-tight leading-none">RentikPro</div>
               </div>
@@ -426,7 +439,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-3 text-indigo-600">
                       <div className="p-1 rounded-lg shadow-md overflow-hidden bg-indigo-600">
-                        <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
+                        <img src="/favicon.svg" alt="Logo" className="w-8 h-8 object-contain" />
                       </div>
                       <span className="text-xl font-black tracking-tight">RentikPro</span>
                     </div>

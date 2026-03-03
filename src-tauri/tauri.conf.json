@@ -1,13 +1,23 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "RentikPro",
-  "version": "2.1.8",
+  "version": "2.1.36",
   "identifier": "com.rentikpro.app",
   "build": {
     "beforeDevCommand": "npm run dev:tauri",
     "beforeBuildCommand": "npm run build:tauri",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../dist"
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://rentikpro-updates.reservas-elrinconcito.workers.dev/latest.json"
+      ],
+      "pubkey": "RWS2SrTkwYH4v7xifJsBA48UAKQVPP6jXSKeiA7JWZQWTkY5Q9771EPk",
+      "dialog": false
+    }
   },
   "app": {
     "security": {
@@ -27,11 +37,8 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis",
-      "msi",
-      "dmg"
-    ],
+    "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/icon.icns",
       "icons/icon.ico",

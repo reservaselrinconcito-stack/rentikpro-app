@@ -1,131 +1,122 @@
-name: release
+name: Release
+
 on:
   push:
-    tags: ["v*.*.*"]
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
-  publish:
-    permissions:
-      contents: write
-    concurrency:
-      group: release-${{ github.ref_name }}-${{ matrix.os }}
-      cancel-in-progress: false
+  release:
     strategy:
       fail-fast: false
       matrix:
         include:
-          # macOS Intel (cross-compiled on Apple Silicon runner — macos-13 is deprecated)
           - os: macos-14
-            rust_target: "x86_64-apple-darwin"
-            tauri_args: "--target x86_64-apple-darwin"
-            stable_asset: RentikPro-mac-x64.dmg
-            glob: "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
-
-          # macOS Apple Silicon runner (arm64)
+            args: "--target x86_64-apple-darwin"
           - os: macos-14
-            rust_target: "aarch64-apple-darwin"
-            tauri_args: "--target aarch64-apple-darwin"
-            stable_asset: RentikPro-mac-arm64.dmg
-            glob: "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
-
-          # Windows
+            args: "--target aarch64-apple-darwin"
           - os: windows-latest
-            rust_target: "x86_64-pc-windows-msvc"
-            tauri_args: "--target x86_64-pc-windows-msvc"
-            stable_asset_exe: RentikPro-win.exe
-            stable_asset_msi: RentikPro-win.msi
-            glob_exe: "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/*.exe"
-            glob_msi: "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/*.msi"
+            args: ""
 
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "lts/*"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.rust_target }}
-
-      - run: npm ci
-
-      - name: Clean (macOS/Linux)
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: rm -rf src-tauri/target
-
-      - name: Clean (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
+      - name: Add Rust targets (macOS)
+        if: startsWith(matrix.os, 'macos')
         run: |
-          if (Test-Path "src-tauri/target") { Remove-Item -Recurse -Force "src-tauri/target" }
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
 
-      - name: Install NSIS (Windows)
-        if: matrix.os == 'windows-latest'
-        run: choco install nsis -y --no-progress
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-      - name: Build and publish
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build & Release (Tauri v2)
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "RentikPro ${{ github.ref_name }}"
-          releaseBody: "Assets de instalación."
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.tauri_args }}
+          args: ${{ matrix.args }}
 
-      - name: Debug bundles (Windows)
-        if: matrix.os == 'windows-latest'
+      - name: Debug list updater artifacts
         shell: bash
         run: |
-          echo "Listing bundle folder:"
-          ls -R src-tauri/target || true
+          set -euo pipefail
+          find src-tauri/target -maxdepth 6 -type f \( -name "*.app.tar.gz" -o -name "*.tar.gz.sig" -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \) | sort | sed -n '1,250p'
 
-      - name: Upload stable asset (macOS)
-        if: startsWith(matrix.os, 'macos')
+      - name: Upload Tauri signatures
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
         run: |
-          set -e
-          FILE="$(ls -1 ${{ matrix.glob }} | head -n 1)"
-          if [ -n "$FILE" ]; then
-            echo "Found file: $FILE"
-            cp "$FILE" "${{ matrix.stable_asset }}"
-            gh release upload "${{ github.ref_name }}" "${{ matrix.stable_asset }}" --clobber
-          else
-            echo "ERROR: File not found with glob: ${{ matrix.glob }}"
+          set -euo pipefail
+          SIG_DIR="src-tauri/target"
+
+          echo "Scanning for tauri updater signatures (*.tar.gz.sig) under $SIG_DIR"
+          SIG_FILES=$(find "$SIG_DIR" -type f -name "*.tar.gz.sig" -print | sort)
+
+          if [ -z "$SIG_FILES" ]; then
+            echo "No *.tar.gz.sig files found in $SIG_DIR. Failing release to avoid unsigned updater artifacts." >&2
+            echo "Debug (first 200 matching macOS bundles):" >&2
+            find "$SIG_DIR" -type f \( -name "*.app.tar.gz" -o -name "*.tar.gz.sig" -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \) | sed -n "1,200p" >&2
             exit 1
           fi
 
-      - name: Upload stable asset (Windows EXE/MSI)
-        if: matrix.os == 'windows-latest'
+          echo "Found signatures:"
+          echo "$SIG_FILES"
+
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            echo "Uploading $f"
+            gh release upload "${GITHUB_REF_NAME}" "$f" --clobber
+          done <<< "$SIG_FILES"
+
+      - name: Validate release assets
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
         run: |
-          set -e
-          EXE="$(ls -1 ${{ matrix.glob_exe }} 2>/dev/null | head -n 1 || true)"
-          MSI="$(ls -1 ${{ matrix.glob_msi }} 2>/dev/null | head -n 1 || true)"
+          echo "Release assets for ${GITHUB_REF_NAME}:"
+          gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name'
 
-          if [ -n "$EXE" ]; then
-            echo "Found EXE: $EXE"
-            cp "$EXE" "${{ matrix.stable_asset_exe }}"
-            gh release upload "${{ github.ref_name }}" "${{ matrix.stable_asset_exe }}" --clobber
-            exit 0
+          ASSETS="$(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name')"
+
+          required_assets=(
+            "RentikPro_x64.app.tar.gz"
+            "RentikPro_x64.app.tar.gz.sig"
+            "RentikPro_aarch64.app.tar.gz"
+            "RentikPro_aarch64.app.tar.gz.sig"
+          )
+
+          missing=0
+          for required in "${required_assets[@]}"; do
+            if echo "$ASSETS" | grep -Fxq "$required"; then
+              echo "OK: $required"
+            else
+              echo "MISSING: $required" >&2
+              missing=1
+            fi
+          done
+
+          if [ $missing -ne 0 ]; then
+            echo "Release asset validation failed. Missing required updater artifacts." >&2
+            exit 1
           fi
-
-          if [ -n "$MSI" ]; then
-            echo "No EXE found. Found MSI: $MSI"
-            cp "$MSI" "${{ matrix.stable_asset_msi }}"
-            gh release upload "${{ github.ref_name }}" "${{ matrix.stable_asset_msi }}" --clobber
-            exit 0
-          fi
-
-          echo "ERROR: No EXE or MSI found under src-tauri/target"
-          exit 1

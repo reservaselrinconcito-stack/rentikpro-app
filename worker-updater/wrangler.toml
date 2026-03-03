@@ -1,0 +1,8 @@
+name = "rentikpro-updates"
+main = "index.js"
+compatibility_date = "2026-03-02"
+compatibility_flags = ["global_fetch_strictly_public"]
+
+[vars]
+GITHUB_REPO = "reservaselrinconcito-stack/rentikpro-app"
+# GITHUB_TOKEN = (Set this via `wrangler secret put GITHUB_TOKEN` if you hit rate limits)

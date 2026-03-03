@@ -3,7 +3,7 @@ import { X, Calendar as CalendarIcon, User, CreditCard } from 'lucide-react';
 import { Apartment, BookingPolicy } from '../types';
 import { BookingSummary } from './BookingSummary';
 import { checkoutService, BookingDraft } from '../services/checkoutService';
-import { useStore } from '../services/sqliteStore'; // Assuming hook exists or we use direct store
+import { useStore } from '../hooks/useStore'; // Assuming hook exists or we use direct store
 
 interface Props {
     isOpen: boolean;

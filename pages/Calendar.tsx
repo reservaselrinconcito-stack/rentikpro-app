@@ -8,7 +8,8 @@ import { dateFormat } from '../services/dateFormat';
 import { mapCalendarEventToBooking, ensureGuestName, mergeBookingsAndEvents } from '../utils/bookingMapping';
 import {
   ChevronLeft, ChevronRight, Filter,
-  X, Trash2, CalendarDays, Clock, AlertTriangle, AlertCircle, ShieldCheck
+  X, Trash2, CalendarDays, Clock, AlertTriangle, AlertCircle, ShieldCheck,
+  Plus, CreditCard, User
 } from 'lucide-react';
 import { formatDateES, formatDateRangeES } from '../utils/dateFormat';
 import { isConfirmedBooking, isProvisionalBlock, isCovered } from '../utils/bookingClassification';
@@ -86,7 +87,15 @@ const CalendarContent: React.FC = () => {
   const [selectedPropertyId, setSelectedPropertyId] = useState<string>('all');
 
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [viewingBooking, setViewingBooking] = useState<Booking | null>(null);
+
+  const [newBookingData, setNewBookingData] = useState<{
+    apartmentId: string;
+    checkIn: string;
+    checkOut: string;
+  }>({ apartmentId: '', checkIn: '', checkOut: '' });
+
   const [showCovered, setShowCovered] = useState(false);
 
   // Init Date Format
@@ -210,6 +219,49 @@ const CalendarContent: React.FC = () => {
       if (updated) setViewingBooking(updated);
     }
   }, [bookings]);
+
+  const handleDayClick = (dateStr: string, apartmentId?: string) => {
+    // Default checkout 1 day later
+    const d = new Date(dateStr);
+    d.setDate(d.getDate() + 1);
+    const nextDay = toDateStr(d);
+
+    setNewBookingData({
+      apartmentId: apartmentId || (apartments[0]?.id || ''),
+      checkIn: dateStr,
+      checkOut: nextDay
+    });
+    setIsCreateModalOpen(true);
+  };
+
+  const handleSaveNewBooking = async (guestName: string, totalPrice: number) => {
+    try {
+      const store = projectManager.getStore();
+      const newBooking: Booking = {
+        id: crypto.randomUUID(),
+        property_id: apartments.find(a => a.id === newBookingData.apartmentId)?.property_id || '',
+        apartment_id: newBookingData.apartmentId,
+        traveler_id: '',
+        check_in: newBookingData.checkIn,
+        check_out: newBookingData.checkOut,
+        status: 'confirmed',
+        total_price: totalPrice,
+        guests: 1,
+        source: 'manual',
+        guest_name: guestName,
+        created_at: Date.now()
+      };
+
+      await store.saveBooking(newBooking);
+      await projectManager.saveProject();
+      setIsCreateModalOpen(false);
+      notifyDataChanged();
+      loadData();
+    } catch (err) {
+      console.error("Error saving new booking:", err);
+      alert("Error al guardar la reserva");
+    }
+  };
 
   const { confirmed, provisionalNotCovered, provisionalCovered } = useMemo(() => {
     const cf = bookings.filter(b => b.status !== 'cancelled' && isConfirmedBooking(b));
@@ -454,7 +506,11 @@ const CalendarContent: React.FC = () => {
                                   {laneCount === 0 ? (
                                     <div className="grid grid-cols-7 gap-px bg-slate-200 rounded-xl overflow-hidden" style={{ height: LANE_H }}>
                                       {week.map((d) => (
-                                        <div key={`${weekStart}-empty-${apt.id}-${d.dateStr}`} className={`bg-white ${!d.inMonth ? 'bg-slate-50/70' : ''}`}></div>
+                                        <div
+                                          key={`${weekStart}-empty-${apt.id}-${d.dateStr}`}
+                                          onClick={() => handleDayClick(d.dateStr, apt.id)}
+                                          className={`bg-white cursor-pointer hover:bg-slate-50 transition-colors ${!d.inMonth ? 'bg-slate-50/70' : ''}`}
+                                        ></div>
                                       ))}
                                     </div>
                                   ) : (
@@ -615,7 +671,8 @@ const CalendarContent: React.FC = () => {
                         return (
                           <div
                             key={`month-day-${weekStart}-${d.dateStr}`}
-                            className={`bg-white px-3 py-2 ${!d.inMonth ? 'bg-slate-50/70' : ''}`}
+                            onClick={() => handleDayClick(d.dateStr)}
+                            className={`bg-white px-3 py-2 cursor-pointer hover:bg-slate-50 transition-colors ${!d.inMonth ? 'bg-slate-50/70' : ''}`}
                             style={{ gridColumn: colIdx + 1, gridRow: 1 }}
                             title={d.dateStr}
                           >
@@ -640,7 +697,8 @@ const CalendarContent: React.FC = () => {
                         return (
                           <div
                             key={`month-bg-${weekStart}-${rowIdx}-${d.dateStr}`}
-                            className={`bg-white ${!d.inMonth ? 'bg-slate-50/70' : ''}`}
+                            onClick={() => handleDayClick(d.dateStr)}
+                            className={`bg-white cursor-pointer hover:bg-slate-50/50 ${!d.inMonth ? 'bg-slate-50/70' : ''}`}
                             style={{ gridColumn: colIdx + 1, gridRow: rowIdx + 2 }}
                           ></div>
                         );
@@ -753,6 +811,12 @@ const CalendarContent: React.FC = () => {
             className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all border ${showCovered ? 'bg-indigo-600 text-white border-indigo-700 shadow-md' : 'bg-white text-slate-400 border-slate-200'}`}
           >
             {showCovered ? 'Ocultar Cubiertos' : 'Ver Cubiertos'}
+          </button>
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 px-6 py-2.5 bg-slate-900 text-white rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg shadow-slate-100"
+          >
+            <Plus size={14} /> Añadir Reserva
           </button>
         </div>
       </div>
@@ -904,6 +968,107 @@ const CalendarContent: React.FC = () => {
                 <ShieldCheck size={18} /> Sincronizado con OTA (Solo Lectura)
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Nueva Reserva */}
+      {isCreateModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-300">
+            <div className="p-10">
+              <div className="flex justify-between items-center mb-10">
+                <div className="flex items-center gap-4">
+                  <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
+                    <Plus size={24} />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-black text-slate-800 tracking-tight">Nueva Reserva</h2>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Creación manual de estancia</p>
+                  </div>
+                </div>
+                <button onClick={() => setIsCreateModalOpen(false)} className="p-3 hover:bg-slate-50 rounded-2xl transition-all text-slate-400 hover:text-slate-800">
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Check-in</label>
+                    <div className="relative">
+                      <CalendarDays className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <input
+                        type="date"
+                        value={newBookingData.checkIn}
+                        onChange={e => setNewBookingData(prev => ({ ...prev, checkIn: e.target.value }))}
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:border-indigo-300"
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Check-out</label>
+                    <div className="relative">
+                      <CalendarDays className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                      <input
+                        type="date"
+                        value={newBookingData.checkOut}
+                        onChange={e => setNewBookingData(prev => ({ ...prev, checkOut: e.target.value }))}
+                        className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:border-indigo-300"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Unidad / Apartamento</label>
+                  <select
+                    value={newBookingData.apartmentId}
+                    onChange={e => setNewBookingData(prev => ({ ...prev, apartmentId: e.target.value }))}
+                    className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:border-indigo-300 appearance-none"
+                  >
+                    {apartments.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Nombre del Huésped</label>
+                  <div className="relative">
+                    <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      id="new-booking-guest-name"
+                      type="text"
+                      placeholder="Ej: Juan Pérez"
+                      className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:border-indigo-300"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Importe Total</label>
+                  <div className="relative">
+                    <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      id="new-booking-total-price"
+                      type="number"
+                      placeholder="0.00"
+                      className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 outline-none focus:border-indigo-300"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    const name = (document.getElementById('new-booking-guest-name') as HTMLInputElement).value;
+                    const price = parseFloat((document.getElementById('new-booking-total-price') as HTMLInputElement).value) || 0;
+                    handleSaveNewBooking(name, price);
+                  }}
+                  className="w-full py-5 bg-indigo-600 text-white rounded-[2rem] font-black text-sm uppercase tracking-widest shadow-xl shadow-indigo-100 hover:scale-[1.02] transition-all duration-300 mt-6"
+                >
+                  Guardar Reserva
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
