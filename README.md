@@ -24,7 +24,7 @@ To run as a native desktop app:
 npm run tauri dev
 ```
 
-## Demo Build (Nexora)
+## Demo Build (Potencore)
 Para generar el build de demostración publicable en `/rentikpro/demo/` (Cloudflare Pages):
 
 ```bash
@@ -35,7 +35,7 @@ npm run preview:demo
 
 ## 🧪 Guía de Pruebas (Modo Demo & Aislamiento)
 
-### 1. Build Web Demo (Nexora/Production)
+### 1. Build Web Demo (Potencore/Production)
 Verificar aislamiento total:
 - **Seed**: Acceder a `?seed=user_test_A`. Los cambios deben persistir solo bajo esta semilla.
 - **Prefix**: Confirmar que en `localStorage` las claves empiezan por `rp_demo_`.

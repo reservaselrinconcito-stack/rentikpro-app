@@ -45,7 +45,7 @@ class RouteErrorBoundary extends React.Component<{ children: React.ReactNode }, 
                     <p className="text-slate-500 max-w-md mb-8">
                         {isChunkError
                             ? 'No se pudieron cargar los archivos necesarios. Esto suele ocurrir tras una actualización o por una conexión inestable.'
-                            : 'El editor web ha experimentado un error inesperado al cargar.'}
+                            : (this.state.error?.message || 'Error desconocido')}
                     </p>
                     <div className="flex gap-4">
                         <button

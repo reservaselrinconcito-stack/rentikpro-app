@@ -2,6 +2,7 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { HashRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { projectManager } from './services/projectManager';
 import { syncScheduler } from './services/syncScheduler';
+import { iCalScheduler } from './services/iCalScheduler';
 import { Layout } from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { CORE_MODE } from './src/config/appMode';
@@ -219,8 +220,10 @@ const App: React.FC = () => {
       }
       if (isProjectOpen) {
         syncScheduler.start();
+        iCalScheduler.start();
       } else {
         syncScheduler.stop();
+        iCalScheduler.stop();
       }
     } catch (e: any) {
       console.error("Error setting up syncScheduler during boot:", e);

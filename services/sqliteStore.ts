@@ -1331,6 +1331,7 @@ export class SQLiteStore implements IDataStore {
     try { await this.execute("ALTER TABLE channel_connections ADD COLUMN http_etag TEXT"); } catch (e) { }
     try { await this.execute("ALTER TABLE channel_connections ADD COLUMN http_last_modified TEXT"); } catch (e) { }
     try { await this.execute("ALTER TABLE channel_connections ADD COLUMN force_direct INTEGER DEFAULT 0"); } catch (e) { }
+    try { await this.execute("ALTER TABLE channel_connections ADD COLUMN last_error TEXT"); } catch (e) { }
 
     // NEW TABLE: CALENDAR EVENTS
     await this.execute(`CREATE TABLE IF NOT EXISTS calendar_events (

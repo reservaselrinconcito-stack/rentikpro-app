@@ -4,6 +4,7 @@ import { projectManager } from '../services/projectManager';
 import { Property, Apartment, ChannelConnection, Booking, CalendarEvent, PricingDefaults, NightlyRateOverride } from '../types';
 import { syncEngine, getProxyUrl } from '../services/syncEngine';
 import { syncScheduler, SyncInterval } from '../services/syncScheduler';
+import { iCalScheduler } from '../services/iCalScheduler';
 import { networkMonitor } from '../services/networkMonitor';
 import { notifyDataChanged, useDataRefresh } from '../services/dataRefresher';
 import { dateFormat } from '../services/dateFormat';
@@ -356,7 +357,7 @@ export const ChannelManager: React.FC = () => {
       if (!isOnline) return alert("Modo Offline activado.");
       setSyncingId(aptId);
       try {
-         await syncEngine.syncApartment(aptId);
+         await iCalScheduler.triggerNow(aptId);
       } catch (e: any) { alert("Error sync: " + e.message); }
       setSyncingId(null);
       loadData();
