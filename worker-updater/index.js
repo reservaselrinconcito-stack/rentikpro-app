@@ -86,10 +86,24 @@ async function buildManifest(release, ghHeaders) {
   const pub_date = release.published_at;
   const assets = release.assets || [];
 
+  // Tauri v2 uses "-app" suffix for macOS targets (e.g. darwin-aarch64-app).
+  // Include both forms so all Tauri v2 builds resolve correctly.
   const platformCandidates = [
+    {
+      key: 'darwin-aarch64-app',
+      assetTokens: ['aarch64', 'arm64'],
+      assetSuffix: '.app.tar.gz',
+      sigSuffix: '.app.tar.gz.sig',
+    },
     {
       key: 'darwin-aarch64',
       assetTokens: ['aarch64', 'arm64'],
+      assetSuffix: '.app.tar.gz',
+      sigSuffix: '.app.tar.gz.sig',
+    },
+    {
+      key: 'darwin-x86_64-app',
+      assetTokens: ['x64', 'x86_64'],
       assetSuffix: '.app.tar.gz',
       sigSuffix: '.app.tar.gz.sig',
     },
