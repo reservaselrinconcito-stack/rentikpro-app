@@ -102,8 +102,9 @@ async function handleReleaseData(release, env) {
         /**
          * Helper to fetch signature string from a .sig file asset
          */
-        const getSignatureForAsset = async (assetName) => {
-            const sigAsset = release.assets.find(a => a.name === `${assetName}.sig`);
+        const getSignatureForAsset = async (assetName, extraCandidates = []) => {
+            const candidates = [`${assetName}.sig`, ...extraCandidates];
+            const sigAsset = release.assets.find(a => candidates.includes(a.name));
             if (!sigAsset) return null;
 
             const sigRes = await fetch(sigAsset.browser_download_url, {
@@ -118,23 +119,44 @@ async function handleReleaseData(release, env) {
 
         // --- PLATFORM DETECTION ---
 
-        // 1. macOS ARM64 (darwin-aarch64) - Requires .app.tar.gz
-        const macArmAsset = release.assets.find(a => a.name.includes('aarch64') && a.name.endsWith('.app.tar.gz'));
-        if (macArmAsset) {
-            platforms['darwin-aarch64'] = {
-                url: macArmAsset.browser_download_url,
-                signature: await getSignatureForAsset(macArmAsset.name)
+        const findAssetByTokens = (tokens, suffix) => {
+            const lowerTokens = tokens.map(t => t.toLowerCase());
+            return release.assets.find(asset => {
+                const name = asset.name.toLowerCase();
+                return name.endsWith(suffix) && lowerTokens.some(t => name.includes(t));
+            });
+        };
+
+        const addPlatform = async (platformKey, asset, signatureCandidates) => {
+            if (!asset) return;
+            const signature = await getSignatureForAsset(asset.name, signatureCandidates);
+            if (!signature) return;
+            platforms[platformKey] = {
+                url: asset.browser_download_url,
+                signature
             };
-        }
+        };
+
+        // 1. macOS ARM64 (darwin-aarch64) - Requires .app.tar.gz
+        const macArmAsset = findAssetByTokens(
+            ['aarch64', 'arm64', 'mac-arm64', 'macos-arm64'],
+            '.app.tar.gz'
+        );
+        await addPlatform('darwin-aarch64', macArmAsset, [
+            'RentikPro_aarch64.app.tar.gz.sig',
+            'RentikPro_arm64.app.tar.gz.sig'
+        ]);
 
         // 2. macOS X64 (darwin-x86_64) - Requires .app.tar.gz
-        const macX64Asset = release.assets.find(a => a.name.includes('x86_64') && a.name.endsWith('.app.tar.gz'));
-        if (macX64Asset) {
-            platforms['darwin-x86_64'] = {
-                url: macX64Asset.browser_download_url,
-                signature: await getSignatureForAsset(macX64Asset.name)
-            };
-        }
+        const macX64Asset = findAssetByTokens(
+            ['x86_64', 'x64', 'amd64', 'mac-x64', 'macos-x64'],
+            '.app.tar.gz'
+        );
+        await addPlatform('darwin-x86_64', macX64Asset, [
+            'RentikPro_x64.app.tar.gz.sig',
+            'RentikPro_x86_64.app.tar.gz.sig',
+            'RentikPro_amd64.app.tar.gz.sig'
+        ]);
 
         // 3. Windows X64 (windows-x86_64) - Preference: .msi.zip, then .exe
         let winAsset = release.assets.find(a => a.name.includes('x64') && a.name.endsWith('.msi.zip'));
@@ -143,10 +165,18 @@ async function handleReleaseData(release, env) {
         }
 
         if (winAsset) {
-            platforms['windows-x86_64'] = {
-                url: winAsset.browser_download_url,
-                signature: await getSignatureForAsset(winAsset.name)
-            };
+            const winSignature = await getSignatureForAsset(winAsset.name, [
+                'RentikPro-win.exe.sig',
+                'RentikPro-win.msi.sig',
+                'RentikPro_x64-setup.exe.sig'
+            ]);
+
+            if (winSignature) {
+                platforms['windows-x86_64'] = {
+                    url: winAsset.browser_download_url,
+                    signature: winSignature
+                };
+            }
         }
 
         const updateResponse = {

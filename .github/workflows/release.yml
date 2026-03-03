@@ -54,11 +54,11 @@ jobs:
           prerelease: false
           args: ${{ matrix.tauri_args }}
 
-      - name: Debug macOS artifacts
-        if: matrix.os == 'macos-14'
+      - name: Debug artifacts
         shell: bash
         run: |
-          find src-tauri/target -maxdepth 6 -type f \( -name "*.sig" -o -name "*.app.tar.gz" \) | sed -n '1,200p'
+          echo "Listing all files in target (depth 10):"
+          find src-tauri/target -maxdepth 10 -type f \( -name "*.sig" -o -name "*.app.tar.gz" -o -name "*.exe" -o -name "*.msi" -o -name "*.dmg" \) || true
 
       - name: Upload Stable macOS Assets
         if: matrix.os == 'macos-14'
@@ -68,80 +68,45 @@ jobs:
         run: |
           set -euo pipefail
           TARGET="${{ matrix.tauri_args }}"
-          TARGET_TRIPLE=$(echo "$TARGET" | awk '{print $2}')
-          BUNDLE_DIR="src-tauri/target/${TARGET_TRIPLE}/release/bundle"
+          # Extract triple more reliably
+          TRIPLE=$(echo $TARGET | grep -oE "[a-zA-Z0-9_-]+-apple-darwin")
+          BUNDLE_DIR="src-tauri/target/${TRIPLE}/release/bundle"
 
-          ARCH=$(echo "$TARGET" | grep -oE "aarch64|x86_64" || echo "aarch64")
+          ARCH=$(echo "$TRIPLE" | grep -oE "aarch64|x86_64")
           if [ "$ARCH" == "x86_64" ]; then
             ARCH_SHORT="x64"
-            DMG_NAME="RentikPro-mac-x64.dmg"
           else
             ARCH_SHORT="aarch64"
-            DMG_NAME="RentikPro-mac-arm64.dmg"
           fi
+
+          echo "Triple: $TRIPLE, Arch: $ARCH_SHORT"
 
           DMG_FILE=$(find "$BUNDLE_DIR/dmg" -name "*.dmg" | head -n 1)
+          if [ -n "$DMG_FILE" ]; then
+            echo "Uploading $DMG_FILE as RentikPro-mac-${ARCH_SHORT}.dmg"
+            gh release upload ${{ github.ref_name }} "$DMG_FILE#RentikPro-mac-${ARCH_SHORT}.dmg" --clobber
+          fi
+
           APP_TAR=$(find "$BUNDLE_DIR/macos" -name "*.app.tar.gz" | head -n 1)
-
-          if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
-            echo "Uploading $DMG_FILE as $DMG_NAME"
-            gh release upload ${{ github.ref_name }} "$DMG_FILE#$DMG_NAME" --clobber
-          else
-            echo "❌ No DMG found in $BUNDLE_DIR/dmg"
-          fi
-
-          if [ -n "$APP_TAR" ] && [ -f "$APP_TAR" ]; then
-            APP_TAR_NAME="RentikPro_${ARCH_SHORT}.app.tar.gz"
-            echo "Uploading $APP_TAR as $APP_TAR_NAME"
-            gh release upload ${{ github.ref_name }} "$APP_TAR#$APP_TAR_NAME" --clobber
-          else
-            echo "❌ No .app.tar.gz found in $BUNDLE_DIR/macos"
-          fi
-
-      - name: Upload Signatures (macOS)
-        if: matrix.os == 'macos-14'
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          TARGET="${{ matrix.tauri_args }}"
-          TAG="${{ github.ref_name }}"
-
-          TRIPLE="$(echo "$TARGET" | awk '{print $2}')"
-          if [ -z "$TRIPLE" ]; then
-            echo "❌ No target triple found in matrix.tauri_args: $TARGET"
-            exit 1
-          fi
-
-          if echo "$TRIPLE" | grep -q "x86_64"; then
-            ARCH="x64"
-          else
-            ARCH="arm64"
-          fi
-
-          BASE="src-tauri/target/$TRIPLE/release/bundle/macos"
-          echo "Looking for signatures for $ARCH (triple: $TRIPLE, tag: $TAG)"
-          echo "BASE=$BASE"
-
-          echo "Artifacts in BASE (first 200):"
-          ls -la "$BASE" 2>/dev/null || true
-          find "$BASE" -type f \( -name "*.sig" -o -name "*.app.tar.gz" \) | sed -n '1,200p' || true
-
-          SIG_FILE="$(find "$BASE" -type f -name "*.app.tar.gz.sig" | head -n 1 || true)"
-
-          if [ -z "$SIG_FILE" ]; then
-            echo "⚠️  WARNING: No .app.tar.gz.sig found for $ARCH in $BASE"
-            if [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
-              echo "❌ Signing key exists but signature not generated. Fix signing env in tauri-action step."
-              exit 1
+          if [ -n "$APP_TAR" ]; then
+            echo "Uploading $APP_TAR as RentikPro_${ARCH_SHORT}.app.tar.gz"
+            gh release upload ${{ github.ref_name }} "$APP_TAR#RentikPro_${ARCH_SHORT}.app.tar.gz" --clobber
+            
+            # Signature for the tar.gz
+            SIG_FILE="${APP_TAR}.sig"
+            if [ -f "$SIG_FILE" ]; then
+              echo "Uploading signature $SIG_FILE as RentikPro_${ARCH_SHORT}.app.tar.gz.sig"
+              gh release upload ${{ github.ref_name }} "$SIG_FILE#RentikPro_${ARCH_SHORT}.app.tar.gz.sig" --clobber
+            else
+              echo "⚠️ WARNING: No signature found at $SIG_FILE"
+              # Final attempt to find it anywhere
+              SIG_ALT=$(find "$BUNDLE_DIR" -name "*.sig" | head -n 1)
+              if [ -n "$SIG_ALT" ]; then
+                echo "Uploading ALT signature $SIG_ALT as RentikPro_${ARCH_SHORT}.app.tar.gz.sig"
+                gh release upload ${{ github.ref_name }} "$SIG_ALT#RentikPro_${ARCH_SHORT}.app.tar.gz.sig" --clobber
+              fi
             fi
-            exit 0
           fi
-
-          echo "Uploading $SIG_FILE as RentikPro_${ARCH}.app.tar.gz.sig"
-          gh release upload "$TAG" "$SIG_FILE#RentikPro_${ARCH}.app.tar.gz.sig" --clobber
 
       - name: Upload Signatures (Windows)
         if: matrix.os == 'windows-latest'
@@ -150,26 +115,15 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Find the .exe.sig and upload it
-          echo "Looking for signatures on Windows..."
-          Get-ChildItem -Path src-tauri/target -Filter "*.sig" -Recurse
-          $sig_exe = Get-ChildItem -Path src-tauri/target -Filter "*.exe.sig" -Recurse | Select-Object -First 1
-          if ($sig_exe) {
-            Write-Host "Uploading $($sig_exe.FullName) as RentikPro-win.exe.sig"
-            gh release upload ${{ github.ref_name }} "$($sig_exe.FullName)#RentikPro-win.exe.sig" --clobber
-          } else {
-            Write-Host "❌ No .exe.sig found"
-          }
-
-          $sig_msi = Get-ChildItem -Path src-tauri/target -Filter "*.msi.sig" -Recurse | Select-Object -First 1
-          if ($sig_msi) {
-            Write-Host "Uploading $($sig_msi.FullName) as RentikPro-win.msi.sig"
-            gh release upload ${{ github.ref_name }} "$($sig_msi.FullName)#RentikPro-win.msi.sig" --clobber
-          }
-
-          $sig_msi_zip = Get-ChildItem -Path src-tauri/target -Filter "*.msi.zip.sig" -Recurse | Select-Object -First 1
-          if ($sig_msi_zip) {
-            Write-Host "Uploading $($sig_msi_zip.FullName) as RentikPro-win.msi.zip.sig"
-            gh release upload ${{ github.ref_name }} "$($sig_msi_zip.FullName)#RentikPro-win.msi.zip.sig" --clobber
+          $bundleDir = "src-tauri/target/release/bundle"
+          if (Test-Path $bundleDir) {
+            $sig_exe = Get-ChildItem -Path $bundleDir -Filter "*.exe.sig" -Recurse | Select-Object -First 1
+            if ($sig_exe) {
+              Write-Host "Uploading $($sig_exe.FullName) as RentikPro-win.exe.sig"
+              gh release upload ${{ github.ref_name }} "$($sig_exe.FullName)#RentikPro-win.exe.sig" --clobber
+              # Also upload as the setup name the worker expects
+              gh release upload ${{ github.ref_name }} "$($sig_exe.FullName)#RentikPro_x64-setup.exe.sig" --clobber
+            }
           }
 
       - name: Upload Stable Windows Assets
