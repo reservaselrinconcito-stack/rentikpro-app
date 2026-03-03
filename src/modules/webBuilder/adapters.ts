@@ -76,7 +76,19 @@ export const migrateConfig = migrateToV1;
 export const hydrateConfig = (partial: Partial<SiteConfigV1>): SiteConfigV1 => {
     const base = JSON.parse(JSON.stringify(DEFAULT_SITE_CONFIG_V1));
     if (!partial) return base;
-    return { ...base, ...partial, pages: { ...base.pages, ...(partial.pages || {}) } };
+
+    // Deep-merge pages: if a saved page has 0 blocks, fall back to the base blocks
+    const mergedPages: SiteConfigV1['pages'] = { ...base.pages };
+    for (const [path, savedPage] of Object.entries(partial.pages || {})) {
+        if (!savedPage) continue;
+        const basePage = base.pages[path] || { id: `page-${path.replace('/', '') || 'home'}`, path, title: 'Inicio', description: '', blocks: [] };
+        const blocks = (savedPage as any).blocks?.length > 0
+            ? (savedPage as any).blocks
+            : basePage.blocks; // Preserve base blocks when saved page has none
+        mergedPages[path] = { ...basePage, ...(savedPage as any), blocks };
+    }
+
+    return { ...base, ...partial, pages: mergedPages };
 };
 
 export const validateConfig = (config: SiteConfigV1): string[] => {

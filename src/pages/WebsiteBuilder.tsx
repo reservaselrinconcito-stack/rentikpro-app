@@ -82,7 +82,7 @@ async function generateConfigFromProperty(
                             subtitle: property.description || 'Disfruta de una estancia inolvidable.',
                             ctaLabel: 'Ver Alojamientos',
                             ctaHref: '#apartments',
-                            backgroundImage: media[0]?.data_base64 || 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&q=80',
+                            imageUrl: media[0]?.data_base64 || '',
                         },
                         styles: {},
                     },
@@ -216,8 +216,32 @@ export const WebsiteBuilder: React.FC = () => {
                 projectManager.getStore().getWebsites(),
                 projectManager.getStore().getProperties(),
             ]);
-            setWebsites(wsList || []);
+            const sites = wsList || [];
+            setWebsites(sites);
             setProperties(propList || []);
+
+            // Auto-create a starter site if none exist, so the builder never opens empty
+            if (sites.length === 0) {
+                const starterSite: WebSite = {
+                    id: 'ws_starter',
+                    name: 'Mi Sitio Web',
+                    property_id: (propList?.[0]?.id) || '',
+                    subdomain: 'mi-sitio',
+                    slug: 'mi-sitio',
+                    template_slug: 'builder-standard',
+                    plan_type: 'STARTER',
+                    public_token: '',
+                    is_published: false,
+                    status: 'draft',
+                    sections_json: JSON.stringify(DEFAULT_SITE_CONFIG_V1),
+                    created_at: Date.now(),
+                    updated_at: Date.now(),
+                } as any;
+                await projectManager.getStore().saveWebsite(starterSite);
+                setWebsites([starterSite]);
+                setSelectedSite(starterSite);
+                reset(DEFAULT_SITE_CONFIG_V1);
+            }
         } catch (e) {
             console.error('Error loading data', e);
         } finally {
@@ -241,10 +265,19 @@ export const WebsiteBuilder: React.FC = () => {
                 email: 'info@rentik.pro'
             });
             const validated = hydrateConfig(migrated);
+
+            // Safety net: if still no blocks, inject defaults so canvas is never empty
+            if ((validated.pages['/']?.blocks?.length ?? 0) === 0) {
+                validated.pages['/'] = {
+                    ...validated.pages['/'],
+                    blocks: JSON.parse(JSON.stringify(DEFAULT_SITE_CONFIG_V1.pages['/'].blocks)),
+                };
+            }
+
             reset(validated);
             dispatch({ type: 'SET_SAVING', payload: false });
         } catch (e) {
-            console.error('Hydration failed', e);
+            console.error('Hydration failed, resetting to defaults:', e);
             reset(DEFAULT_SITE_CONFIG_V1);
         }
     }, [selectedSite]);
@@ -641,6 +674,10 @@ export const WebsiteBuilder: React.FC = () => {
                         onSelectBlock={id => dispatch({ type: 'SELECT_BLOCK', payload: id })}
                         onMoveBlock={moveBlock}
                         onRemoveBlock={removeBlock}
+                        onInjectStarterBlocks={() => {
+                            const starterBlocks = JSON.parse(JSON.stringify(DEFAULT_SITE_CONFIG_V1.pages['/'].blocks));
+                            starterBlocks.forEach((b: any) => addBlock(b));
+                        }}
                     />
                 </div>
                 <div className="min-w-0 overflow-hidden border-l border-slate-200 bg-white">

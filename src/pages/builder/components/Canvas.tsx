@@ -47,12 +47,13 @@ interface CanvasProps {
     onSelectBlock: (id: string) => void;
     onMoveBlock?: (index: number, dir: 'up' | 'down') => void;
     onRemoveBlock?: (id: string) => void;
+    onInjectStarterBlocks?: () => void;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const Canvas: React.FC<CanvasProps> = ({
-    config, device, selectedBlockId, onSelectBlock, onMoveBlock, onRemoveBlock
+    config, device, selectedBlockId, onSelectBlock, onMoveBlock, onRemoveBlock, onInjectStarterBlocks
 }) => {
     const dragOverId = useRef<string | null>(null);
     const draggingId = useRef<string | null>(null);
@@ -80,12 +81,20 @@ export const Canvas: React.FC<CanvasProps> = ({
             <div className={`transition-all duration-500 ease-in-out bg-white shadow-2xl relative min-h-full ${widthMap[device]} overflow-hidden`}>
 
                 {blocks.length === 0 && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center p-12 text-center pointer-events-none">
-                        <div className="w-20 h-20 rounded-full bg-slate-50 flex items-center justify-center mb-6 border border-dashed border-slate-200">
+                    <div className="absolute inset-0 flex flex-col items-center justify-center p-12 text-center">
+                        <div className="w-20 h-20 rounded-full bg-slate-50 flex items-center justify-center mb-6 border-2 border-dashed border-slate-200">
                             <span className="text-4xl">✨</span>
                         </div>
                         <h2 className="text-xl font-black text-slate-800 mb-2">Tu lienzo está vacío</h2>
-                        <p className="text-sm text-slate-400 max-w-xs">Añade bloques desde la biblioteca de la izquierda para empezar a construir tu sitio.</p>
+                        <p className="text-sm text-slate-400 max-w-xs mb-6">Añade bloques desde la biblioteca de la izquierda, o empieza con los bloques predeterminados.</p>
+                        {onInjectStarterBlocks && (
+                            <button
+                                onClick={onInjectStarterBlocks}
+                                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-black rounded-xl transition-colors shadow-lg"
+                            >
+                                Añadir bloques de inicio
+                            </button>
+                        )}
                     </div>
                 )}
 

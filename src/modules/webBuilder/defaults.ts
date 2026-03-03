@@ -12,7 +12,7 @@ export const DEFAULT_SITE_CONFIG: SiteConfigLegacy = {
     hero: {
         title: 'Bienvenido',
         subtitle: 'Descubre nuestros alojamientos únicos.',
-        imageUrl: 'https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&q=80',
+        imageUrl: '',
         ctaLabel: 'Reservar Ahora',
         ctaHref: '#apartments'
     },
