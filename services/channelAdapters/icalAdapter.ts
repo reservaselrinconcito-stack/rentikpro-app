@@ -5,7 +5,7 @@ import { parseICal } from '../iCalParser';
 import { getProxyUrl, rotateProxy } from '../syncEngine';
 import { networkMonitor } from '../networkMonitor';
 import { iCalLogger } from '../iCalLogger';
-import { EnrichedResponse, proxyFetch } from '../fetchWrapper';
+
 
 // Helper for hashing
 const hashContent = async (text: string): Promise<string> => {
@@ -46,7 +46,7 @@ export class ICalAdapter implements IChannelAdapter {
       };
       if (conn.http_etag) headers['If-None-Match'] = conn.http_etag;
 
-      let response: EnrichedResponse | null = null;
+      let response: Response | null = null;
       let usedProxy = false;
 
       // STRATEGY: Direct vs Proxy
@@ -54,8 +54,8 @@ export class ICalAdapter implements IChannelAdapter {
          try {
             iCalLogger.logInfo('FETCH', 'Forcing Direct Connection', { url: conn.ical_url.substring(0, 50) + '...' });
             const directRes = await fetch(conn.ical_url, { headers, cache: 'no-store' });
-            response = directRes as EnrichedResponse;
-            response._cachedBody = await directRes.text();
+            response = directRes as Response;
+            (response as any)._cachedBody = await directRes.text();
          } catch (e: any) {
             iCalLogger.logError('FETCH', `Direct Error: ${e.message}`);
             throw new Error(`DIRECT ERROR: ${e.message}. Desactiva 'Forzar conexión directa'.`);
@@ -63,10 +63,10 @@ export class ICalAdapter implements IChannelAdapter {
       } else {
          // USE CENTRALIZED WRAPPER (MINI-BLOQUE F5)
          try {
-            response = await proxyFetch(conn.ical_url, { headers, cache: 'no-store' });
-            usedProxy = true;
+            response = await fetch(conn.ical_url, { headers, cache: 'no-store' });
+            usedProxy = false;
 
-            const bodyText = response._cachedBody || "";
+            const bodyText = (response as any)._cachedBody || "";
 
             // Handle Specific Blocks preserved from earlier hardening
             if (response.status === 401 || response.status === 403 || response.status === 429) {
@@ -130,8 +130,8 @@ export class ICalAdapter implements IChannelAdapter {
             iCalLogger.logWarn('FETCH', 'Proxy failed. Trying direct fallback...');
             try {
                const direct = await fetch(conn.ical_url, { headers, cache: 'no-store' });
-               response = direct as EnrichedResponse;
-               response._cachedBody = await direct.text();
+               response = direct as Response;
+               (response as any)._cachedBody = await direct.text();
                usedProxy = false;
             } catch (dErr: any) {
                throw new Error(`Error de conexión: ${err.message}. Direct fell back too: ${dErr.message}`);
