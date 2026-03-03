@@ -109,7 +109,7 @@ jobs:
           TARGET="${{ matrix.tauri_args }}"
           TAG="${{ github.ref_name }}"
 
-          TRIPLE="$(echo "$TARGET" | sed -n 's/.*--target[[:space:]]\+\([^[:space:]]\+\).*/\1/p')"
+          TRIPLE="$(echo "$TARGET" | awk '{print $2}')"
           if [ -z "$TRIPLE" ]; then
             echo "❌ No target triple found in matrix.tauri_args: $TARGET"
             exit 1
