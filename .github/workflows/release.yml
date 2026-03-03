@@ -65,7 +65,7 @@ jobs:
           SIG_DIR="src-tauri/target"
 
           echo "Scanning for tauri updater signatures (*.tar.gz.sig) under $SIG_DIR"
-          SIG_FILES=$(find "$SIG_DIR" -type f -name "*.tar.gz.sig" -print | sed -n "1,500p")
+          SIG_FILES=$(find "$SIG_DIR" -type f -name "*.tar.gz.sig" -print | sort)
 
           if [ -z "$SIG_FILES" ]; then
             echo "No *.tar.gz.sig files found in $SIG_DIR. Failing release to avoid unsigned updater artifacts." >&2
@@ -91,7 +91,7 @@ jobs:
           echo "Release assets for ${GITHUB_REF_NAME}:"
           gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name'
 
-          mapfile -t ASSETS < <(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name')
+          ASSETS="$(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name')"
 
           required_assets=(
             "RentikPro_x64.app.tar.gz"
@@ -102,15 +102,7 @@ jobs:
 
           missing=0
           for required in "${required_assets[@]}"; do
-            found=0
-            for asset in "${ASSETS[@]}"; do
-              if [ "$asset" = "$required" ]; then
-                found=1
-                break
-              fi
-            done
-
-            if [ $found -eq 1 ]; then
+            if echo "$ASSETS" | grep -Fxq "$required"; then
               echo "OK: $required"
             else
               echo "MISSING: $required" >&2
