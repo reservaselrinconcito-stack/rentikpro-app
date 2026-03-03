@@ -71,3 +71,43 @@ jobs:
 
           echo "Found ${#SIG_FILES[@]} signature(s). Uploading to release ${GITHUB_REF_NAME}."
           gh release upload "${GITHUB_REF_NAME}" "${SIG_FILES[@]}" --clobber
+
+      - name: Validate release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Release assets for ${GITHUB_REF_NAME}:"
+          gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name'
+
+          mapfile -t ASSETS < <(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name')
+
+          required_assets=(
+            "RentikPro_x64.app.tar.gz"
+            "RentikPro_x64.app.tar.gz.sig"
+            "RentikPro_aarch64.app.tar.gz"
+            "RentikPro_aarch64.app.tar.gz.sig"
+          )
+
+          missing=0
+          for required in "${required_assets[@]}"; do
+            found=0
+            for asset in "${ASSETS[@]}"; do
+              if [ "$asset" = "$required" ]; then
+                found=1
+                break
+              fi
+            done
+
+            if [ $found -eq 1 ]; then
+              echo "OK: $required"
+            else
+              echo "MISSING: $required" >&2
+              missing=1
+            fi
+          done
+
+          if [ $missing -ne 0 ]; then
+            echo "Release asset validation failed. Missing required updater artifacts." >&2
+            exit 1
+          fi
