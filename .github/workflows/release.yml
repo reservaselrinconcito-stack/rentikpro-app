@@ -56,6 +56,12 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
+      - name: Debug list updater artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          find src-tauri/target -maxdepth 6 -type f \( -name "*.app.tar.gz" -o -name "*.tar.gz.sig" -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \) | sort | sed -n '1,250p'
+
       - name: Upload Tauri signatures
         shell: bash
         env:
@@ -63,9 +69,6 @@ jobs:
         run: |
           set -euo pipefail
           SIG_DIR="src-tauri/target"
-
-          echo "Debug list updater artifacts (first 250):"
-          find "$SIG_DIR" -maxdepth 6 -type f \( -name "*.app.tar.gz" -o -name "*.tar.gz.sig" -o -name "*.msi" -o -name "*.exe" -o -name "*.dmg" \) | sort | sed -n '1,250p'
 
           echo "Scanning for tauri updater signatures (*.tar.gz.sig) under $SIG_DIR"
           SIG_FILES=$(find "$SIG_DIR" -type f -name "*.tar.gz.sig" -print | sort)
