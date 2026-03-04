@@ -104,6 +104,7 @@ export class ICalGenerator {
         events.push(`SUMMARY:${summary}`);
         if (description) events.push(`DESCRIPTION:${description}`);
         events.push(`STATUS:${booking.status === 'confirmed' ? 'CONFIRMED' : 'TENTATIVE'}`);
+        events.push('TRANSP:OPAQUE');
         events.push('END:VEVENT');
 
         return events;

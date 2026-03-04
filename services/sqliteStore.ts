@@ -1855,8 +1855,8 @@ export class SQLiteStore implements IDataStore {
       console.warn("[SQLITE:SAVE] Failed to sync calendar event", e);
     }
 
-    // MINI-BLOQUE B3: Trigger auto-publish if confirmed
-    if (b.status === 'confirmed') {
+    // MINI-BLOQUE B3: Trigger auto-publish if state affects availability
+    if (b.status === 'confirmed' || b.status === 'cancelled') {
       window.dispatchEvent(new CustomEvent('rentikpro:ical-auto-publish', {
         detail: { apartmentId: b.apartment_id }
       }));
@@ -2063,18 +2063,30 @@ export class SQLiteStore implements IDataStore {
   }
 
   async deleteBooking(id: string): Promise<void> {
+    const booking = await this.getBooking(id);
     await this.executeWithParams("DELETE FROM bookings WHERE id = ?", [id]);
+    if (booking?.apartment_id) {
+      window.dispatchEvent(new CustomEvent('rentikpro:ical-auto-publish', {
+        detail: { apartmentId: booking.apartment_id }
+      }));
+    }
     // Notify file-mode autosave (no-op if not in file mode)
     this.onWriteHook?.();
   }
 
   async softDeleteReservation(id: string): Promise<void> {
     const now = Date.now();
+    const booking = await this.getBooking(id);
     await this.ensureInitialized();
     await this.executeWithParams(
       "UPDATE bookings SET deleted_at = ?, updated_at = ? WHERE id = ?",
       [now, now, id]
     );
+    if (booking?.apartment_id) {
+      window.dispatchEvent(new CustomEvent('rentikpro:ical-auto-publish', {
+        detail: { apartmentId: booking.apartment_id }
+      }));
+    }
     this.onWriteHook?.();
   }
 
