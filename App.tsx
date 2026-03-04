@@ -221,6 +221,7 @@ const App: React.FC = () => {
       if (isProjectOpen) {
         syncScheduler.start();
         iCalScheduler.start();
+        import('./services/iCalSyncService').then(m => m.iCalSyncService.backfillBookingsFromCalendarEvents()).catch(() => {});
       } else {
         syncScheduler.stop();
         iCalScheduler.stop();

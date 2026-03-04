@@ -17,7 +17,52 @@ import { ICalAdapter } from './channelAdapters/icalAdapter';
 import { projectManager } from './projectManager';
 import { iCalLogger } from './iCalLogger';
 import { dedupeEvents, computeFingerprint } from './iCalDedupeService';
-import type { ChannelConnection, CalendarEvent } from '../types';
+import type { ChannelConnection, CalendarEvent, Booking } from '../types';
+
+/**
+ * Bridge: convert a CalendarEvent (from iCal) into a Booking record and upsert it.
+ * This ensures the Calendar page (which reads bookings table) shows iCal events.
+ */
+async function upsertBookingFromCalendarEvent(
+  store: any,
+  evt: CalendarEvent,
+  conn: ChannelConnection,
+  now: number,
+  propertyId?: string
+): Promise<void> {
+  const bookingId = `ical_${conn.id}_${evt.external_uid}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+  const eventKind = (evt as any).event_kind || 'BOOKING';
+  const status = evt.status === 'cancelled' ? 'cancelled' : (eventKind === 'BLOCK' ? 'blocked' : 'confirmed');
+
+  const booking: Booking = {
+    id: bookingId,
+    property_id: propertyId || evt.property_id || '',
+    apartment_id: conn.apartment_id || evt.apartment_id || '',
+    traveler_id: '',
+    check_in: evt.start_date,
+    check_out: evt.end_date,
+    status: status as any,
+    total_price: 0,
+    guests: 0,
+    source: conn.channel_name || 'ical',
+    external_ref: evt.external_uid,
+    linked_event_id: evt.id,
+    summary: evt.summary || (eventKind === 'BLOCK' ? 'Bloqueo OTA' : 'Reserva Externa'),
+    guest_name: evt.summary || (eventKind === 'BLOCK' ? 'Bloqueo OTA' : ''),
+    event_kind: eventKind,
+    event_origin: 'ical',
+    event_state: 'confirmed',
+    connection_id: conn.id,
+    ical_uid: evt.external_uid,
+    raw_summary: evt.summary,
+    raw_description: evt.description,
+    created_at: evt.created_at || now,
+    ota: conn.channel_name || null,
+    project_id: localStorage.getItem('active_project_id') || undefined,
+  } as any;
+
+  await store.saveBooking(booking);
+}
 
 const adapter = new ICalAdapter();
 
@@ -118,6 +163,14 @@ export const iCalSyncService = {
     try {
       iCalLogger.logInfo('SYNC', `Syncing connection ${conn.id} (${conn.channel_name})`, { url: conn.ical_url?.substring(0, 40) });
 
+      // Fetch apartment to obtain property_id for booking bridge
+      let propertyId: string | undefined;
+      try {
+        const apts = await store.getAllApartments();
+        const apt = apts.find((a: any) => a.id === conn.apartment_id);
+        propertyId = apt?.property_id;
+      } catch (_) {}
+
       const syncResult = await adapter.pullReservations(conn);
       result.log = syncResult.log;
 
@@ -164,14 +217,15 @@ export const iCalSyncService = {
               existing.summary !== partial.summary;
 
             if (changed) {
-              // saveCalendarEvent uses INSERT OR REPLACE
-              await store.saveCalendarEvent({
+              const updated: CalendarEvent = {
                 ...existing,
                 ...partial,
                 connection_id: conn.id,
                 apartment_id: conn.apartment_id,
                 updated_at: now,
-              } as CalendarEvent);
+              } as CalendarEvent;
+              await store.saveCalendarEvent(updated);
+              await upsertBookingFromCalendarEvent(store, updated, conn, now, propertyId);
               result.eventsUpdated++;
             }
           } else if (!isCancelled) {
@@ -195,6 +249,7 @@ export const iCalSyncService = {
             } as unknown as CalendarEvent;
             (newEvt as any).fingerprint = computeFingerprint(newEvt);
             await store.saveCalendarEvent(newEvt);
+            await upsertBookingFromCalendarEvent(store, newEvt, conn, now, propertyId);
             result.eventsAdded++;
           }
         }
@@ -202,11 +257,13 @@ export const iCalSyncService = {
         // Soft-cancel events that disappeared from the feed
         for (const existing of existingEvents) {
           if (!incomingUids.has(existing.external_uid) && existing.status !== 'cancelled') {
-            await store.saveCalendarEvent({
+            const cancelled: CalendarEvent = {
               ...existing,
               status: 'cancelled',
               updated_at: now,
-            });
+            };
+            await store.saveCalendarEvent(cancelled);
+            await upsertBookingFromCalendarEvent(store, cancelled, conn, now, propertyId);
             result.eventsCancelled++;
           }
         }
@@ -247,5 +304,38 @@ export const iCalSyncService = {
     }
 
     return result;
+  },
+
+  /**
+   * One-time backfill: bridge all existing calendar_events into bookings table.
+   * Call this on app startup to ensure pre-existing iCal events are visible in calendar.
+   */
+  async backfillBookingsFromCalendarEvents(): Promise<void> {
+    try {
+      const store = projectManager.getStore();
+      const connections: ChannelConnection[] = await store.getChannelConnections();
+      const connMap = new Map(connections.map((c: ChannelConnection) => [c.id, c]));
+      const apts = await store.getAllApartments();
+      const aptMap = new Map(apts.map((a: any) => [a.id, a]));
+
+      const allEvents: CalendarEvent[] = await store.getCalendarEvents();
+      const active = allEvents.filter((e: CalendarEvent) => e.status !== 'cancelled' && e.connection_id);
+
+      iCalLogger.logInfo('BACKFILL', `Backfilling ${active.length} calendar_events → bookings`);
+
+      const now = Date.now();
+      let count = 0;
+      for (const evt of active) {
+        const conn = connMap.get(evt.connection_id);
+        if (!conn) continue;
+        const apt = aptMap.get(conn.apartment_id);
+        const propertyId = apt?.property_id;
+        await upsertBookingFromCalendarEvent(store, evt, conn, now, propertyId);
+        count++;
+      }
+      iCalLogger.logInfo('BACKFILL', `Backfill complete: ${count} bookings upserted`);
+    } catch (err: any) {
+      iCalLogger.logWarn('BACKFILL', `Backfill failed (non-fatal): ${err.message}`);
+    }
   },
 };

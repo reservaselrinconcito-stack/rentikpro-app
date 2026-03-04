@@ -965,16 +965,24 @@ const CalendarContent: React.FC = () => {
               </button>
             </div>
 
-            {!viewingBooking.external_ref ? (
+            {(viewingBooking.event_kind === 'BLOCK' || viewingBooking.event_origin === 'ical' || !viewingBooking.external_ref) ? (
               <button onClick={async () => {
-                if (confirm("¿Estás seguro?")) {
-                  await projectManager.getStore().deleteBooking(viewingBooking.id);
+                const label = viewingBooking.event_kind === 'BLOCK' ? 'este bloqueo OTA' : 'esta reserva';
+                if (confirm(`¿Eliminar ${label} del calendario? Solo se eliminará localmente, no en la OTA.`)) {
+                  const store = projectManager.getStore();
+                  await store.deleteBooking(viewingBooking.id);
+                  if (viewingBooking.linked_event_id) {
+                    await store.executeWithParams('DELETE FROM calendar_events WHERE id = ?', [viewingBooking.linked_event_id]).catch(() => {});
+                  }
+                  await store.executeWithParams('DELETE FROM calendar_events WHERE connection_id = ? AND external_uid = ?', [viewingBooking.connection_id, viewingBooking.external_ref]).catch(() => {});
                   await projectManager.saveProject();
                   setIsViewModalOpen(false);
                   loadData();
                   notifyDataChanged();
                 }
-              }} className="w-full mt-8 py-4 bg-rose-50 text-rose-500 hover:bg-rose-100 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors"><Trash2 size={18} /> Eliminar Reserva</button>
+              }} className={`w-full mt-8 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors ${viewingBooking.event_kind === 'BLOCK' ? 'bg-orange-50 text-orange-500 hover:bg-orange-100' : 'bg-rose-50 text-rose-500 hover:bg-rose-100'}`}>
+                <Trash2 size={18} /> {viewingBooking.event_kind === 'BLOCK' ? 'Eliminar Bloqueo OTA' : 'Eliminar Reserva'}
+              </button>
             ) : (
               <div className="w-full mt-8 py-4 bg-slate-50 text-slate-400 rounded-2xl font-black flex items-center justify-center gap-2 border border-slate-100">
                 <ShieldCheck size={18} /> Sincronizado con OTA (Solo Lectura)
