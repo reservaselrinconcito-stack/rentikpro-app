@@ -179,6 +179,7 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
             }
 
             setSettings(data);
+            console.log('[SETTINGS:LOAD] loaded', data);
         } catch (error) {
             console.error('Error loading settings:', error);
         } finally {
@@ -189,12 +190,16 @@ export const Settings = ({ onSave }: { onSave: () => void }) => {
     const handleSave = async () => {
         if (!settings) return;
         try {
+            console.log('[SETTINGS:SAVE] payload', settings);
             await projectManager.getStore().saveSettings(settings);
+            console.log('[SETTINGS:SAVE] ok');
+            toast.success('Guardado');
+            await onSave();
             setSaved(true);
             setTimeout(() => setSaved(false), 3000);
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error saving settings:', error);
-            alert('Error al guardar la configuración');
+            toast.error(error?.message || 'Error al guardar la configuración');
         }
     };
 
