@@ -15,7 +15,7 @@
       "endpoints": [
         "https://rentikpro-updates.reservas-elrinconcito.workers.dev/latest.json"
       ],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJGRjg4MUMxRTRCNDRBQjYKUldTMlNyVGt3WUg0djd4aWZKc0JBNDhVQUtRVlBQNmpYU0tlaUE3SldaUVdUa1k1UTk3NzFFUGsK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEMxQjZDQTY5RjNDMTkzNUQKUldSZGs4SHphY3Eyd1FidjlUTTNWbzJDVEJWUFFMbFNtUW11d3VZbGw3TWFBS255a0dDY1RuVG8K",
       "dialog": false
     }
   },
