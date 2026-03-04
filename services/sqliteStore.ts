@@ -3562,6 +3562,26 @@ export class SQLiteStore implements IDataStore {
     });
   }
 
+  /**
+   * runTransaction: wraps a set of write operations in a single SQLite transaction.
+   * Safe to use: nested calls to executeWithParams inside fn() bypass the queue
+   * because queueWrite sets inWrite=true, allowing re-entrant direct execution.
+   */
+  async runTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    __assertNotMaintenance();
+    return this.queueWrite(async () => {
+      this.db.run('BEGIN TRANSACTION;');
+      try {
+        const result = await fn();
+        this.db.run('COMMIT;');
+        return result;
+      } catch (e) {
+        try { this.db.run('ROLLBACK;'); } catch (_) {}
+        throw e;
+      }
+    });
+  }
+
   // Generic query method
   public async query(sql: string, params: any[] = []): Promise<any[]> {
     __assertNotMaintenance();
