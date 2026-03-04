@@ -9,6 +9,7 @@ import { notifyDataChanged, useDataRefresh } from '../services/dataRefresher';
 import { Plus, Calendar, Trash2, CheckCircle, Clock, XCircle, X, MessageCircle, Edit2, AlertCircle, FileInput, Upload, CreditCard, Search, Filter } from 'lucide-react';
 import { DirectPaymentList } from '../components/DirectPaymentList';
 import { formatDateES } from '../utils/dateFormat';
+import { ensureValidStay } from '../utils/dateLogic';
 import { isConfirmedBooking, isProvisionalBlock, hasRealGuest, hasAmountPositive } from '../utils/bookingClassification';
 import { getBookingDisplayName } from '../utils/bookingDisplay';
 import { mapCalendarEventToBooking, mergeBookingsAndEvents } from '../utils/bookingMapping';
@@ -198,23 +199,69 @@ export const Bookings: React.FC = () => {
     }
   }, [form.property_id]);
 
+  const normalizeDateOnly = (value?: string) => {
+    if (!value) return '';
+    const clean = value.includes('T') ? value.split('T')[0] : value;
+    return clean.split(' ')[0];
+  };
+
+  const mergePayments = (base: any[] = [], extra: any[] = []) => {
+    const byId = new Map<string, any>();
+    base.forEach(p => p?.id && byId.set(p.id, { ...p }));
+    extra.forEach(p => {
+      if (p?.id) {
+        const existing = byId.get(p.id);
+        byId.set(p.id, { ...p, ...(existing || {}) });
+      }
+    });
+    const merged = Array.from(byId.values());
+    return merged.length > 0 ? merged : base;
+  };
+
   const openEditModal = async (b: Booking) => {
     setEditingBookingId(b.id);
+    const store = projectManager.getStore();
+    let base = await store.getBooking(b.id);
+    if (!base && b.external_ref) {
+      base = await store.getBookingByExternalRef(b.external_ref);
+    }
+
+    let accounting: Booking | undefined;
+    try {
+      const acc = await store.getBookingsFromAccounting();
+      accounting = acc.find(x =>
+        x.id === b.id ||
+        (b.external_ref && x.id === b.external_ref) ||
+        (x.external_ref && (x.external_ref === b.external_ref || x.external_ref === b.id))
+      );
+    } catch { }
+
+    const primary = base || b;
+    const resolvedPropertyId = primary.property_id || allApartments.find(a => a.id === primary.apartment_id)?.property_id || '';
+    const resolvedApartmentId = primary.apartment_id || '';
+    const checkIn = normalizeDateOnly(primary.check_in);
+    const checkOutRaw = normalizeDateOnly(primary.check_out);
+    const { checkOut: validCheckOut } = ensureValidStay(checkIn, checkOutRaw);
+    const mergedPayments = mergePayments(primary.payments || [], accounting?.payments || []).map(p => ({
+      ...p,
+      date: normalizeDateOnly(p?.date)
+    }));
+
     setForm({
-      property_id: b.property_id,
-      apartment_id: b.apartment_id,
-      traveler_id: b.traveler_id,
-      check_in: b.check_in,
-      check_out: b.check_out,
-      status: b.status,
-      total_price: b.total_price,
-      guests: b.guests,
-      source: b.source,
-      guest_name: b.guest_name || '',
-      payment_notes: b.payment_notes || b.summary || '',
-      payments: b.payments || [],
-      locator: (b as any).locator || '',
-      needs_details: (b as any).needs_details || false
+      property_id: resolvedPropertyId,
+      apartment_id: resolvedApartmentId,
+      traveler_id: primary.traveler_id,
+      check_in: checkIn,
+      check_out: validCheckOut,
+      status: primary.status,
+      total_price: primary.total_price,
+      guests: primary.guests,
+      source: primary.source,
+      guest_name: primary.guest_name || '',
+      payment_notes: primary.payment_notes || (primary as any).summary || '',
+      payments: mergedPayments,
+      locator: (primary as any).locator || '',
+      needs_details: (primary as any).needs_details || false
     });
 
     // Try to find associated movement to preload payment method
