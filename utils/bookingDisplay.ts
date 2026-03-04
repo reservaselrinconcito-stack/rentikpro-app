@@ -20,7 +20,7 @@ export const getBookingDisplayName = (booking: Booking, traveler?: Traveler): st
         rawName = booking.summary.trim();
     }
 
-    // Strip leading digits: "0 Nombre" → "Nombre", "0" → "" → fallback "Sin nombre"
+    // Strip leading digits: "0 Nombre" → "Nombre"
     // Handles: "2 John" (with space), "0" (alone), "42\tName" (tab)
     const cleaned = rawName.replace(/^\d+[\s]*/, '').trim();
     if (!cleaned) return 'Sin nombre';

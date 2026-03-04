@@ -506,7 +506,7 @@ const CalendarContent: React.FC = () => {
 
                                 <div className="flex-1 min-w-[560px] space-y-[2px]">
                                   {laneCount === 0 ? (
-                                    <div className="grid grid-cols-7 gap-px bg-slate-100 rounded-xl overflow-hidden" style={{ height: LANE_H }}>
+                                    <div className="grid grid-cols-7 gap-[0.5px] bg-slate-50/50 rounded-xl overflow-hidden" style={{ height: LANE_H }}>
                                       {week.map((d) => (
                                         <div
                                           key={`${weekStart}-empty-${apt.id}-${d.dateStr}`}
@@ -519,7 +519,7 @@ const CalendarContent: React.FC = () => {
                                     Array.from({ length: lanesToShow }, (_, laneIdx) => {
                                       const laneItems = byLane.get(laneIdx) || [];
                                       return (
-                                        <div key={`${weekStart}-${apt.id}-lane-${laneIdx}`} className="grid grid-cols-7 gap-px bg-slate-100 rounded-xl overflow-hidden" style={{ height: LANE_H }}>
+                                        <div className="grid grid-cols-7 gap-[0.5px] bg-slate-50/50 rounded-xl overflow-hidden" style={{ height: LANE_H }}>
                                           {week.map((d) => (
                                             <div key={`${weekStart}-${apt.id}-${laneIdx}-${d.dateStr}`} className={`bg-white ${!d.inMonth ? 'bg-slate-50/70' : ''}`}></div>
                                           ))}
@@ -555,13 +555,15 @@ const CalendarContent: React.FC = () => {
                                               : {
                                                 gridColumn: `${colStart} / ${colEnd}`,
                                                 gridRow: 1,
-                                                height: LANE_H,
+                                                height: LANE_H - 4,
+                                                marginTop: 2,
                                                 backgroundColor: baseColor,
                                                 color: textColor,
                                               };
 
-                                            const displayName = b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler));
-                                            const showPax = !isBlock && b.event_kind !== 'BLOCK' && b.guests > 0;
+                                            const baseName = b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler));
+                                            const pax = (b as any).pax_total || b.guests || 0;
+                                            const displayName = (pax > 0 && !isBlock && b.event_kind !== 'BLOCK') ? `${baseName} · ${pax}pax` : baseName;
 
                                             return (
                                               <div
@@ -571,11 +573,11 @@ const CalendarContent: React.FC = () => {
                                                 style={style as any}
                                                 data-reservation-id={b.id}
                                                 data-week-start={weekStart}
-                                                title={`${displayName}${showPax ? ` · ${b.guests}pax` : ''} - ${apt.name} (${b.check_in} → ${b.check_out})`}
+                                                title={`${displayName}${apt?.name ? ` - ${apt.name}` : ''} (${b.check_in} → ${b.check_out})`}
                                               >
                                                 <span className="truncate w-full drop-shadow-sm text-center">
                                                   {isConflict && <AlertTriangle size={10} className="inline mr-1" style={{ color: textColor, fill: textColor }} />}
-                                                  {displayName}{showPax && <span className="opacity-80 ml-1">· {b.guests}pax</span>}
+                                                  {displayName}
                                                 </span>
                                               </div>
                                             );
@@ -659,7 +661,7 @@ const CalendarContent: React.FC = () => {
                 return (
                   <div key={weekStart} className="bg-slate-200">
                     <div
-                      className="grid gap-px bg-slate-100"
+                      className="grid gap-[0.5px] bg-slate-50/50"
                       style={{
                         gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
                         gridTemplateRows: `auto repeat(${laneRows}, ${LANE_H}px)`,
@@ -736,13 +738,15 @@ const CalendarContent: React.FC = () => {
                           : {
                             gridColumn: `${colStart} / ${colEnd + 1}`,
                             gridRow: seg.laneIndex + 2,
-                            height: LANE_H,
+                            height: LANE_H - 4,
+                            marginTop: 2,
                             backgroundColor: baseColor,
                             color: textColor,
                           };
 
-                        const displayName = b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler));
-                        const showPax = !isBlock && b.event_kind !== 'BLOCK' && b.guests > 0;
+                        const baseName = b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler));
+                        const pax = (b as any).pax_total || b.guests || 0;
+                        const displayName = (pax > 0 && !isBlock && b.event_kind !== 'BLOCK') ? `${baseName} · ${pax}pax` : baseName;
 
                         return (
                           <div
@@ -750,11 +754,11 @@ const CalendarContent: React.FC = () => {
                             onClick={(e) => { e.stopPropagation(); openEventDetail(b); }}
                             className={`z-10 px-3 text-[10px] font-bold flex items-center justify-center rounded-full shadow-sm cursor-pointer hover:brightness-110 transition-all overflow-hidden whitespace-nowrap ${isConflict ? 'animate-pulse' : ''} ${isBlock ? 'opacity-70 grayscale-[0.5]' : ''}`}
                             style={style as any}
-                            title={`${displayName}${showPax ? ` · ${b.guests}pax` : ''}${apt?.name ? ` - ${apt.name}` : ''} (${b.check_in} → ${b.check_out})`}
+                            title={`${displayName}${apt?.name ? ` - ${apt.name}` : ''} (${b.check_in} → ${b.check_out})`}
                           >
                             <span className="truncate w-full drop-shadow-sm text-center">
                               {isConflict && <AlertTriangle size={10} className="inline mr-1" style={{ color: textColor, fill: textColor }} />}
-                              {displayName}{showPax && <span className="opacity-80 ml-1">· {b.guests}pax</span>}
+                              {displayName}
                             </span>
                           </div>
                         );
