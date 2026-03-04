@@ -92,6 +92,7 @@ export interface SyncConnectionResult {
   eventsUpdated: number;
   eventsCancelled: number;
   eventsIgnored: number;
+  eventsDuplicated: number;
   log: string;
   error?: string;
 }
@@ -115,7 +116,8 @@ export const iCalSyncService = {
 
     // Cross-connection dedupe: after all syncs, reconcile duplicates across OTAs
     try {
-      await this.runDedupeForAll(apartmentId);
+      const { duplicates } = await this.runDedupeForAll(apartmentId);
+      iCalLogger.logInfo('SYNC_ALL', `Cycle complete. Cross-connection duplicates hidden: ${duplicates}`);
     } catch (e: any) {
       iCalLogger.logWarn('DEDUPE', `Dedupe step failed (non-fatal): ${e.message}`);
     }
@@ -128,7 +130,7 @@ export const iCalSyncService = {
    * Derives booking IDs deterministically (same formula as upsertBookingFromCalendarEvent)
    * so that is_duplicate propagates correctly to the bookings table.
    */
-  async runDedupeForAll(apartmentId?: string): Promise<void> {
+  async runDedupeForAll(apartmentId?: string): Promise<{ masters: number; duplicates: number }> {
     const store = projectManager.getStore();
     const connections = await store.getChannelConnections(apartmentId);
     const channelMap = new Map(connections.map((c: ChannelConnection) => [c.id, c.channel_name || '']));
@@ -176,6 +178,7 @@ export const iCalSyncService = {
     }
 
     iCalLogger.logInfo('DEDUPE', `Dedupe complete: ${totalMasters} masters, ${totalDuplicates} hidden duplicates`);
+    return { masters: totalMasters, duplicates: totalDuplicates };
   },
 
   /**
@@ -192,6 +195,7 @@ export const iCalSyncService = {
       eventsUpdated: 0,
       eventsCancelled: 0,
       eventsIgnored: 0,
+      eventsDuplicated: 0,
       log: '',
     };
 
@@ -266,8 +270,11 @@ export const iCalSyncService = {
                 property_id: (existing as any).property_id || propertyId || '',
                 updated_at: now,
               } as CalendarEvent;
-              await store.saveCalendarEvent(updated);
-              await upsertBookingFromCalendarEvent(store, updated, conn, now, propertyId);
+              // [atomic] saveCalendarEvent + booking upsert as single transaction
+              await store.runTransaction(async () => {
+                await store.saveCalendarEvent(updated);
+                await upsertBookingFromCalendarEvent(store, updated, conn, now, propertyId);
+              });
               result.eventsUpdated++;
               iCalLogger.logInfo('SYNC', `Updated event ${partial.external_uid} (${partial.start_date}→${partial.end_date})`);
             } else {
@@ -300,8 +307,11 @@ export const iCalSyncService = {
             } as unknown as CalendarEvent;
             (newEvt as any).fingerprint = computeFingerprint(newEvt);
 
-            await store.saveCalendarEvent(newEvt);
-            await upsertBookingFromCalendarEvent(store, newEvt, conn, now, propertyId);
+            // [atomic] saveCalendarEvent + booking upsert as single transaction
+            await store.runTransaction(async () => {
+              await store.saveCalendarEvent(newEvt);
+              await upsertBookingFromCalendarEvent(store, newEvt, conn, now, propertyId);
+            });
             result.eventsAdded++;
             iCalLogger.logInfo('SYNC', `Added event ${partial.external_uid} [${eventKind}] (${partial.start_date}→${partial.end_date})`);
           } else {
@@ -314,8 +324,11 @@ export const iCalSyncService = {
         for (const existing of existingEvents) {
           if (!incomingUids.has(existing.external_uid) && existing.status !== 'cancelled') {
             const cancelled: CalendarEvent = { ...existing, status: 'cancelled', updated_at: now };
-            await store.saveCalendarEvent(cancelled);
-            await upsertBookingFromCalendarEvent(store, cancelled, conn, now, propertyId);
+            // [atomic] saveCalendarEvent + booking upsert as single transaction
+            await store.runTransaction(async () => {
+              await store.saveCalendarEvent(cancelled);
+              await upsertBookingFromCalendarEvent(store, cancelled, conn, now, propertyId);
+            });
             result.eventsCancelled++;
             iCalLogger.logInfo('SYNC', `Cancelled event ${existing.external_uid} (no longer in feed)`);
           }
@@ -330,6 +343,8 @@ export const iCalSyncService = {
         updated: result.eventsUpdated,
         cancelled: result.eventsCancelled,
         ignored: result.eventsIgnored,
+        duplicates: result.eventsDuplicated,
+        skipped_by_lock: result.status === 'skipped' ? 1 : 0,
       });
       iCalLogger.updateSummary({
         lastSyncAt: Date.now(),
