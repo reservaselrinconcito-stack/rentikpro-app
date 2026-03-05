@@ -74,15 +74,16 @@ jobs:
           echo "$assets" | sed 's/^/ - /'
 
           need_ok=1
-          echo "$assets" | grep -qx "RentikPro-mac-x64.dmg" || { echo "MISSING: RentikPro-mac-x64.dmg"; need_ok=0; }
-          echo "$assets" | grep -qx "RentikPro-mac-arm64.dmg" || { echo "MISSING: RentikPro-mac-arm64.dmg"; need_ok=0; }
+          # Tauri v2 naming: RentikPro_{version}_{arch}.dmg
+          echo "$assets" | grep -qE "^RentikPro_[0-9]+\.[0-9]+\.[0-9]+_x64\.dmg$" || { echo "MISSING: RentikPro_*_x64.dmg"; need_ok=0; }
+          echo "$assets" | grep -qE "^RentikPro_[0-9]+\.[0-9]+\.[0-9]+_aarch64\.dmg$" || { echo "MISSING: RentikPro_*_aarch64.dmg"; need_ok=0; }
 
-          if echo "$assets" | grep -qx "RentikPro-win.exe"; then
-            echo "OK: RentikPro-win.exe"
-          elif echo "$assets" | grep -qx "RentikPro-win.msi"; then
-            echo "OK: RentikPro-win.msi (fallback)"
+          if echo "$assets" | grep -qE "^RentikPro_[0-9]+\.[0-9]+\.[0-9]+_x64-setup\.exe$"; then
+            echo "OK: RentikPro_*_x64-setup.exe"
+          elif echo "$assets" | grep -qE "^RentikPro_[0-9]+\.[0-9]+\.[0-9]+_x64_en-US\.msi$"; then
+            echo "OK: RentikPro_*_x64_en-US.msi (fallback)"
           else
-            echo "MISSING: RentikPro-win.exe and RentikPro-win.msi"
+            echo "MISSING: Windows installer (exe or msi)"
             need_ok=0
           fi
 
@@ -100,8 +101,10 @@ jobs:
           set -euo pipefail
           base="https://github.com/${REPO}/releases/latest/download"
 
-          # macOS deben existir sí o sí en latest si latest apunta bien
-          for f in "RentikPro-mac-x64.dmg" "RentikPro-mac-arm64.dmg"; do
+          # macOS: get actual filenames from assets list
+          tag="$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | jq -r '.tag_name')"
+          vers="${tag#v}"
+          for f in "RentikPro_${vers}_x64.dmg" "RentikPro_${vers}_aarch64.dmg"; do
             url="${base}/${f}"
             code="$(curl -s -o /dev/null -w "%{http_code}" -I -L "$url" || true)"
             echo "$f -> HTTP $code"
@@ -111,9 +114,9 @@ jobs:
             fi
           done
 
-          # Windows: vale exe o msi
+          # Windows: vale exe o msi (Tauri v2 naming)
           ok=0
-          for f in "RentikPro-win.exe" "RentikPro-win.msi"; do
+          for f in "RentikPro_${vers}_x64-setup.exe" "RentikPro_${vers}_x64_en-US.msi"; do
             url="${base}/${f}"
             code="$(curl -s -o /dev/null -w "%{http_code}" -I -L "$url" || true)"
             echo "$f -> HTTP $code"
