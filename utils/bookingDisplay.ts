@@ -9,16 +9,15 @@ import { Booking, Traveler } from '../types';
  * 4) "Sin nombre"
  */
 export const getBookingDisplayName = (booking: Booking, traveler?: Traveler): string => {
-    let rawName = 'Sin nombre';
+    const fullName = traveler
+        ? `${traveler.nombre || ''} ${traveler.apellidos || ''}`.trim()
+        : '';
 
-    if (traveler) {
-        const fullName = `${traveler.nombre || ''} ${traveler.apellidos || ''}`.trim();
-        if (fullName) rawName = fullName;
-    } else if (booking.guest_name && booking.guest_name.trim()) {
-        rawName = booking.guest_name.trim();
-    } else if (booking.summary && booking.summary.trim()) {
-        rawName = booking.summary.trim();
-    }
+    const rawName =
+        fullName ||
+        booking.guest_name?.trim() ||
+        booking.summary?.trim() ||
+        'Sin nombre';
 
     // Strip leading digits: "0 Nombre" → "Nombre"
     // Handles: "2 John" (with space), "0" (alone), "42\tName" (tab)
