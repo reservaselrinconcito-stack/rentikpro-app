@@ -21,6 +21,8 @@ import { buildMonthGrid, MonthGridDay } from '../utils/monthGrid';
 import { buildMonthlyReservationSegmentsWithLanes, MonthlyWeekSegment } from '../utils/monthlyReservationSegments';
 
 type ViewMode = 'monthly' | 'weekly' | 'yearly';
+import { dedupeBookingsForDisplay } from '../utils/bookingDedupe';
+import { annotateBookingConflicts } from '../utils/bookingConflicts';
 
 const toDateStr = (date: Date) => {
   const y = date.getFullYear();
@@ -263,13 +265,29 @@ const CalendarContent: React.FC = () => {
     }
   };
 
+  // DUPLICATE ELIMINATION (UI-ONLY)
+  // [OTA Dedupe] Hide iCal events if they match a manual/confirmed booking.
+  const deduplicatedBookings = useMemo(() => {
+    const { deduplicated, hiddenCount, totalBookings, totalOtaEvents } = dedupeBookingsForDisplay(bookings);
+
+    if (import.meta.env.DEV) {
+      console.debug(`[Calendar Dedupe] Total Bookings: ${totalBookings}, Total OTA Events: ${totalOtaEvents}, Hidden duplicates: ${hiddenCount}`);
+    }
+
+    return deduplicated;
+  }, [bookings]);
+
+  const bookingsWithConflicts = useMemo(() => {
+    return annotateBookingConflicts(deduplicatedBookings);
+  }, [deduplicatedBookings]);
+
   const { confirmed, provisionalNotCovered, provisionalCovered } = useMemo(() => {
-    const cf = bookings.filter(b => b.status !== 'cancelled' && isConfirmedBooking(b));
-    const pr = bookings.filter(b => b.status !== 'cancelled' && isProvisionalBlock(b));
+    const cf = bookingsWithConflicts.filter(b => b.status !== 'cancelled' && isConfirmedBooking(b));
+    const pr = bookingsWithConflicts.filter(b => b.status !== 'cancelled' && isProvisionalBlock(b));
     const prNotCovered = pr.filter(p => !isCovered(p, cf));
     const prCovered = pr.filter(p => isCovered(p, cf));
     return { confirmed: cf, provisionalNotCovered: prNotCovered, provisionalCovered: prCovered };
-  }, [bookings]);
+  }, [bookingsWithConflicts]);
 
   const displayBookings = useMemo(() => {
     // Filter out iCal duplicates (same stay from multiple OTA channels)
@@ -564,6 +582,10 @@ const CalendarContent: React.FC = () => {
                                             const baseName = b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler));
                                             const pax = (b as any).pax_total || b.guests || 0;
                                             const displayName = (pax > 0 && !isBlock && b.event_kind !== 'BLOCK') ? `${baseName} · ${pax}pax` : baseName;
+                                            const conflictSources = (b as any).conflict_sources as string[] | undefined;
+                                            const conflictLabel = conflictSources?.length
+                                              ? ` | OVERBOOKING: ${conflictSources.join(' vs ')}`
+                                              : '';
 
                                             return (
                                               <div
@@ -573,7 +595,7 @@ const CalendarContent: React.FC = () => {
                                                 style={style as any}
                                                 data-reservation-id={b.id}
                                                 data-week-start={weekStart}
-                                                title={`${displayName}${apt?.name ? ` - ${apt.name}` : ''} (${b.check_in} → ${b.check_out})`}
+                                                title={`${displayName}${apt?.name ? ` - ${apt.name}` : ''} (${b.check_in} → ${b.check_out})${conflictLabel}`}
                                               >
                                                 <span className="truncate w-full drop-shadow-sm text-center">
                                                   {isConflict && <AlertTriangle size={10} className="inline mr-1" style={{ color: textColor, fill: textColor }} />}
@@ -747,6 +769,10 @@ const CalendarContent: React.FC = () => {
                         const baseName = b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler));
                         const pax = (b as any).pax_total || b.guests || 0;
                         const displayName = (pax > 0 && !isBlock && b.event_kind !== 'BLOCK') ? `${baseName} · ${pax}pax` : baseName;
+                        const conflictSources = (b as any).conflict_sources as string[] | undefined;
+                        const conflictLabel = conflictSources?.length
+                          ? ` | OVERBOOKING: ${conflictSources.join(' vs ')}`
+                          : '';
 
                         return (
                           <div
@@ -754,7 +780,7 @@ const CalendarContent: React.FC = () => {
                             onClick={(e) => { e.stopPropagation(); openEventDetail(b); }}
                             className={`z-10 px-3 text-[10px] font-bold flex items-center justify-center rounded-full shadow-sm cursor-pointer hover:brightness-110 transition-all overflow-hidden whitespace-nowrap ${isConflict ? 'animate-pulse' : ''} ${isBlock ? 'opacity-70 grayscale-[0.5]' : ''}`}
                             style={style as any}
-                            title={`${displayName}${apt?.name ? ` - ${apt.name}` : ''} (${b.check_in} → ${b.check_out})`}
+                            title={`${displayName}${apt?.name ? ` - ${apt.name}` : ''} (${b.check_in} → ${b.check_out})${conflictLabel}`}
                           >
                             <span className="truncate w-full drop-shadow-sm text-center">
                               {isConflict && <AlertTriangle size={10} className="inline mr-1" style={{ color: textColor, fill: textColor }} />}
@@ -909,6 +935,9 @@ const CalendarContent: React.FC = () => {
                 <div className="text-xs font-bold">
                   <p className="uppercase mb-1">Conflicto Detectado</p>
                   <p className="opacity-80">Esta reserva se solapa con otra. Revisa el Channel Manager.</p>
+                  {(viewingBooking as any).conflict_sources?.length ? (
+                    <p className="opacity-70 mt-1">Fuentes: {(viewingBooking as any).conflict_sources.join(' vs ')}</p>
+                  ) : null}
                 </div>
               </div>
             )}
@@ -972,9 +1001,9 @@ const CalendarContent: React.FC = () => {
                   const store = projectManager.getStore();
                   await store.deleteBooking(viewingBooking.id);
                   if (viewingBooking.linked_event_id) {
-                    await store.executeWithParams('DELETE FROM calendar_events WHERE id = ?', [viewingBooking.linked_event_id]).catch(() => {});
+                    await store.executeWithParams('DELETE FROM calendar_events WHERE id = ?', [viewingBooking.linked_event_id]).catch(() => { });
                   }
-                  await store.executeWithParams('DELETE FROM calendar_events WHERE connection_id = ? AND external_uid = ?', [viewingBooking.connection_id, viewingBooking.external_ref]).catch(() => {});
+                  await store.executeWithParams('DELETE FROM calendar_events WHERE connection_id = ? AND external_uid = ?', [viewingBooking.connection_id, viewingBooking.external_ref]).catch(() => { });
                   await projectManager.saveProject();
                   setIsViewModalOpen(false);
                   loadData();

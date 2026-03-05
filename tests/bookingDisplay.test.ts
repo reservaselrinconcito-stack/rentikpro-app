@@ -33,15 +33,15 @@ describe('getBookingDisplayName', () => {
     });
 
     it('should use booking.guest_name if traveler is missing', () => {
-        const booking = mockBooking({ guest_name: 'Manual Guest', summary: 'Summary' });
-        expect(getBookingDisplayName(booking, undefined)).toBe('Manual Guest');
+        const booking = mockBooking({ guest_name: 'Carlos Pérez', summary: 'Summary' });
+        expect(getBookingDisplayName(booking, undefined)).toBe('Carlos Pérez');
     });
 
     it('should use booking.guest_name if traveler has empty name', () => {
-        const booking = mockBooking({ guest_name: 'Manual Guest', summary: 'Summary' });
+        const booking = mockBooking({ guest_name: 'Carlos Pérez', summary: 'Summary' });
         const traveler = mockTraveler({ nombre: '', apellidos: '' }); // Empty traveler
 
-        expect(getBookingDisplayName(booking, traveler)).toBe('Manual Guest');
+        expect(getBookingDisplayName(booking, traveler)).toBe('Carlos Pérez');
     });
 
     it('should use summary if both traveler query and guest_name fail', () => {

@@ -37,3 +37,7 @@ capacitor.config.ts
 
 # --- accidental backups ---
 src/_backups/
+target/
+*.dmg
+*.key
+*.key.pub

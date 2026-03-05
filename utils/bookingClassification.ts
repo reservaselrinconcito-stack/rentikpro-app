@@ -22,7 +22,9 @@ export const isPlaceholderGuestName = (name: string | null | undefined): boolean
 
     const placeholders = [
         'blocked', 'unavailable', 'bloqueado', 'no disponible',
-        'occupied', 'reservado', 'cierre', 'bloqueo'
+        'occupied', 'reservado', 'cierre', 'bloqueo',
+        'guest', 'reserved', 'not available', 'booking',
+        'booking.com', 'airbnb', 'vrbo', 'expedia'
     ];
     return placeholders.some(p => normalized.includes(p));
 };
@@ -52,8 +54,7 @@ export const isConfirmedBooking = (booking: Partial<Booking> | null | undefined)
     if (!booking) return false;
     if (booking.event_kind === 'BLOCK') return false;
     if (booking.event_state === 'provisional') return false;
-    // Fallback for legacy data or manual bookings
-    return hasRealGuest(booking) || hasAmountPositive(booking);
+    return hasRealGuest(booking);
 };
 
 /**
