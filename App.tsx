@@ -162,7 +162,12 @@ const App: React.FC = () => {
           }
         }
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         console.error("Initialization failed", e);
+        // If demo auto-boot fails (e.g. wasm not loaded), store a hint so StartupScreen can show it
+        if (isDemoMode()) {
+          try { sessionStorage.setItem('rp_demo_boot_error', msg); } catch { /* ignore */ }
+        }
       } finally {
         setInitializing(false);
       }

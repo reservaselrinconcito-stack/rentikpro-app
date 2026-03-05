@@ -57,6 +57,21 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
     // Clear any stale boot error flag on mount.
     useEffect(() => {
         try { localStorage.removeItem('rp_workspace_boot_error'); } catch { /* ignore */ }
+        // Surface demo boot errors from App.tsx auto-init
+        try {
+            const demoErr = sessionStorage.getItem('rp_demo_boot_error');
+            if (demoErr) {
+                sessionStorage.removeItem('rp_demo_boot_error');
+                const raw = demoErr;
+                let friendly = raw;
+                if (/magic|wasm|WebAssembly|instantiate/i.test(raw)) {
+                    friendly = 'No se pudo cargar el motor de base de datos (WASM). Intenta refrescar (⌘R / F5).';
+                } else if (/fetch|Failed to fetch|NetworkError/i.test(raw)) {
+                    friendly = 'Error de red al cargar recursos. Comprueba tu conexión e intenta de nuevo.';
+                }
+                setError(friendly);
+            }
+        } catch { /* ignore */ }
     }, []);
 
     useEffect(() => {
@@ -429,7 +444,16 @@ const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
             onOpen();
         } catch (err: any) {
             console.error(`[Startup] ${name} failed:`, err);
-            setError(err.message || String(err));
+            const raw: string = err?.message || String(err);
+            let friendly = raw;
+            if (/magic|wasm|WebAssembly|instantiate/i.test(raw)) {
+                friendly = 'No se pudo cargar el motor de base de datos (WASM). Intenta refrescar la página (⌘R / F5).';
+            } else if (/fetch|Failed to fetch|NetworkError/i.test(raw)) {
+                friendly = 'Error de red al cargar recursos. Comprueba tu conexión e intenta de nuevo.';
+            } else if (/initSqlJs not found/i.test(raw)) {
+                friendly = 'Recurso SQL no cargado. Intenta refrescar la página (⌘R / F5).';
+            }
+            setError(friendly);
         } finally {
             setLoading(false);
         }
