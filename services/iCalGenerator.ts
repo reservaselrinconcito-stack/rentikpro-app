@@ -36,6 +36,9 @@ export class ICalGenerator {
     }
 
     private buildIcs(name: string, bookings: Booking[]): string {
+        const { windowStart, windowEnd } = this.getExportWindow();
+        const exportableBookings = bookings.filter(booking => this.isWithinExportWindow(booking, windowStart, windowEnd));
+
         let ical = [
             'BEGIN:VCALENDAR',
             'VERSION:2.0',
@@ -46,7 +49,7 @@ export class ICalGenerator {
             'X-WR-TIMEZONE:Europe/Madrid',
         ];
 
-        for (const booking of bookings) {
+        for (const booking of exportableBookings) {
             ical = ical.concat(this.createEventsForBooking(booking));
         }
 
@@ -75,10 +78,8 @@ export class ICalGenerator {
 
         // Privacy Logic
         const isDirect = booking.source === 'DIRECT_WEB' || booking.source === 'WEB_CHECKOUT';
-        const isSensitive = isDirect; // Could extend logic here
-
-        let summary = isSensitive ? 'Blocked' : `Reserva: ${booking.guest_name || 'Guest'}`;
-        let description = isSensitive ? 'Booked via Direct' : `Reserva via ${booking.source || 'Manual'}`;
+        const summary = 'CLOSED - Not available';
+        const description = 'RentikPro blocked dates';
 
         // Stable unique UID per event:
         // 1. Direct bookings: rp-web-<booking.id>  (always unique)
@@ -122,6 +123,30 @@ export class ICalGenerator {
         events.push('END:VEVENT');
 
         return events;
+    }
+
+    private getExportWindow(): { windowStart: Date; windowEnd: Date } {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const windowStart = new Date(today);
+        windowStart.setDate(windowStart.getDate() - 30);
+
+        const windowEnd = new Date(today);
+        windowEnd.setMonth(windowEnd.getMonth() + 24);
+
+        return { windowStart, windowEnd };
+    }
+
+    private isWithinExportWindow(booking: Booking, windowStart: Date, windowEnd: Date): boolean {
+        const checkIn = this.parseDateOnly(booking.check_in);
+        const checkOut = this.parseDateOnly(booking.check_out);
+        return checkOut > windowStart && checkIn < windowEnd;
+    }
+
+    private parseDateOnly(value: string): Date {
+        const [year, month, day] = value.split('-').map(Number);
+        return new Date(year, month - 1, day);
     }
 }
 

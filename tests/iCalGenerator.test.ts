@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ICalGenerator } from '../services/iCalGenerator';
 
 const gen = new ICalGenerator();
@@ -71,5 +71,27 @@ describe('iCalGenerator — UID uniqueness', () => {
         const ics = (gen as any).buildIcs('Test', bookings);
         const uids = extractUIDs(ics);
         expect(new Set(uids).size).toBe(5);
+    });
+});
+
+describe('iCalGenerator — export window', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('excludes bookings outside the export window', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-03-06T12:00:00Z'));
+
+        const bookings = [
+            makeBooking({ id: 'b-old', check_in: '2024-01-01', check_out: '2024-01-05' }),
+            makeBooking({ id: 'b-ok', check_in: '2026-02-10', check_out: '2026-02-12' }),
+            makeBooking({ id: 'b-future', check_in: '2029-01-01', check_out: '2029-01-05' }),
+        ];
+
+        const ics = (gen as any).buildIcs('Test', bookings);
+        const uids = extractUIDs(ics);
+        expect(uids).toHaveLength(1);
+        expect(uids[0]).toBe('rp-b-ok@rentikpro.app');
     });
 });

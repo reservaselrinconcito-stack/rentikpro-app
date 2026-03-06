@@ -85,8 +85,13 @@ function generateICS(events: any[]): string {
     ];
 
     const nowStr = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    const { windowStart, windowEnd } = getExportWindow();
 
     for (const ev of events) {
+        const startDate = parseDateOnly(ev.start_date);
+        const endDate = parseDateOnly(ev.end_date);
+        if (!(endDate > windowStart && startDate < windowEnd)) continue;
+
         const start = ev.start_date.replace(/-/g, '');
         const end = ev.end_date.replace(/-/g, '');
 
@@ -95,11 +100,31 @@ function generateICS(events: any[]): string {
         lines.push(`DTSTAMP:${nowStr}`);
         lines.push(`DTSTART;VALUE=DATE:${start}`);
         lines.push(`DTEND;VALUE=DATE:${end}`);
-        lines.push(`SUMMARY:${ev.summary || 'Occupied (RentikPro)'}`);
+        lines.push('SUMMARY:CLOSED - Not available');
+        lines.push('DESCRIPTION:RentikPro blocked dates');
+        lines.push('STATUS:CONFIRMED');
         lines.push('TRANSP:OPAQUE');
         lines.push('END:VEVENT');
     }
 
     lines.push('END:VCALENDAR');
     return lines.join('\r\n');
+}
+
+function getExportWindow(): { windowStart: Date; windowEnd: Date } {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const windowStart = new Date(today);
+    windowStart.setDate(windowStart.getDate() - 30);
+
+    const windowEnd = new Date(today);
+    windowEnd.setMonth(windowEnd.getMonth() + 24);
+
+    return { windowStart, windowEnd };
+}
+
+function parseDateOnly(value: string): Date {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, month - 1, day);
 }
