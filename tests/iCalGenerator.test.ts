@@ -1,4 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+
+vi.mock('../services/projectManager', () => ({
+    projectManager: {
+        getStore: () => ({}),
+    },
+}));
 import { ICalGenerator } from '../services/iCalGenerator';
 
 const gen = new ICalGenerator();
@@ -65,12 +71,19 @@ describe('iCalGenerator — UID uniqueness', () => {
     });
 
     it('no two events share UID even with IMP- ical_uid', () => {
-        const bookings = Array.from({ length: 5 }, (_, i) =>
-            makeBooking({ id: `b-shared-${i}`, ical_uid: 'IMP-669f', check_in: `2026-0${i + 1}-01`, check_out: `2026-0${i + 1}-05` })
-        );
-        const ics = (gen as any).buildIcs('Test', bookings);
-        const uids = extractUIDs(ics);
-        expect(new Set(uids).size).toBe(5);
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-01-15T12:00:00Z'));
+
+        try {
+            const bookings = Array.from({ length: 5 }, (_, i) =>
+                makeBooking({ id: `b-shared-${i}`, ical_uid: 'IMP-669f', check_in: `2026-0${i + 1}-01`, check_out: `2026-0${i + 1}-05` })
+            );
+            const ics = (gen as any).buildIcs('Test', bookings);
+            const uids = extractUIDs(ics);
+            expect(new Set(uids).size).toBe(5);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
