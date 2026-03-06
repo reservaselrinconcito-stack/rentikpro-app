@@ -80,11 +80,25 @@ export class ICalGenerator {
         let summary = isSensitive ? 'Blocked' : `Reserva: ${booking.guest_name || 'Guest'}`;
         let description = isSensitive ? 'Booked via Direct' : `Reserva via ${booking.source || 'Manual'}`;
 
-        // Ensure stable UID
-        // If it's direct web, use specific prefix as requested
-        let uid = booking.external_ref || `rp-${booking.id}`;
+        // Stable unique UID per event:
+        // 1. Direct bookings: rp-web-<booking.id>  (always unique)
+        // 2. OTA-imported: prefer booking.ical_uid (original UID from OTA feed)
+        //    - skip if it looks like a synthetic import key (IMP- prefix) shared across many events
+        // 3. Fallback: rp-<booking.id>  (always unique — never use external_ref which can repeat)
+        let uid: string;
         if (isDirect) {
             uid = `rp-web-${booking.id}`;
+        } else {
+            const icalUid = (booking as any).ical_uid as string | undefined;
+            const isRealOtaUid = icalUid && !icalUid.startsWith('IMP-') && !icalUid.startsWith('rp-');
+            if (isRealOtaUid) {
+                uid = icalUid!;
+            } else {
+                uid = `rp-${booking.id}`;
+                if (!(booking as any).ical_uid) {
+                    console.log(`[iCalGen] No ical_uid for booking ${booking.id}, using rp-${booking.id}`);
+                }
+            }
         }
 
         // Dates formatting (YYYYMMDD)
