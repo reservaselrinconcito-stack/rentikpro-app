@@ -26,9 +26,9 @@
  */
 
 import { readFileSync, writeFileSync, unlinkSync, existsSync } from "node:fs";
-import { execSync }                 from "node:child_process";
-import path                         from "node:path";
-import os                           from "node:os";
+import { execSync } from "node:child_process";
+import path from "node:path";
+import os from "node:os";
 
 // ─── Load .env.local ────────────────────────────────────────────────────────
 const envPath = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../.env.local");
@@ -45,17 +45,17 @@ if (existsSync(envPath)) {
 }
 
 // ─── Config ─────────────────────────────────────────────────────────────────
-const WORKER   = (process.env.VITE_PUBLIC_WORKER_URL || "").replace(/\/$/, "");
-const TOKEN    = process.env.VITE_ADMIN_TOKEN || process.env.VITE_ADMIN_KEY;
-const PROP_ID  = process.env.PROP_UUID;
-const DRY_RUN  = process.env.DRY_RUN === "1";
-const DB_PATH  = process.env.DB_PATH ||
+const WORKER = (process.env.VITE_PUBLIC_WORKER_URL || "").replace(/\/$/, "");
+const TOKEN = process.env.VITE_ADMIN_TOKEN || process.env.VITE_ADMIN_KEY;
+const PROP_ID = process.env.PROP_UUID;
+const DRY_RUN = process.env.DRY_RUN === "1";
+const DB_PATH = process.env.DB_PATH ||
   path.join(os.homedir(), "Documents", "rentikRinconcito__LOCAL_BACKUP", "database.sqlite");
 
 // ─── Validate ───────────────────────────────────────────────────────────────
 const missing = [];
-if (!WORKER)  missing.push("VITE_PUBLIC_WORKER_URL");
-if (!TOKEN)   missing.push("VITE_ADMIN_TOKEN (or VITE_ADMIN_KEY)");
+if (!WORKER) missing.push("VITE_PUBLIC_WORKER_URL");
+if (!TOKEN) missing.push("VITE_ADMIN_TOKEN (or VITE_ADMIN_KEY)");
 if (!PROP_ID) missing.push("PROP_UUID");
 
 if (missing.length && !DRY_RUN) {
@@ -73,7 +73,7 @@ if (!existsSync(DB_PATH)) {
 // ─── Read SQLite ─────────────────────────────────────────────────────────────
 // Write query to a temp file to avoid all shell quoting issues.
 function sqliteQuery(sql) {
-  const tmpSql = path.join(os.tmpdir(), `rp_pub_${process.pid}.sql`);
+  const tmpSql = path.join(path.dirname(new URL(import.meta.url).pathname), `rp_pub_${process.pid}.sql`);
   writeFileSync(tmpSql, sql, "utf8");
   try {
     const out = execSync(
@@ -84,7 +84,7 @@ function sqliteQuery(sql) {
   } catch (e) {
     throw new Error(`sqlite3 error: ${e.stderr?.trim() || e.message}`);
   } finally {
-    try { unlinkSync(tmpSql); } catch {}
+    try { unlinkSync(tmpSql); } catch { }
   }
 }
 
@@ -97,7 +97,7 @@ const propRows = sqliteQuery(
 if (!propRows.length) {
   // Try without quotes
   const propRows2 = sqliteQuery(
-    `SELECT id, name FROM properties WHERE id LIKE '%${PROP_ID.slice(0,8)}%' LIMIT 3`
+    `SELECT id, name FROM properties WHERE id LIKE '%${PROP_ID.slice(0, 8)}%' LIMIT 3`
   );
   if (!propRows2.length) {
     console.error("❌  No property found for UUID:", PROP_ID);
@@ -122,9 +122,9 @@ console.log(`🛋️   Apartments: ${apartments.length}`, apartments.map(a => a.
 // Get calendar events (last 30 days → next 365 days)
 const today = new Date();
 const fromDate = new Date(today); fromDate.setDate(fromDate.getDate() - 30);
-const toDate   = new Date(today); toDate.setFullYear(toDate.getFullYear() + 1);
-const fromStr  = fromDate.toISOString().slice(0, 10);
-const toStr    = toDate.toISOString().slice(0, 10);
+const toDate = new Date(today); toDate.setFullYear(toDate.getFullYear() + 1);
+const fromStr = fromDate.toISOString().slice(0, 10);
+const toStr = toDate.toISOString().slice(0, 10);
 
 const events = sqliteQuery(`
   SELECT id, apartment_id, property_id, start_date, end_date, status, event_state, event_kind, summary
@@ -139,7 +139,7 @@ const events = sqliteQuery(`
 console.log(`📅  Calendar events in range [${fromStr} → ${toStr}]: ${events.length}`);
 if (events.length) {
   const earliest = events[0].start_date;
-  const latest   = events[events.length - 1].end_date;
+  const latest = events[events.length - 1].end_date;
   console.log(`    Range: ${earliest} → ${latest}`);
 }
 
@@ -150,8 +150,8 @@ if (events.length) {
 function dateRange(startStr, endStr) {
   const dates = [];
   const start = new Date(startStr + "T00:00:00Z");
-  const end   = new Date(endStr   + "T00:00:00Z");
-  const cur   = new Date(start);
+  const end = new Date(endStr + "T00:00:00Z");
+  const cur = new Date(start);
   while (cur < end) {
     dates.push(cur.toISOString().slice(0, 10));
     cur.setUTCDate(cur.getUTCDate() + 1);
@@ -179,8 +179,8 @@ for (const ev of events) {
 }
 
 // ─── Build payloads ─────────────────────────────────────────────────────────
-const generatedAt   = new Date().toISOString();
-const availPayload  = { propertyId: PROP_ID, availability, generatedAt };
+const generatedAt = new Date().toISOString();
+const availPayload = { propertyId: PROP_ID, availability, generatedAt };
 const snapshotPayload = {
   propertyId: PROP_ID,
   propertyName: propName,
@@ -188,8 +188,8 @@ const snapshotPayload = {
   eventCount: events.length,
 };
 
-const availKB    = (JSON.stringify(availPayload).length / 1024).toFixed(1);
-const snapKB     = (JSON.stringify(snapshotPayload).length / 1024).toFixed(1);
+const availKB = (JSON.stringify(availPayload).length / 1024).toFixed(1);
+const snapKB = (JSON.stringify(snapshotPayload).length / 1024).toFixed(1);
 
 // ─── Dry-run output ──────────────────────────────────────────────────────────
 console.log("\n📊  Payload summary:");
@@ -213,23 +213,23 @@ async function req(method, url, body) {
     method,
     headers: {
       "Authorization": AUTH_HDR,
-      "Content-Type":  "application/json",
+      "Content-Type": "application/json",
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
   let json = null;
-  try { json = JSON.parse(text); } catch {}
+  try { json = JSON.parse(text); } catch { }
   return { status: res.status, text, json };
 }
 
 // We use the existing generic /admin/site-config?slug=<kv-key> endpoint
 // because the worker doesn't have dedicated sub-path handlers for /snapshot and /availability.
-const BASE    = WORKER;
-const ENC_AV  = encodeURIComponent(`pub:availability:${PROP_ID}:staging`);
-const ENC_SN  = encodeURIComponent(`pub:snapshot:${PROP_ID}:staging`);
-const URL_AV  = `${BASE}/admin/site-config?slug=${ENC_AV}`;
-const URL_SN  = `${BASE}/admin/site-config?slug=${ENC_SN}`;
+const BASE = WORKER;
+const ENC_AV = encodeURIComponent(`pub:availability:${PROP_ID}:staging`);
+const ENC_SN = encodeURIComponent(`pub:snapshot:${PROP_ID}:staging`);
+const URL_AV = `${BASE}/admin/site-config?slug=${ENC_AV}`;
+const URL_SN = `${BASE}/admin/site-config?slug=${ENC_SN}`;
 const URL_CMT = `${BASE}/admin/site-config/commit?propertyId=${encodeURIComponent(PROP_ID)}`;
 const URL_VER = `${BASE}/public/availability?propertyId=${encodeURIComponent(PROP_ID)}`;
 
@@ -264,13 +264,13 @@ const rv = await req("GET", URL_VER);
 console.log("    Status:", rv.status);
 const avail = rv.json?.availability;
 if (!avail || (typeof avail === "object" && Object.keys(avail).length === 0) ||
-    (Array.isArray(avail) && avail.length === 0)) {
+  (Array.isArray(avail) && avail.length === 0)) {
   console.error("    ❌  availability is still empty after publish!");
   console.error("       Possible cause: worker commit endpoint failed silently.");
   console.error("       Try manually: curl -s", JSON.stringify(URL_VER));
   process.exit(5);
 }
-const unitCount  = Object.keys(avail).length;
+const unitCount = Object.keys(avail).length;
 const nightCount = Object.values(avail).reduce((s, v) =>
   s + (typeof v === "object" ? Object.keys(v).length : 0), 0);
 console.log(`    ✅  availability OK — ${unitCount} unit(s), ${nightCount} blocked nights`);

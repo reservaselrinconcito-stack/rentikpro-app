@@ -3576,7 +3576,7 @@ export class SQLiteStore implements IDataStore {
         this.db.run('COMMIT;');
         return result;
       } catch (e) {
-        try { this.db.run('ROLLBACK;'); } catch (_) {}
+        try { this.db.run('ROLLBACK;'); } catch (_) { }
         throw e;
       }
     });
@@ -3992,14 +3992,14 @@ export class SQLiteStore implements IDataStore {
     // However, the booking ID must be unique. If pb has an ID, we can reuse it, or generate a new one. 
     // Since we want this to replace the provisional conceptually but become a real booking:
     const confirmedId = pb.provider_reservation_id || pb.ical_uid || crypto.randomUUID();
-    
+
     // 2. Map to Booking
     const booking: Booking = {
       id: confirmedId,
       provisional_id: null, // Clear this so it's not seen as provisional anymore
       property_id: 'prop_default', // Default, usually enriched later
       apartment_id: pb.apartment_id || pb.apartment_hint || 'apt_unknown',
-      traveler_id: pb.traveler_id || 'tvl_' + crypto.randomUUID().substring(0,8),
+      traveler_id: pb.traveler_id || 'tvl_' + crypto.randomUUID().substring(0, 8),
       check_in: pb.start_date || '',
       check_out: pb.end_date || '',
       status: 'confirmed', // Explicitly confirmed
@@ -4027,7 +4027,7 @@ export class SQLiteStore implements IDataStore {
     if ((pb.total_price || 0) > 0) {
       const projectId = localStorage.getItem('active_project_id') || 'proj_default';
       const movement: any = { // Use any to bypass strict type imports if AccountingMovement is complex, but we have enough standard fields
-        id: 'acc_' + crypto.randomUUID(),
+        id: `acc_${booking.id}`, // Deterministic ID based on the booking to prevent duplicates on retries
         project_id: projectId,
         property_id: 'prop_default',
         apartment_id: booking.apartment_id,
@@ -4047,7 +4047,7 @@ export class SQLiteStore implements IDataStore {
         source_event_type: 'WEB_CONFIRM',
         event_state: 'confirmed'
       };
-      
+
       try {
         await this.executeWithParams(
           `INSERT OR REPLACE INTO accounting_movements (
@@ -4071,7 +4071,7 @@ export class SQLiteStore implements IDataStore {
 
     // 5. Delete the old provisional booking by its original ID so it disappears
     await this.deleteProvisionalBooking(pb.id);
-    
+
     console.log(`[Store] Provisional booking ${pb.id} promoted successfully to ${booking.id}`);
   }
 

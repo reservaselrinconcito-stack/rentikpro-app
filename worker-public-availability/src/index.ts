@@ -380,7 +380,7 @@ export default {
             }
         }
 
-        if (method === 'GET' && path === '/public/availability') {
+        if (method === 'GET' && (path === '/public/availability' || path === '/availability')) {
             return handleGetAvailability(request, env);
         }
 

@@ -1,605 +1,126 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RentikPro — Demo</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
-        rel="stylesheet" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RentikPro</title>
 
-    <style>
-        :root {
-            --bg: #f3f4f6;
-            --surface: #ffffff;
-            --border: #e5e7eb;
-            --text-1: #111827;
-            --text-2: #4b5563;
-            --text-3: #9ca3af;
-            --primary: #4f46e5;
-            --primary-light: #e0e7ff;
-            --primary-dark: #3730a3;
-            --success: #10b981;
-            --success-bg: #d1fae5;
-            --warning: #f59e0b;
-            --warning-bg: #fef3c7;
-            --danger: #ef4444;
-            --danger-bg: #fee2e2;
-            --teal: #14b8a6;
-            --sidebar-bg: #111827;
-            --sidebar-text: #d1d5db;
-            --sidebar-hover: #1f2937;
-            --font-family: 'Plus Jakarta Sans', sans-serif;
-        }
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Load sql.js for SQLite support (local vendored for offline/desktop) -->
+  <script src="./vendor/sqljs/sql-wasm.js"></script>
 
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
+  <!-- PWA & Mobile Optimization (Block ICON) -->
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RentikPro">
+  <link rel="icon" href="./favicon.ico" type="image/x-icon">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="mask-icon" href="./mask-icon.svg" color="#0B1B2B">
 
-        body {
-            font-family: var(--font-family);
-            background-color: var(--bg);
-            color: var(--text-2);
-            display: flex;
-            height: 100vh;
-            overflow: hidden;
-        }
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
 
-        /* DEMO BANNER */
-        .demo-banner {
-            background: var(--warning-bg);
-            color: #92400e;
-            text-align: center;
-            padding: 8px 16px;
-            font-size: 13px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 8px;
-        }
+    .glass-morphism {
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+  </style>
 
-        .demo-banner svg {
-            width: 16px;
-            height: 16px;
-        }
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react-router-dom": "https://esm.sh/react-router-dom@^7.13.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.563.0",
+    "tesseract.js": "https://esm.sh/tesseract.js@^7.0.0"
+  }
+}
+</script>
+  <script type="module" crossorigin src="./assets/index-CBc31y2K.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/vendor-BoYDwSr8.js">
+  <link rel="modulepreload" crossorigin href="./assets/ui-B1krlBCa.js">
+  <link rel="stylesheet" crossorigin href="./assets/index-DFSVyesS.css">
+<link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
 
-        /* SIDEBAR */
-        .sidebar {
-            width: 260px;
-            background: var(--sidebar-bg);
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-        }
+<body class="bg-slate-50 text-slate-900">
+  <div id="root"></div>
 
-        .brand {
-            padding: 24px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: white;
-            font-weight: 700;
-            font-size: 20px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-        }
+  <!-- Fatal Error Overlay System (S2) -->
+  <script>
+    (function () {
+      function showFatalError(title, message, stack) {
+        const root = document.getElementById('root');
+        const overlayId = 'rentikpro-fatal-error';
+        if (document.getElementById(overlayId)) return;
 
-        .brand-logo {
-            width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            background: var(--teal);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+        const overlay = document.createElement('div');
+        overlay.id = overlayId;
+        overlay.style = 'position:fixed;top:0;left:0;width:100%;height:100%;background:#F8FAFC;z-index:999999;display:flex;align-items:center;justify-content:center;padding:24px;font-family:sans-serif;';
 
-        .nav-list {
-            padding: 16px 12px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            flex: 1;
-        }
+        const card = document.createElement('div');
+        card.className = 'glass-morphism';
+        card.style = 'background:white;padding:40px;border-radius:32px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.1);max-width:600px;width:100%;border:1px solid #fee2e2;';
 
-        .nav-item {
-            padding: 10px 16px;
-            border-radius: 8px;
-            color: var(--sidebar-text);
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            transition: all 0.2s;
-        }
-
-        .nav-item:hover,
-        .nav-item.active {
-            background: var(--sidebar-hover);
-            color: white;
-        }
-
-        .nav-item.active {
-            background: var(--primary);
-        }
-
-        /* MAIN CONTENT */
-        .main-wrapper {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-width: 0;
-        }
-
-        .header {
-            background: var(--surface);
-            height: 64px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 0 32px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .header-title {
-            font-size: 18px;
-            font-weight: 700;
-            color: var(--text-1);
-        }
-
-        .header-actions {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-
-        .btn {
-            padding: 8px 16px;
-            border-radius: 6px;
-            font-family: var(--font-family);
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            border: 1px solid transparent;
-            transition: all 0.2s;
-        }
-
-        .btn-outline {
-            background: var(--surface);
-            border-color: var(--border);
-            color: var(--text-2);
-        }
-
-        .btn-outline:hover {
-            background: var(--bg);
-            color: var(--text-1);
-        }
-
-        .btn-primary {
-            background: var(--primary);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            background: var(--primary-dark);
-        }
-
-        .content {
-            flex: 1;
-            overflow-y: auto;
-            padding: 32px;
-        }
-
-        /* DASHBOARD GRID */
-        .kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 24px;
-            margin-bottom: 32px;
-        }
-
-        .card {
-            background: var(--surface);
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            padding: 24px;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-        }
-
-        .kpi-label {
-            font-size: 13px;
-            color: var(--text-3);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
-        }
-
-        .kpi-value {
-            font-size: 28px;
-            font-weight: 800;
-            color: var(--text-1);
-            margin-bottom: 8px;
-        }
-
-        .kpi-trend {
-            font-size: 13px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-        }
-
-        .trend-up {
-            color: var(--success);
-        }
-
-        .trend-down {
-            color: var(--danger);
-        }
-
-        /* FILTERS */
-        .filters {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 16px;
-            align-items: center;
-        }
-
-        .filter-select {
-            padding: 8px 12px;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            font-family: inherit;
-            font-size: 13px;
-            color: var(--text-1);
-            background: var(--surface);
-            outline: none;
-        }
-
-        /* TABLE */
-        .table-container {
-            background: var(--surface);
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
-            overflow: hidden;
-        }
-
-        .table-header {
-            padding: 16px 24px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .table-title {
-            font-size: 16px;
-            font-weight: 700;
-            color: var(--text-1);
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            text-align: left;
-        }
-
-        th {
-            padding: 12px 24px;
-            background: #f9fafb;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-3);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        td {
-            padding: 16px 24px;
-            font-size: 14px;
-            border-bottom: 1px solid var(--border);
-            color: var(--text-2);
-        }
-
-        tr:last-child td {
-            border-bottom: none;
-        }
-
-        .td-primary {
-            color: var(--text-1);
-            font-weight: 600;
-        }
-
-        .badge {
-            padding: 4px 8px;
-            border-radius: 9999px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .badge-success {
-            background: var(--success-bg);
-            color: var(--success);
-        }
-
-        .badge-warning {
-            background: var(--warning-bg);
-            color: var(--warning);
-        }
-
-        .badge-danger {
-            background: var(--danger-bg);
-            color: var(--danger);
-        }
-    </style>
-</head>
-
-<body>
-
-    <div class="sidebar">
-        <div class="brand">
-            <div class="brand-logo">
-                <svg width="20" height="20" viewBox="0 0 200 200" fill="none">
-                    <path d="M100 25L40 75V155H160V75L100 25Z" stroke="white" stroke-width="20" stroke-linecap="round"
-                        stroke-linejoin="round" />
-                    <path d="M75 110L95 130L135 80" stroke="#93C5FD" stroke-width="20" stroke-linecap="round"
-                        stroke-linejoin="round" />
-                </svg>
+        card.innerHTML = `
+          <div style="width:64px;height:64px;background:#fee2e2;color:#ef4444;border-radius:20px;display:flex;align-items:center;justify-content:center;margin-bottom:24px;">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <h1 style="font-size:24px;font-weight:900;color:#1e293b;margin:0 0 8px 0;letter-spacing:-0.5px;">${title}</h1>
+          <p style="color:#64748b;font-size:14px;margin-bottom:24px;line-height:1.6;">Ha ocurrido un error crítico que impide iniciar la aplicación en este navegador.</p>
+          
+          <div style="background:#f1f5f9;padding:16px;border-radius:16px;margin-bottom:24px;border:1px solid #e2e8f0;overflow:hidden;">
+            <div style="font-size:10px;font-weight:900;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Detalles técnicos</div>
+            <div style="font-family:monospace;font-size:12px;color:#ef4444;word-break:break-all;max-height:150px;overflow-y:auto;">
+              <strong>${message}</strong>
+              <pre style="margin-top:8px;color:#64748b;white-space:pre-wrap;">${stack || 'No stack trace available'}</pre>
             </div>
-            RentikPro
-        </div>
-        <div class="nav-list">
-            <a href="#" class="nav-item active">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="3" width="7" height="7"></rect>
-                    <rect x="14" y="14" width="7" height="7"></rect>
-                    <rect x="3" y="14" width="7" height="7"></rect>
-                </svg>
-                Dashboard
-            </a>
-            <a href="#" class="nav-item">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                    <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                </svg>
-                Propiedades
-            </a>
-            <a href="#" class="nav-item">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                    <circle cx="9" cy="7" r="4"></circle>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                </svg>
-                Huéspedes
-            </a>
-            <a href="#" class="nav-item">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="2" y="5" width="20" height="14" rx="2"></rect>
-                    <line x1="2" y1="10" x2="22" y2="10"></line>
-                </svg>
-                Finanzas
-            </a>
-            <a href="#" class="nav-item">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="3"></circle>
-                    <path
-                        d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
-                    </path>
-                </svg>
-                Configuración
-            </a>
-        </div>
-    </div>
-
-    <div class="main-wrapper">
-        <div class="demo-banner">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="12" y1="8" x2="12" y2="12"></line>
-                <line x1="12" y1="16" x2="12.01" y2="16"></line>
-            </svg>
-            Estás en modo demo. Los datos son de ejemplo y no se guardarán los cambios.
-        </div>
-
-        <header class="header">
-            <div class="header-title">Resumen de Cartera</div>
-            <div class="header-actions">
-                <button class="btn btn-outline" onclick="alert('Demo: Función deshabilitada')">Exportar</button>
-                <button class="btn btn-primary" onclick="alert('Demo: Función deshabilitada')">+ Nueva Reserva</button>
+            <div style="font-size:10px;color:#94a3b8;margin-top:12px;padding-top:8px;border-top:1px solid #e2e8f0;">
+              UA: ${navigator.userAgent}
             </div>
-        </header>
+          </div>
 
-        <div class="content">
-            <div class="filters">
-                <select class="filter-select">
-                    <option>Todas las propiedades (12)</option>
-                    <option>Villa Marina</option>
-                    <option>Apartamento Centro</option>
-                </select>
-                <select class="filter-select">
-                    <option>Últimos 30 días</option>
-                    <option>Este mes</option>
-                    <option>Este trimestre</option>
-                </select>
-            </div>
-
-            <div class="kpi-grid">
-                <div class="card">
-                    <div class="kpi-label">Ingresos Mensuales</div>
-                    <div class="kpi-value" id="kpi-revenue">€0</div>
-                    <div class="kpi-trend trend-up">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
-                            <polyline points="17 6 23 6 23 12"></polyline>
-                        </svg>
-                        +12.5% vs. anterior
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="kpi-label">Ocupación Media</div>
-                    <div class="kpi-value" id="kpi-occupancy">0%</div>
-                    <div class="kpi-trend trend-up">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
-                            <polyline points="17 6 23 6 23 12"></polyline>
-                        </svg>
-                        +4.2% vs. anterior
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="kpi-label">Reservas Nuevas</div>
-                    <div class="kpi-value" id="kpi-bookings">0</div>
-                    <div class="kpi-trend trend-down">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"></polyline>
-                            <polyline points="17 18 23 18 23 12"></polyline>
-                        </svg>
-                        -2.1% vs. anterior
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="kpi-label">RevPAR</div>
-                    <div class="kpi-value" id="kpi-revpar">€0</div>
-                    <div class="kpi-trend trend-up">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                            stroke-width="2">
-                            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
-                            <polyline points="17 6 23 6 23 12"></polyline>
-                        </svg>
-                        +8.4% vs. anterior
-                    </div>
-                </div>
-            </div>
-
-            <div class="table-container">
-                <div class="table-header">
-                    <div class="table-title">Actividad Reciente</div>
-                    <button class="btn btn-outline" style="padding: 6px 12px">Ver todas</button>
-                </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Referencia</th>
-                            <th>Propiedad</th>
-                            <th>Huésped</th>
-                            <th>Fechas</th>
-                            <th>Estado</th>
-                            <th>Total</th>
-                        </tr>
-                    </thead>
-                    <tbody id="table-body">
-                        <!-- Data populated via JS -->
-                    </tbody>
-                </table>
-            </div>
-            <br>
-            <br>
-        </div>
-    </div>
-
-    <script>
-        // Configuración Determinística para la Demo (Seed fija)
-        function seededRandom(seed) {
-            let m_w = seed;
-            let m_z = 987654321;
-            let mask = 0xffffffff;
-            return function () {
-                m_z = (36969 * (m_z & 65535) + (m_z >> 16)) & mask;
-                m_w = (18000 * (m_w & 65535) + (m_w >> 16)) & mask;
-                let result = ((m_z << 16) + m_w) & mask;
-                result /= 4294967296;
-                return result + 0.5;
-            }
-        }
-
-        const rng = seededRandom(402); // Seed "RentikPro"
-        const randomItem = (arr) => arr[Math.floor(rng() * arr.length)];
-        const randomInt = (min, max) => Math.floor(rng() * (max - min + 1)) + min;
-
-        const PROPERTIES = ["Villa Marina", "Ático Centro Histórico", "Chalet Las Dunas", "Apartamento Sol", "Casa Rural Olivos", "Loft Moderno"];
-        const GUEST_NAMES = ["Carlos M.", "Elena G.", "Thomas W.", "Sophie L.", "Marta V.", "Antonio R.", "Laura C.", "David J."];
-        const STATUSES = [
-            { id: "confirmed", label: "Confirmada", class: "badge-success" },
-            { id: "pending", label: "Pendiente", class: "badge-warning" },
-            { id: "cancelled", label: "Cancelada", class: "badge-danger" }
-        ];
-
-        function generateMockData() {
-            // 1. Generate KPIs
-            const revenue = (rng() * 30000 + 10000).toLocaleString('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-            const occupancy = (rng() * 40 + 50).toFixed(1);
-            const bookings = Math.floor(rng() * 100 + 30);
-            const revpar = (rng() * 50 + 60).toFixed(2);
-
-            document.getElementById('kpi-revenue').textContent = `€${revenue}`;
-            document.getElementById('kpi-occupancy').textContent = `${occupancy}%`;
-            document.getElementById('kpi-bookings').textContent = bookings;
-            document.getElementById('kpi-revpar').textContent = `€${revpar}`;
-
-            // 2. Generate Table Rows
-            const tbody = document.getElementById('table-body');
-            tbody.innerHTML = '';
-
-            const numRows = 7;
-            for (let i = 0; i < numRows; i++) {
-                const ref = `R-${randomInt(10000, 99999)}`;
-                const prop = randomItem(PROPERTIES);
-                const guest = randomItem(GUEST_NAMES);
-                const nights = randomInt(2, 14);
-
-                let d = new Date();
-                d.setDate(d.getDate() + randomInt(-5, 15));
-
-                const start = d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
-                d.setDate(d.getDate() + nights);
-                const end = d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
-
-                const dates = `${start} - ${end}`;
-
-                const status = randomItem(STATUSES);
-
-                // bias towards confirmed
-                const finalStatus = rng() > 0.3 ? STATUSES[0] : status;
-
-                const total = `€${(nights * randomInt(50, 250)).toLocaleString('es-ES')}`;
-
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-          <td><span style="font-family: monospace; color: var(--text-3)">${ref}</span></td>
-          <td class="td-primary">${prop}</td>
-          <td>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <div style="width: 24px; height: 24px; background: var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--text-2);">
-                ${guest.substring(0, 2).toUpperCase()}
-              </div>
-              ${guest}
-            </div>
-          </td>
-          <td>${dates} <span style="color: var(--text-3); font-size: 12px; margin-left: 4px;">(${nights}n)</span></td>
-          <td><span class="badge ${finalStatus.class}">${finalStatus.label}</span></td>
-          <td class="td-primary">${total}</td>
+          <div style="display:grid;grid-template-cols:1fr 1fr;gap:12px;">
+            <button onclick="window.location.reload()" style="background:#4f46e5;color:white;border:none;padding:14px;border-radius:16px;font-weight:700;cursor:pointer;font-size:14px;">Recargar</button>
+            <button onclick="window.emergencyReset()" style="background:white;color:#64748b;border:1px solid #e2e8f0;padding:14px;border-radius:16px;font-weight:700;cursor:pointer;font-size:14px;">Reset Local</button>
+          </div>
         `;
-                tbody.appendChild(tr);
-            }
-        }
 
-        // Initialize mock data on load
-        document.addEventListener("DOMContentLoaded", generateMockData);
-    </script>
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+      }
+
+      window.emergencyReset = function () {
+        if (confirm('¿Deseas limpiar la sesión local? Esto no borrará tus datos permanentes, solo el ID del proyecto activo.')) {
+          localStorage.removeItem('active_project_id');
+          localStorage.removeItem('active_project_mode');
+          window.location.reload();
+        }
+      };
+
+      window.onerror = function (msg, url, lineNo, columnNo, error) {
+        showFatalError('Error de Carga', msg, error?.stack);
+        return false;
+      };
+
+      window.onunhandledrejection = function (event) {
+        showFatalError('Error asíncrono', event.reason?.message || 'Promesa rechazada', event.reason?.stack);
+      };
+
+      console.log("[Bootstrap] Error Monitor Active");
+    })();
+  </script>
+
 </body>
 
 </html>

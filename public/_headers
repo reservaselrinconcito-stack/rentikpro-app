@@ -8,3 +8,7 @@
   Cache-Control: no-cache
 /*.wasm
   Content-Type: application/wasm
+/downloads/rentikpro/mac/RentikPro.dmg
+  Content-Type: application/x-apple-diskimage
+  Content-Disposition: attachment; filename="RentikPro.dmg"
+  Cache-Control: public, max-age=3600
