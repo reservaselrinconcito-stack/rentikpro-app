@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, User, CreditCard, Info, CheckCircle, Home, AlertTriangle, Link as LinkIcon, Trash2, Edit2 } from 'lucide-react';
-import { ProvisionalBooking, Apartment, Booking, Property, Traveler } from '../types';
+import { ProvisionalBooking, Apartment, Booking, Property, Traveler, CalendarEvent } from '../types';
 import { projectManager } from '../services/projectManager';
 
 interface Props {
@@ -38,6 +38,8 @@ export const ProvisionalDetailModal: React.FC<Props> = ({
 
     const [overlappingBooking, setOverlappingBooking] = useState<Booking | null>(null);
     const [isCheckingOverlap, setIsCheckingOverlap] = useState(false);
+    const [rawEvent, setRawEvent] = useState<CalendarEvent | null>(null);
+    const [showDiagnostics, setShowDiagnostics] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
@@ -52,8 +54,30 @@ export const ProvisionalDetailModal: React.FC<Props> = ({
                 notes: provisional.notes || ''
             });
             checkOverlap();
+            loadRawEvent();
         }
     }, [isOpen, provisional]);
+
+    const loadRawEvent = async () => {
+        if (!provisional.ical_uid && !provisional.provider_reservation_id) return;
+        try {
+            const store = projectManager.getStore();
+            let events: CalendarEvent[] = [];
+            if (provisional.connection_id) {
+                events = await store.getCalendarEvents(provisional.connection_id);
+            } else {
+                events = await store.getCalendarEvents();
+            }
+            const match = events.find(e =>
+                (provisional.ical_uid && e.ical_uid === provisional.ical_uid) ||
+                (provisional.provider_reservation_id && e.external_uid === provisional.provider_reservation_id)
+            );
+            setRawEvent(match || null);
+        } catch (e) {
+            console.error("Failed to load raw event", e);
+        }
+    };
+
 
     const checkOverlap = async () => {
         if (!formData.start_date || !formData.end_date || !formData.apartment_id) return;
@@ -221,7 +245,14 @@ export const ProvisionalDetailModal: React.FC<Props> = ({
                             )}
                         </div>
 
-                        <div className="pt-4 border-t border-slate-200">
+                        <div className="pt-4 border-t border-slate-200 space-y-3">
+                            <button
+                                onClick={() => setShowDiagnostics(!showDiagnostics)}
+                                className="w-full flex items-center justify-center gap-2 p-3 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors font-bold text-xs border border-indigo-100"
+                            >
+                                <Info className="w-4 h-4" />
+                                {showDiagnostics ? 'Ocultar Diagnóstico iCal' : 'Ver Diagnóstico iCal'}
+                            </button>
                             <button
                                 onClick={handleDelete}
                                 className="w-full flex items-center justify-center gap-2 p-3 text-rose-600 hover:bg-rose-50 rounded-xl transition-colors font-bold text-xs"

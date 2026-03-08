@@ -3933,7 +3933,7 @@ export class SQLiteStore implements IDataStore {
           updated_at: b.created_at,
           start_date: b.check_in,
           end_date: b.check_out,
-          guest_name: b.guest_name || 'Guest',
+          guest_name: b.guest_name || (b.event_kind === 'BLOCK' || b.status === 'blocked' ? 'Bloqueo OTA' : 'Reserva sin datos'),
           pax_adults: b.guests || 1,
           total_price: b.total_price || 0,
           currency: 'EUR',
@@ -3991,7 +3991,14 @@ export class SQLiteStore implements IDataStore {
     // We prefer the deduplication keys if they exist, to prevent duplicated bookings.
     // However, the booking ID must be unique. If pb has an ID, we can reuse it, or generate a new one. 
     // Since we want this to replace the provisional conceptually but become a real booking:
-    const confirmedId = pb.provider_reservation_id || pb.ical_uid || crypto.randomUUID();
+
+    // Prevent reuse of synthetic IMP-* UIDs as real booking IDs
+    let safeIcalUid = pb.ical_uid;
+    if (safeIcalUid && safeIcalUid.trim().toUpperCase().startsWith('IMP-')) {
+      safeIcalUid = undefined;
+    }
+
+    const confirmedId = pb.provider_reservation_id || safeIcalUid || `bkg_${pb.id}`;
 
     // 2. Map to Booking
     const booking: Booking = {

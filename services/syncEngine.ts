@@ -5,7 +5,7 @@ import { getChannelPriority } from './priorityMap';
 import { notifyDataChanged } from './dataRefresher';
 import { networkMonitor } from './networkMonitor';
 import { getAdapter } from './channelAdapters/factory';
-import { isConfirmedBooking, isProvisionalBlock } from '../utils/bookingClassification';
+import { isConfirmedBooking, isProvisionalBlock, isPlaceholderGuestName } from '../utils/bookingClassification';
 import { ensureValidStay } from '../utils/dateLogic';
 
 // PROXY ROTATION LOGIC
@@ -49,7 +49,7 @@ const extractBookingDetails = (summary: string = '', description: string = '') =
   guestName = guestName.replace(/\(Airbnb\)|\(Booking\.com\)|\(Vrbo\)|\(Expedia\)/gi, '').trim();
 
   // If empty or generic, return null to trigger manual block logic
-  if (!guestName || guestName.length < 3 || /^\d+$/.test(guestName)) {
+  if (!guestName || guestName.length < 3 || /^\d+$/.test(guestName) || isPlaceholderGuestName(guestName)) {
     guestName = '';
   }
 
