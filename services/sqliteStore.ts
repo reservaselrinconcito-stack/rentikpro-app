@@ -423,13 +423,14 @@ export class SQLiteStore implements IDataStore {
     to: string,
     opts?: { propertyId?: string; includeCancelled?: boolean; excludeDeleted?: boolean }
   ): Promise<Booking[]> {
+    const projectId = localStorage.getItem('active_project_id');
     const includeCancelled = !!opts?.includeCancelled;
     const propertyId = opts?.propertyId;
     const excludeDeleted = opts?.excludeDeleted !== false;
 
     // Overlap: check_in < to AND check_out > from
-    let sql = 'SELECT * FROM bookings WHERE 1=1';
-    const params: any[] = [];
+    let sql = 'SELECT * FROM bookings WHERE (project_id = ? OR project_id IS NULL)';
+    const params: any[] = [projectId];
 
     if (propertyId) {
       sql += ' AND property_id = ?';
@@ -3221,9 +3222,11 @@ export class SQLiteStore implements IDataStore {
     const eitherGuestMissing = !guestA || !guestB;
     const amountCompatible = !(a.total_price || 0) || !(b.total_price || 0) || Number(a.total_price) === Number(b.total_price);
     const bothBlockLike = this.isBlockLikeBooking(a) && this.isBlockLikeBooking(b);
+    const oneBlockOneBooking = this.isBlockLikeBooking(a) !== this.isBlockLikeBooking(b);
     const eitherPlaceholder = this.isBlockLikeBooking(a) || this.isBlockLikeBooking(b) || !!a.provisional_id || !!b.provisional_id;
 
     if (bothBlockLike) return true;
+    if (oneBlockOneBooking) return true;
     if (amountCompatible && (sameGuest || eitherGuestMissing) && eitherPlaceholder) return true;
     if (amountCompatible && sameGuest) return true;
 
@@ -4065,7 +4068,11 @@ export class SQLiteStore implements IDataStore {
       // Logic based approach as requested: fetch bookings and filter in memory
       const allBookings = await this.query(`SELECT * FROM bookings ORDER BY created_at DESC`);
 
-      const provisionals = allBookings.filter(b => isProvisionalBlock(b) || isProvisionalBooking(b));
+      const provisionals = allBookings.filter(b => {
+        const hasWorkflowMarker = !!b.provisional_id || !!b.policy_snapshot || b.status === 'pending' || b.event_state === 'provisional';
+        const isPureIcalBlock = b.event_origin === 'ical' && isProvisionalBlock(b) && !b.provisional_id && !b.policy_snapshot;
+        return hasWorkflowMarker && !isPureIcalBlock;
+      });
 
       return provisionals.map((b: any) => {
         if (b.policy_snapshot) {

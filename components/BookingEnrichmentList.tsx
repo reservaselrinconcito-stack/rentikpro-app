@@ -41,7 +41,12 @@ export const BookingEnrichmentList: React.FC<BookingEnrichmentListProps> = ({ on
             const props = await store.getProperties();
             const travs = await store.getTravelers();
 
-            setProvisionals(bookings.filter(b => b.status === 'CONFIRMED' || b.status === 'CANCELLED' || b.status === 'PENDING_DETAILS' || b.status === 'INQUIRY'));
+            setProvisionals(bookings.filter(b =>
+                b.status === 'PENDING_DETAILS' ||
+                b.status === 'INQUIRY' ||
+                b.status === 'HOLD' ||
+                b.status === 'PENDING_CONFIRMATION'
+            ));
             setApartments(apts);
             setProperties(props);
             setTravelers(travs);
@@ -296,4 +301,3 @@ export const BookingEnrichmentList: React.FC<BookingEnrichmentListProps> = ({ on
         </div>
     );
 };
-

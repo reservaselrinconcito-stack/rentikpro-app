@@ -424,6 +424,34 @@ export class ProjectManager {
     localStorage.setItem('active_project_mode', mode);
   }
 
+  private async inferActiveDataProjectId(preferredId?: string | null): Promise<string> {
+    const candidateScores = new Map<string, number>();
+    const syntheticPrefixes = ['proj_imp_', 'proj_file_', 'proj_restored_'];
+    const scoreRow = (projectId: unknown, count: unknown) => {
+      const id = typeof projectId === 'string' ? projectId.trim() : '';
+      const weight = Number(count) || 0;
+      if (!id || weight <= 0) return;
+      const penalty = syntheticPrefixes.some(prefix => id.startsWith(prefix)) ? 0.2 : 1;
+      candidateScores.set(id, (candidateScores.get(id) || 0) + (weight * penalty));
+    };
+
+    const tables = ['bookings', 'accounting_movements', 'calendar_events'];
+    for (const table of tables) {
+      try {
+        const rows = await this.store.query(
+          `SELECT project_id, COUNT(*) AS c FROM ${table} WHERE project_id IS NOT NULL AND project_id != '' GROUP BY project_id`
+        );
+        rows.forEach((row: any) => scoreRow(row.project_id, row.c));
+      } catch (e) {
+        logger.warn(`[ProjectManager] Could not infer project scope from ${table}`, e);
+      }
+    }
+
+    const ranked = Array.from(candidateScores.entries()).sort((a, b) => b[1] - a[1]);
+    if (preferredId && candidateScores.has(preferredId)) return preferredId;
+    return ranked[0]?.[0] || preferredId || 'workspace';
+  }
+
   private ensureActiveProjectContext() {
     if (!this.currentProjectId) {
       const id = `proj_restored_${Date.now()}`;
@@ -664,8 +692,10 @@ export class ProjectManager {
       const id = `proj_imp_${Date.now()}`;
       this.currentProjectId = id;
       this.currentProjectMode = 'real';
+      const activeDataProjectId = await this.inferActiveDataProjectId(id);
+      this.setActiveContext(activeDataProjectId, 'real');
+      await this.store.sanitizeCanonicalState().catch(e => logger.warn('[ProjectManager] Canonical sanitize failed after importProjectFromFile', e));
       await this.persistCurrentProject(file.name.replace('.sqlite', ''));
-      this.setActiveContext(id, 'real');
       this.startAutoSave();
       notifyDataChanged();
     }
@@ -958,11 +988,17 @@ export class ProjectManager {
     this.currentProjectMode = mode;
     this.lastSyncedAt = Date.now();
 
+    const activeDataProjectId = setAsActive
+      ? projectId
+      : await this.inferActiveDataProjectId(projectId);
+
     const counts = await this.store.getCounts();
     this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
 
     if (setAsActive) {
       this.setActiveContext(projectId, mode);
+    } else {
+      this.setActiveContext(activeDataProjectId, mode);
     }
     if (persistToIdb) {
       try {
@@ -980,6 +1016,8 @@ export class ProjectManager {
         this.autoSaveInterval = null;
       }
     }
+
+    await this.store.sanitizeCanonicalState().catch(e => logger.warn('[ProjectManager] Canonical sanitize failed after loadProjectFromSqliteBytes', e));
 
     notifyDataChanged('all');
   }
