@@ -254,6 +254,7 @@ const CalendarContent: React.FC = () => {
         created_at: Date.now()
       };
 
+      console.info(`[CalendarUI] create booking apartment=${newBookingData.apartmentId} check_in=${newBooking.check_in} check_out=${newBooking.check_out} total=${newBooking.total_price}`);
       await store.saveBooking(newBooking);
       await projectManager.saveProject();
       setIsCreateModalOpen(false);
@@ -979,6 +980,7 @@ const CalendarContent: React.FC = () => {
             <div className="mt-8 flex gap-3">
               <button
                 onClick={() => {
+                  console.info(`[CalendarUI] manage booking=${viewingBooking.id} kind=${viewingBooking.event_kind || 'BOOKING'} origin=${viewingBooking.event_origin || 'manual'}`);
                   if (viewingBooking.id && !viewingBooking.id.startsWith('evt-')) {
                     navigate(`/bookings/${viewingBooking.id}`);
                   } else {
@@ -994,20 +996,34 @@ const CalendarContent: React.FC = () => {
               </button>
             </div>
 
-            {(viewingBooking.event_kind === 'BLOCK' || viewingBooking.event_origin === 'ical' || !viewingBooking.external_ref) ? (
-              <button onClick={async () => {
-                const label = viewingBooking.event_kind === 'BLOCK' ? 'este bloqueo OTA' : 'esta reserva';
-                if (confirm(`¿Eliminar ${label} del calendario? Solo se eliminará localmente, no en la OTA.`)) {
+            {viewingBooking.conflict_detected && (
+              <button
+                onClick={async () => {
                   const store = projectManager.getStore();
-                  await store.deleteBooking(viewingBooking.id);
-                  if (viewingBooking.linked_event_id) {
-                    await store.executeWithParams('DELETE FROM calendar_events WHERE id = ?', [viewingBooking.linked_event_id]).catch(() => { });
-                  }
-                  await store.executeWithParams('DELETE FROM calendar_events WHERE connection_id = ? AND external_uid = ?', [viewingBooking.connection_id, viewingBooking.external_ref]).catch(() => { });
+                  const result = await store.consolidateCalendarDuplicates(viewingBooking.id);
+                  console.info(`[CalendarUI] resolve duplicate booking=${viewingBooking.id} canonical=${result.canonicalId} removed=${result.removedIds.join(',')}`);
                   await projectManager.saveProject();
                   setIsViewModalOpen(false);
                   loadData();
-                  notifyDataChanged();
+                  notifyDataChanged('all');
+                }}
+                className="w-full mt-4 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
+              >
+                <ShieldCheck size={18} /> Resolver Duplicado
+              </button>
+            )}
+
+            {(viewingBooking.event_kind === 'BLOCK' || viewingBooking.event_origin === 'ical' || !viewingBooking.external_ref) ? (
+              <button onClick={async () => {
+                const label = viewingBooking.event_kind === 'BLOCK' ? 'este bloqueo OTA' : 'esta reserva';
+                if (confirm(`¿Eliminar ${label} del calendario? Quedará resuelto en la capa canónica local y no debe reaparecer tras resync.`)) {
+                  const store = projectManager.getStore();
+                  console.info(`[CalendarUI] dismiss booking=${viewingBooking.id} kind=${viewingBooking.event_kind || 'BOOKING'} origin=${viewingBooking.event_origin || 'manual'}`);
+                  await store.dismissCalendarBooking(viewingBooking.id);
+                  await projectManager.saveProject();
+                  setIsViewModalOpen(false);
+                  loadData();
+                  notifyDataChanged('all');
                 }
               }} className={`w-full mt-8 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors ${viewingBooking.event_kind === 'BLOCK' ? 'bg-orange-50 text-orange-500 hover:bg-orange-100' : 'bg-rose-50 text-rose-500 hover:bg-rose-100'}`}>
                 <Trash2 size={18} /> {viewingBooking.event_kind === 'BLOCK' ? 'Eliminar Bloqueo OTA' : 'Eliminar Reserva'}

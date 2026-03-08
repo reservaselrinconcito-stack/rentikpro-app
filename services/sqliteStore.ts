@@ -1978,6 +1978,8 @@ export class SQLiteStore implements IDataStore {
       await this.saveMovement(stayMov);
     }
 
+    await this.ensureCanonicalAccountingFromBooking(b, reservationMovements);
+
     if (b.status === 'confirmed') {
       const traveler = b.traveler_id ? await this.getTravelerById(b.traveler_id) : null;
       const travelerName = traveler ? `${traveler.nombre} ${traveler.apellidos || ''}`.trim() : b.guest_name || 'Huésped';
@@ -2064,6 +2066,10 @@ export class SQLiteStore implements IDataStore {
 
   async deleteBooking(id: string): Promise<void> {
     const booking = await this.getBooking(id);
+    await this.executeWithParams("DELETE FROM accounting_movements WHERE reservation_id = ?", [id]);
+    if (booking?.external_ref) {
+      await this.executeWithParams("DELETE FROM accounting_movements WHERE reservation_id = ?", [booking.external_ref]);
+    }
     await this.executeWithParams("DELETE FROM bookings WHERE id = ?", [id]);
     if (booking?.apartment_id) {
       window.dispatchEvent(new CustomEvent('rentikpro:ical-auto-publish', {
@@ -3105,6 +3111,100 @@ export class SQLiteStore implements IDataStore {
     );
   }
 
+  private async resolvePropertyIdForApartment(apartmentId?: string | null, fallback: string = 'prop_default'): Promise<string> {
+    if (!apartmentId) return fallback;
+    try {
+      const propRows = await this.query("SELECT property_id FROM apartments WHERE id = ? LIMIT 1", [apartmentId]);
+      return propRows[0]?.property_id || fallback;
+    } catch (e) {
+      console.warn("[Store] Could not resolve property_id for apartment", e);
+      return fallback;
+    }
+  }
+
+  private getEquivalentBookingRows(rows: any[], target: Partial<Booking>): any[] {
+    const normalizedTargetGuest = (target.guest_name || '').trim().toLowerCase();
+    return rows.filter((row: any) => {
+      const normalizedGuest = (row.guest_name || '').trim().toLowerCase();
+      const guestCompatible = !normalizedTargetGuest || !normalizedGuest || normalizedGuest === normalizedTargetGuest;
+      const amountCompatible = !(target.total_price || 0) || !(row.total_price || 0) || Number(row.total_price) === Number(target.total_price);
+      return guestCompatible && amountCompatible;
+    });
+  }
+
+  private async markBookingCancelledFromCalendar(booking: Booking, reason: string): Promise<void> {
+    let fieldSources: Record<string, string> = {};
+    if (this.schemaFlags.bookings_field_sources) {
+      try {
+        fieldSources = booking.field_sources ? JSON.parse(booking.field_sources) : {};
+      } catch (e) {
+        fieldSources = {};
+      }
+      fieldSources.status = 'MANUAL';
+      booking.field_sources = JSON.stringify(fieldSources);
+    }
+
+    booking.status = 'cancelled';
+    booking.conflict_detected = false;
+    booking.updated_at = Date.now();
+    booking.payment_notes = [booking.payment_notes, `[CALENDAR] ${reason}`].filter(Boolean).join(' | ');
+
+    console.info(`[CalendarDomain] cancelling booking=${booking.id} source=${booking.source} external_ref=${booking.external_ref || 'none'} reason=${reason}`);
+    await this.saveBooking(booking);
+  }
+
+  private async ensureCanonicalAccountingFromBooking(b: Booking, reservationMovements: AccountingMovement[]): Promise<void> {
+    const baseMovement = reservationMovements.find(m =>
+      m.source_event_type === 'STAY_RESERVATION' && (!m.payment_id || m.import_hash === `base_booking_${b.id}`)
+    );
+
+    const shouldHaveBaseMovement = b.status === 'confirmed' && (b.total_price || 0) > 0 && (b.event_kind || 'BOOKING') !== 'BLOCK';
+    if (!shouldHaveBaseMovement) {
+      if (baseMovement) {
+        await this.deleteMovement(baseMovement.id);
+      }
+      return;
+    }
+
+    const movement: AccountingMovement = {
+      id: baseMovement?.id || `base_${b.id}`,
+      date: b.check_in || new Date().toISOString().split('T')[0],
+      type: 'income',
+      category: 'RENTAL',
+      concept: b.guest_name || b.summary || 'Reserva',
+      apartment_id: b.apartment_id || null,
+      reservation_id: b.id,
+      traveler_id: b.traveler_id || null,
+      platform: b.source || 'manual',
+      supplier: null,
+      amount_gross: b.total_price || 0,
+      commission: 0,
+      vat: 0,
+      amount_net: b.total_price || 0,
+      payment_method: baseMovement?.payment_method || 'TRANSFER',
+      accounting_bucket: baseMovement?.accounting_bucket || 'A',
+      import_hash: `base_booking_${b.id}`,
+      created_at: baseMovement?.created_at || Date.now(),
+      updated_at: Date.now(),
+      project_id: b.project_id || localStorage.getItem('active_project_id') || undefined,
+      property_id: b.property_id || null,
+      check_in: b.check_in,
+      check_out: b.check_out,
+      guests: b.guests,
+      pax_adults: b.pax_adults || b.guests,
+      pax_children: b.pax_children,
+      source_event_type: 'STAY_RESERVATION',
+      event_state: b.event_state === 'provisional' ? 'provisional' : 'confirmed',
+      ical_uid: b.ical_uid,
+      connection_id: b.connection_id,
+      raw_summary: b.raw_summary,
+      raw_description: b.raw_description
+    };
+
+    console.info(`[AccountingDomain] upsert base stay movement booking=${b.id} property=${movement.property_id || 'infer'} apartment=${movement.apartment_id || 'none'} amount=${movement.amount_gross}`);
+    await this.saveMovement(movement);
+  }
+
   async softDeletePayment(id: string): Promise<void> {
     const now = Date.now();
     await this.ensureInitialized();
@@ -4005,15 +4105,7 @@ export class SQLiteStore implements IDataStore {
     }
 
     const requestedId = pb.provider_reservation_id || safeIcalUid || `bkg_${pb.id}`;
-    let propertyId = 'prop_default';
-    if (pb.apartment_id) {
-      try {
-        const propRows = await this.query("SELECT property_id FROM apartments WHERE id = ? LIMIT 1", [pb.apartment_id]);
-        if (propRows[0]?.property_id) propertyId = propRows[0].property_id;
-      } catch (e) {
-        console.warn("[Store] Could not resolve property_id for provisional", e);
-      }
-    }
+    let propertyId = await this.resolvePropertyIdForApartment(pb.apartment_id, 'prop_default');
 
     const normalizedPbGuest = (pb.guest_name || '').trim().toLowerCase();
     const requestedSource = pb.source === 'ICAL' ? 'ICAL' : (pb.provider === 'DIRECT_WEB' ? 'DIRECT_WEB' : `EMAIL_TRIGGER (${pb.provider})`);
@@ -4178,6 +4270,90 @@ export class SQLiteStore implements IDataStore {
         [id]
       );
     }
+  }
+
+  async dismissCalendarBooking(id: string): Promise<void> {
+    const booking = await this.getBooking(id);
+    if (!booking) return;
+
+    console.info(`[CalendarDomain] dismiss booking=${booking.id} kind=${booking.event_kind || 'BOOKING'} origin=${booking.event_origin || 'manual'} source=${booking.source}`);
+
+    const isSyncedOta = booking.event_origin === 'ical' || booking.event_kind === 'BLOCK' || !!booking.external_ref;
+    if (isSyncedOta) {
+      await this.markBookingCancelledFromCalendar(booking, 'dismissed_from_calendar');
+      return;
+    }
+
+    await this.deleteBooking(id);
+  }
+
+  async consolidateCalendarDuplicates(id: string): Promise<{ canonicalId: string; removedIds: string[] }> {
+    const booking = await this.getBooking(id);
+    if (!booking) throw new Error(`Booking ${id} not found`);
+
+    const rows = await this.query(
+      `SELECT * FROM bookings
+       WHERE apartment_id = ?
+         AND check_in = ?
+         AND check_out = ?
+         AND status != 'cancelled'`,
+      [booking.apartment_id, booking.check_in, booking.check_out]
+    );
+
+    const equivalentBookings = this.getEquivalentBookingRows(rows, booking);
+    if (equivalentBookings.length <= 1) {
+      return { canonicalId: booking.id, removedIds: [] };
+    }
+
+    let canonicalBooking: any = null;
+    for (const candidate of equivalentBookings) {
+      const movementRows = await this.query(
+        "SELECT id FROM accounting_movements WHERE reservation_id = ? LIMIT 1",
+        [candidate.id]
+      );
+      if (candidate.status === 'confirmed' && movementRows.length > 0) {
+        canonicalBooking = candidate;
+        break;
+      }
+    }
+
+    if (!canonicalBooking) {
+      canonicalBooking = equivalentBookings.find((candidate: any) => candidate.status === 'confirmed' && candidate.event_origin !== 'ical')
+        || equivalentBookings.find((candidate: any) => candidate.status === 'confirmed')
+        || equivalentBookings[0];
+    }
+
+    const canonicalPropertyId = await this.resolvePropertyIdForApartment(canonicalBooking.apartment_id, canonicalBooking.property_id || 'prop_default');
+    const canonical: Booking = {
+      ...canonicalBooking,
+      property_id: canonicalPropertyId,
+      provisional_id: null,
+      event_state: canonicalBooking.status === 'confirmed' ? 'confirmed' : (canonicalBooking.event_state || 'confirmed'),
+      conflict_detected: false,
+      updated_at: Date.now()
+    };
+
+    console.info(`[CalendarDomain] consolidate duplicates canonical=${canonical.id} duplicates=${equivalentBookings.map((r: any) => r.id).join(',')}`);
+    await this.saveBooking(canonical);
+
+    const removedIds: string[] = [];
+    for (const duplicate of equivalentBookings) {
+      if (duplicate.id === canonical.id) continue;
+
+      const duplicateBooking = await this.getBooking(duplicate.id);
+      if (!duplicateBooking) continue;
+
+      if (duplicateBooking.event_origin === 'ical' || duplicateBooking.event_kind === 'BLOCK' || duplicateBooking.external_ref) {
+        await this.markBookingCancelledFromCalendar(duplicateBooking, `consolidated_into_${canonical.id}`);
+      } else {
+        await this.executeWithParams("DELETE FROM accounting_movements WHERE reservation_id = ?", [duplicateBooking.id]);
+        await this.deleteBooking(duplicateBooking.id);
+      }
+
+      removedIds.push(duplicateBooking.id);
+    }
+
+    return { canonicalId: canonical.id, removedIds };
   }
 
   private async ensureEmailIngestTables() {

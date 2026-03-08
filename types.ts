@@ -1124,6 +1124,8 @@ export interface IDataStore {
   getProvisionalBookings(): Promise<ProvisionalBooking[]>;
   saveProvisionalBooking(pb: ProvisionalBooking): Promise<void>;
   deleteProvisionalBooking(id: string): Promise<void>;
+  dismissCalendarBooking(id: string): Promise<void>;
+  consolidateCalendarDuplicates(id: string): Promise<{ canonicalId: string; removedIds: string[] }>;
   loadPropertySnapshot(propertyId: string): Promise<PropertySnapshot>;
 
   // Pricing Studio
