@@ -115,8 +115,8 @@ export const ProvisionalDetailModal: React.FC<Props> = ({
             updated_at: Date.now()
         };
 
-        // saveProvisionalBooking logic already handles promotion to confirmed Booking
-        await store.saveProvisionalBooking(updatedPb);
+        // promoteProvisionalBooking explicitly handles conversion, sync, and old removal.
+        await store.promoteProvisionalBooking(updatedPb);
         onConverted();
         onClose();
     };

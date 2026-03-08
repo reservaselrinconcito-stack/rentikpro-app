@@ -1,7 +1,7 @@
 {
   "name": "rentikpro",
   "private": true,
-  "version": "2.1.55",
+  "version": "2.1.56",
   "type": "module",
   "scripts": {
     "dev:web": "vite",
@@ -13,6 +13,7 @@
     "sync:tauri-version": "node scripts/sync-tauri-version.js",
     "dev": "npm run prepare:sqljs && vite",
     "build": "npm run prepare:sqljs && node scripts/generate-version.js && vite build",
+    "postbuild": "node scripts/copy-landing-to-root.mjs",
     "build:demo": "cross-env VITE_DEMO=1 VITE_BASE=/rentikpro/demo/ npm run build -- --outDir dist-demo",
     "preview": "vite preview",
     "preview:demo": "cross-env VITE_DEMO=1 VITE_BASE=/rentikpro/demo/ vite preview --port 4173 --outDir dist-demo",

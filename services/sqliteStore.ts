@@ -3986,6 +3986,95 @@ export class SQLiteStore implements IDataStore {
     await this.saveBooking(booking);
   }
 
+  async promoteProvisionalBooking(pb: ProvisionalBooking): Promise<void> {
+    // 1. Determine stable ID
+    // We prefer the deduplication keys if they exist, to prevent duplicated bookings.
+    // However, the booking ID must be unique. If pb has an ID, we can reuse it, or generate a new one. 
+    // Since we want this to replace the provisional conceptually but become a real booking:
+    const confirmedId = pb.provider_reservation_id || pb.ical_uid || crypto.randomUUID();
+    
+    // 2. Map to Booking
+    const booking: Booking = {
+      id: confirmedId,
+      provisional_id: null, // Clear this so it's not seen as provisional anymore
+      property_id: 'prop_default', // Default, usually enriched later
+      apartment_id: pb.apartment_id || pb.apartment_hint || 'apt_unknown',
+      traveler_id: pb.traveler_id || 'tvl_' + crypto.randomUUID().substring(0,8),
+      check_in: pb.start_date || '',
+      check_out: pb.end_date || '',
+      status: 'confirmed', // Explicitly confirmed
+      total_price: pb.total_price || 0,
+      guests: pb.pax_adults || 1,
+      source: pb.source === 'ICAL' ? 'ICAL' : (pb.provider === 'DIRECT_WEB' ? 'DIRECT_WEB' : `EMAIL_TRIGGER (${pb.provider})`),
+      external_ref: pb.provider_reservation_id,
+      created_at: Date.now(),
+      guest_name: pb.guest_name || 'Huésped Confirmado',
+      enrichment_status: 'COMPLETE',
+      event_origin: pb.source === 'ICAL' ? 'ical' : 'other',
+      event_state: 'confirmed', // Explicitly confirmed
+      policy_snapshot: JSON.stringify(pb),
+      // Retain connection & ical info for sync
+      connection_id: pb.connection_id,
+      ical_uid: pb.ical_uid,
+      raw_summary: pb.raw_summary,
+      raw_description: pb.raw_description
+    };
+
+    // 3. Save Booking
+    await this.saveBooking(booking);
+
+    // 4. Create Accounting Movement if price > 0
+    if ((pb.total_price || 0) > 0) {
+      const projectId = localStorage.getItem('active_project_id') || 'proj_default';
+      const movement: any = { // Use any to bypass strict type imports if AccountingMovement is complex, but we have enough standard fields
+        id: 'acc_' + crypto.randomUUID(),
+        project_id: projectId,
+        property_id: 'prop_default',
+        apartment_id: booking.apartment_id,
+        booking_id: booking.id,
+        date: booking.check_in || new Date().toISOString().split('T')[0],
+        type: 'INCOME',
+        category: 'RENTAL',
+        amount: pb.total_price || 0,
+        currency: 'EUR',
+        description: `Ingreso reserva ${pb.provider || 'Manual'} - ${pb.guest_name}`,
+        payment_method: 'TRANSFER',
+        status: 'PENDING',
+        created_at: Date.now(),
+        updated_at: Date.now(),
+        is_reconciled: 0,
+        // Optional extended fields
+        source_event_type: 'WEB_CONFIRM',
+        event_state: 'confirmed'
+      };
+      
+      try {
+        await this.executeWithParams(
+          `INSERT OR REPLACE INTO accounting_movements (
+            id, project_id, property_id, apartment_id, booking_id, 
+            date, type, category, amount, currency, description, 
+            payment_method, status, created_at, updated_at, is_reconciled,
+            source_event_type, event_state
+          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          [
+            movement.id, movement.project_id, movement.property_id, movement.apartment_id, movement.booking_id,
+            movement.date, movement.type, movement.category, movement.amount, movement.currency, movement.description,
+            movement.payment_method, movement.status, movement.created_at, movement.updated_at, movement.is_reconciled ? 1 : 0,
+            movement.source_event_type, movement.event_state
+          ]
+        );
+        console.log(`[Store] Generada base contable para reserva ${booking.id}`);
+      } catch (err) {
+        console.warn("[Store] Error al generar contabilidad automática", err);
+      }
+    }
+
+    // 5. Delete the old provisional booking by its original ID so it disappears
+    await this.deleteProvisionalBooking(pb.id);
+    
+    console.log(`[Store] Provisional booking ${pb.id} promoted successfully to ${booking.id}`);
+  }
+
   async deleteProvisionalBooking(id: string): Promise<void> {
     await this.deleteBooking(id);
   }
