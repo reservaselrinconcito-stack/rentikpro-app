@@ -3058,6 +3058,17 @@ export class SQLiteStore implements IDataStore {
   }
 
   async saveMovement(m: AccountingMovement): Promise<void> {
+    if (!m.property_id && m.apartment_id) {
+      try {
+        const propRows = await this.query("SELECT property_id FROM apartments WHERE id = ? LIMIT 1", [m.apartment_id]);
+        if (propRows[0]?.property_id) {
+          m.property_id = propRows[0].property_id;
+        }
+      } catch (e) {
+        console.warn("[ACCOUNTING] Could not infer property_id from apartment_id", e);
+      }
+    }
+
     const cols = [
       'id', 'date', 'type', 'category', 'concept', 'apartment_id', 'reservation_id', 'traveler_id',
       'platform', 'supplier', 'amount_gross', 'commission', 'vat', 'amount_net', 'payment_method',
@@ -3987,34 +3998,79 @@ export class SQLiteStore implements IDataStore {
   }
 
   async promoteProvisionalBooking(pb: ProvisionalBooking): Promise<void> {
-    // 1. Determine stable ID
-    // We prefer the deduplication keys if they exist, to prevent duplicated bookings.
-    // However, the booking ID must be unique. If pb has an ID, we can reuse it, or generate a new one. 
-    // Since we want this to replace the provisional conceptually but become a real booking:
-
     // Prevent reuse of synthetic IMP-* UIDs as real booking IDs
     let safeIcalUid = pb.ical_uid;
     if (safeIcalUid && safeIcalUid.trim().toUpperCase().startsWith('IMP-')) {
       safeIcalUid = undefined;
     }
 
-    const confirmedId = pb.provider_reservation_id || safeIcalUid || `bkg_${pb.id}`;
+    const requestedId = pb.provider_reservation_id || safeIcalUid || `bkg_${pb.id}`;
+    let propertyId = 'prop_default';
+    if (pb.apartment_id) {
+      try {
+        const propRows = await this.query("SELECT property_id FROM apartments WHERE id = ? LIMIT 1", [pb.apartment_id]);
+        if (propRows[0]?.property_id) propertyId = propRows[0].property_id;
+      } catch (e) {
+        console.warn("[Store] Could not resolve property_id for provisional", e);
+      }
+    }
 
-    // 2. Map to Booking
+    const normalizedPbGuest = (pb.guest_name || '').trim().toLowerCase();
+    const requestedSource = pb.source === 'ICAL' ? 'ICAL' : (pb.provider === 'DIRECT_WEB' ? 'DIRECT_WEB' : `EMAIL_TRIGGER (${pb.provider})`);
+
+    const equivalentRows = await this.query(
+      `SELECT * FROM bookings
+       WHERE apartment_id = ?
+         AND check_in = ?
+         AND check_out = ?
+       ORDER BY
+         CASE status WHEN 'confirmed' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END,
+         created_at ASC`,
+      [pb.apartment_id || pb.apartment_hint || 'apt_unknown', pb.start_date || '', pb.end_date || '']
+    );
+
+    const equivalentBookings = equivalentRows.filter((row: any) => {
+      if (row.id === pb.id) return true;
+      const normalizedGuest = (row.guest_name || '').trim().toLowerCase();
+      const guestCompatible = !normalizedPbGuest || !normalizedGuest || normalizedGuest === normalizedPbGuest;
+      const amountCompatible = !pb.total_price || !row.total_price || Number(row.total_price) === Number(pb.total_price);
+      const sourceCompatible = !row.source || row.source === 'manual' || row.source === requestedSource || row.provisional_id === pb.id;
+      return guestCompatible && amountCompatible && sourceCompatible;
+    });
+
+    let canonicalBooking: any = null;
+    for (const candidate of equivalentBookings) {
+      const movementRows = await this.query(
+        "SELECT id FROM accounting_movements WHERE reservation_id = ? LIMIT 1",
+        [candidate.id]
+      );
+      if (candidate.status === 'confirmed' && movementRows.length > 0) {
+        canonicalBooking = candidate;
+        break;
+      }
+    }
+
+    if (!canonicalBooking) {
+      canonicalBooking = equivalentBookings.find((candidate: any) => candidate.status === 'confirmed') || equivalentBookings[0] || null;
+    }
+
+    const confirmedId = canonicalBooking?.id || requestedId;
+
     const booking: Booking = {
+      ...(canonicalBooking || {}),
       id: confirmedId,
       provisional_id: null, // Clear this so it's not seen as provisional anymore
-      property_id: 'prop_default', // Default, usually enriched later
+      property_id: propertyId,
       apartment_id: pb.apartment_id || pb.apartment_hint || 'apt_unknown',
-      traveler_id: pb.traveler_id || 'tvl_' + crypto.randomUUID().substring(0, 8),
+      traveler_id: canonicalBooking?.traveler_id || pb.traveler_id || 'tvl_' + crypto.randomUUID().substring(0, 8),
       check_in: pb.start_date || '',
       check_out: pb.end_date || '',
       status: 'confirmed', // Explicitly confirmed
       total_price: pb.total_price || 0,
       guests: pb.pax_adults || 1,
-      source: pb.source === 'ICAL' ? 'ICAL' : (pb.provider === 'DIRECT_WEB' ? 'DIRECT_WEB' : `EMAIL_TRIGGER (${pb.provider})`),
-      external_ref: pb.provider_reservation_id,
-      created_at: Date.now(),
+      source: canonicalBooking?.source || requestedSource,
+      external_ref: canonicalBooking?.external_ref || pb.provider_reservation_id,
+      created_at: canonicalBooking?.created_at || Date.now(),
       guest_name: pb.guest_name || 'Huésped Confirmado',
       enrichment_status: 'COMPLETE',
       event_origin: pb.source === 'ICAL' ? 'ical' : 'other',
@@ -4027,49 +4083,59 @@ export class SQLiteStore implements IDataStore {
       raw_description: pb.raw_description
     };
 
-    // 3. Save Booking
+    // 3. Save canonical booking only once
     await this.saveBooking(booking);
+
+    // 3b. Clean duplicates for the same stay/apartment case
+    for (const duplicate of equivalentBookings) {
+      if (duplicate.id === booking.id) continue;
+      await this.executeWithParams("DELETE FROM accounting_movements WHERE reservation_id = ?", [duplicate.id]);
+      await this.deleteBooking(duplicate.id);
+    }
 
     // 4. Create Accounting Movement if price > 0
     if ((pb.total_price || 0) > 0) {
       const projectId = localStorage.getItem('active_project_id') || 'proj_default';
-      const movement: any = { // Use any to bypass strict type imports if AccountingMovement is complex, but we have enough standard fields
-        id: `acc_${booking.id}`, // Deterministic ID based on the booking to prevent duplicates on retries
-        project_id: projectId,
-        property_id: 'prop_default',
-        apartment_id: booking.apartment_id,
-        booking_id: booking.id,
+      const existingStayMovement = await this.query(
+        "SELECT id FROM accounting_movements WHERE reservation_id = ? AND source_event_type = 'STAY_RESERVATION' LIMIT 1",
+        [booking.id]
+      );
+      const movement: AccountingMovement = {
+        id: existingStayMovement[0]?.id || `base_${booking.id}`,
         date: booking.check_in || new Date().toISOString().split('T')[0],
-        type: 'INCOME',
+        type: 'income',
         category: 'RENTAL',
-        amount: pb.total_price || 0,
-        currency: 'EUR',
-        description: `Ingreso reserva ${pb.provider || 'Manual'} - ${pb.guest_name}`,
+        concept: booking.guest_name || pb.guest_name || `Reserva ${pb.provider || 'Manual'}`,
+        apartment_id: booking.apartment_id || null,
+        reservation_id: booking.id,
+        traveler_id: booking.traveler_id || null,
+        platform: pb.provider || booking.source,
+        supplier: null,
+        amount_gross: pb.total_price || 0,
+        commission: 0,
+        vat: 0,
+        amount_net: pb.total_price || 0,
         payment_method: 'TRANSFER',
-        status: 'PENDING',
+        accounting_bucket: 'A',
+        import_hash: `base_booking_${booking.id}`,
         created_at: Date.now(),
         updated_at: Date.now(),
-        is_reconciled: 0,
-        // Optional extended fields
-        source_event_type: 'WEB_CONFIRM',
-        event_state: 'confirmed'
+        project_id: projectId,
+        property_id: propertyId,
+        check_in: booking.check_in,
+        check_out: booking.check_out,
+        guests: booking.guests,
+        pax_adults: pb.pax_adults || booking.guests,
+        source_event_type: 'STAY_RESERVATION',
+        event_state: 'confirmed',
+        ical_uid: booking.ical_uid,
+        connection_id: booking.connection_id,
+        raw_summary: pb.raw_summary,
+        raw_description: pb.raw_description
       };
 
       try {
-        await this.executeWithParams(
-          `INSERT OR REPLACE INTO accounting_movements (
-            id, project_id, property_id, apartment_id, booking_id, 
-            date, type, category, amount, currency, description, 
-            payment_method, status, created_at, updated_at, is_reconciled,
-            source_event_type, event_state
-          ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [
-            movement.id, movement.project_id, movement.property_id, movement.apartment_id, movement.booking_id,
-            movement.date, movement.type, movement.category, movement.amount, movement.currency, movement.description,
-            movement.payment_method, movement.status, movement.created_at, movement.updated_at, movement.is_reconciled ? 1 : 0,
-            movement.source_event_type, movement.event_state
-          ]
-        );
+        await this.saveMovement(movement);
         console.log(`[Store] Generada base contable para reserva ${booking.id}`);
       } catch (err) {
         console.warn("[Store] Error al generar contabilidad automática", err);
@@ -4084,6 +4150,34 @@ export class SQLiteStore implements IDataStore {
 
   async deleteProvisionalBooking(id: string): Promise<void> {
     await this.deleteBooking(id);
+
+    if (!this.schemaFlags.bookings_provisional_id) return;
+
+    // Remove ghost/provisional bookings created from this provisional
+    if (this.schemaFlags.bookings_event_state) {
+      await this.executeWithParams(
+        "DELETE FROM bookings WHERE provisional_id = ? AND event_state = 'provisional'",
+        [id]
+      );
+    } else {
+      await this.executeWithParams(
+        "DELETE FROM bookings WHERE provisional_id = ? AND status != 'confirmed'",
+        [id]
+      );
+    }
+
+    // Clear provisional_id on any confirmed bookings linked to this provisional
+    if (this.schemaFlags.bookings_updated_at) {
+      await this.executeWithParams(
+        "UPDATE bookings SET provisional_id = NULL, updated_at = ? WHERE provisional_id = ? AND status = 'confirmed'",
+        [Date.now(), id]
+      );
+    } else {
+      await this.executeWithParams(
+        "UPDATE bookings SET provisional_id = NULL WHERE provisional_id = ? AND status = 'confirmed'",
+        [id]
+      );
+    }
   }
 
   private async ensureEmailIngestTables() {
