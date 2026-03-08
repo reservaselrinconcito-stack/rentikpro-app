@@ -690,6 +690,14 @@ export class SyncEngine {
       }
     }
 
+    const sanitizeResult = await store.sanitizeCanonicalState(apartmentId).catch((err: any) => {
+      console.warn(`[SyncEngine] Canonical sanitize failed for apartment ${apartmentId}`, err);
+      return null;
+    });
+    if (sanitizeResult) {
+      console.log(`[SyncEngine] Canonical sanitize apartment=${apartmentId} canonical=${sanitizeResult.canonicalCount} cleaned=${sanitizeResult.cleanedCount}`);
+    }
+
     return conflictCount;
   }
 

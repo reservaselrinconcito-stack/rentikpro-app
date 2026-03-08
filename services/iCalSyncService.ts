@@ -23,6 +23,7 @@ import { ICalAdapter } from './channelAdapters/icalAdapter';
 import { projectManager } from './projectManager';
 import { iCalLogger } from './iCalLogger';
 import { dedupeEvents, computeFingerprint } from './iCalDedupeService';
+import { syncEngine } from './syncEngine';
 import type { ChannelConnection, CalendarEvent, Booking } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -106,6 +107,7 @@ export const iCalSyncService = {
     const store = projectManager.getStore();
     const connections = await store.getChannelConnections(apartmentId);
     const enabled = connections.filter((c: ChannelConnection) => c.enabled !== false && c.ical_url);
+    const apartmentIds = Array.from(new Set(enabled.map((c: ChannelConnection) => c.apartment_id).filter(Boolean)));
 
     iCalLogger.logInfo('SYNC_ALL', `Starting sync for ${enabled.length} connection(s)`);
     const results: SyncConnectionResult[] = [];
@@ -120,6 +122,15 @@ export const iCalSyncService = {
       iCalLogger.logInfo('SYNC_ALL', `Cycle complete. Cross-connection duplicates hidden: ${duplicates}`);
     } catch (e: any) {
       iCalLogger.logWarn('DEDUPE', `Dedupe step failed (non-fatal): ${e.message}`);
+    }
+
+    for (const aptId of apartmentIds) {
+      try {
+        await syncEngine.reconcileBookings(aptId);
+        await store.sanitizeCanonicalState(aptId);
+      } catch (e: any) {
+        iCalLogger.logWarn('SYNC_ALL', `Canonical reconcile failed for apartment ${aptId}: ${e.message}`);
+      }
     }
 
     return results;
@@ -271,10 +282,7 @@ export const iCalSyncService = {
                 updated_at: now,
               } as CalendarEvent;
               // [atomic] saveCalendarEvent + booking upsert as single transaction
-              await store.runTransaction(async () => {
-                await store.saveCalendarEvent(updated);
-                await upsertBookingFromCalendarEvent(store, updated, conn, now, propertyId);
-              });
+              await store.saveCalendarEvent(updated);
               result.eventsUpdated++;
               iCalLogger.logInfo('SYNC', `Updated event ${partial.external_uid} (${partial.start_date}→${partial.end_date})`);
             } else {
@@ -308,10 +316,7 @@ export const iCalSyncService = {
             (newEvt as any).fingerprint = computeFingerprint(newEvt);
 
             // [atomic] saveCalendarEvent + booking upsert as single transaction
-            await store.runTransaction(async () => {
-              await store.saveCalendarEvent(newEvt);
-              await upsertBookingFromCalendarEvent(store, newEvt, conn, now, propertyId);
-            });
+            await store.saveCalendarEvent(newEvt);
             result.eventsAdded++;
             iCalLogger.logInfo('SYNC', `Added event ${partial.external_uid} [${eventKind}] (${partial.start_date}→${partial.end_date})`);
           } else {
@@ -325,10 +330,7 @@ export const iCalSyncService = {
           if (!incomingUids.has(existing.external_uid) && existing.status !== 'cancelled') {
             const cancelled: CalendarEvent = { ...existing, status: 'cancelled', updated_at: now };
             // [atomic] saveCalendarEvent + booking upsert as single transaction
-            await store.runTransaction(async () => {
-              await store.saveCalendarEvent(cancelled);
-              await upsertBookingFromCalendarEvent(store, cancelled, conn, now, propertyId);
-            });
+            await store.saveCalendarEvent(cancelled);
             result.eventsCancelled++;
             iCalLogger.logInfo('SYNC', `Cancelled event ${existing.external_uid} (no longer in feed)`);
           }
@@ -372,36 +374,22 @@ export const iCalSyncService = {
   },
 
   /**
-   * One-time backfill: bridge all existing calendar_events into bookings table.
-   * Call on app startup to ensure pre-existing iCal events are visible in calendar.
+   * Legacy backfill entrypoint.
+   * Canonical flow now reconciles from calendar_events into bookings via SyncEngine,
+   * then runs canonical sanitization to avoid ghost rebuilds.
    */
   async backfillBookingsFromCalendarEvents(): Promise<void> {
     try {
       const store = projectManager.getStore();
       const connections: ChannelConnection[] = await store.getChannelConnections();
-      const connMap = new Map(connections.map((c: ChannelConnection) => [c.id, c]));
-      const apts = await store.getAllApartments();
-      const aptMap = new Map(apts.map((a: any) => [a.id, a]));
-
-      const allEvents: CalendarEvent[] = await store.getCalendarEvents();
-      const active = allEvents.filter((e: CalendarEvent) => e.status !== 'cancelled' && e.connection_id);
-
-      iCalLogger.logInfo('BACKFILL', `Backfilling ${active.length} calendar_events → bookings`);
-
-      const now = Date.now();
+      const apartmentIds = Array.from(new Set(connections.map((c: ChannelConnection) => c.apartment_id).filter(Boolean)));
       let count = 0;
-      for (const evt of active) {
-        const conn = connMap.get(evt.connection_id);
-        if (!conn) {
-          iCalLogger.logWarn('BACKFILL', `No connection found for event ${evt.id} (conn ${evt.connection_id})`);
-          continue;
-        }
-        const apt = aptMap.get(conn.apartment_id);
-        const propertyId = apt?.property_id || (evt as any).property_id;
-        await upsertBookingFromCalendarEvent(store, evt, conn, now, propertyId);
+      for (const aptId of apartmentIds) {
+        await syncEngine.reconcileBookings(aptId);
+        await store.sanitizeCanonicalState(aptId);
         count++;
       }
-      iCalLogger.logInfo('BACKFILL', `Backfill complete: ${count} bookings upserted`);
+      iCalLogger.logInfo('BACKFILL', `Backfill complete: ${count} apartment(s) reconciled canonically`);
     } catch (err: any) {
       iCalLogger.logWarn('BACKFILL', `Backfill failed (non-fatal): ${err.message}`);
     }

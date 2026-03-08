@@ -173,6 +173,8 @@ export class ProjectManager {
       this.setActiveContext(projectId, 'real');
       this.storageMode = 'file';
 
+      await this.store.sanitizeCanonicalState().catch(e => logger.warn('[FileMode] Canonical sanitize failed after load', e));
+
       // Persist metadata+snapshot to IDB as fallback.
       try {
         await this.persistCurrentProject(fileName);
@@ -305,6 +307,8 @@ export class ProjectManager {
       this.setActiveContext(record.id, record.mode);
       this.startAutoSave();
 
+      await this.store.sanitizeCanonicalState().catch(e => logger.warn('[ProjectManager] Canonical sanitize failed after loadProject', e));
+
       // Non-blocking WebDAV pull (never blocks UI). If remote changes apply, SyncCoordinator will call store.load() + notify.
       if (!isTauri && this.currentProjectMode === 'real') {
         syncCoordinator.syncDown().catch(e => logger.warn('[ProjectManager] SyncDown failed (non-blocking)', e));
@@ -357,6 +361,7 @@ export class ProjectManager {
         this.autoSaveInterval = null;
       }
       // Do NOT set active_project_id and do NOT persist back to IDB.
+      await this.store.sanitizeCanonicalState().catch(e => logger.warn('[ProjectManager] Canonical sanitize failed after legacy load', e));
       notifyDataChanged('all');
       return true;
     } catch (e) {

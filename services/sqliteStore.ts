@@ -3205,6 +3205,61 @@ export class SQLiteStore implements IDataStore {
     await this.saveMovement(movement);
   }
 
+  private isBlockLikeBooking(booking: Partial<Booking>): boolean {
+    return (booking.event_kind === 'BLOCK') || isProvisionalBlock(booking as Booking) || booking.status === 'blocked';
+  }
+
+  private shouldMergeBookingPair(a: Booking, b: Booking): boolean {
+    const sameExternalRef = !!a.external_ref && !!b.external_ref && a.external_ref === b.external_ref;
+    const sameIcalUid = !!a.ical_uid && !!b.ical_uid && a.ical_uid === b.ical_uid;
+    const sameLinkedEvent = !!a.linked_event_id && !!b.linked_event_id && a.linked_event_id === b.linked_event_id;
+    if (sameExternalRef || sameIcalUid || sameLinkedEvent) return true;
+
+    const guestA = (a.guest_name || '').trim().toLowerCase();
+    const guestB = (b.guest_name || '').trim().toLowerCase();
+    const sameGuest = !!guestA && !!guestB && guestA === guestB;
+    const eitherGuestMissing = !guestA || !guestB;
+    const amountCompatible = !(a.total_price || 0) || !(b.total_price || 0) || Number(a.total_price) === Number(b.total_price);
+    const bothBlockLike = this.isBlockLikeBooking(a) && this.isBlockLikeBooking(b);
+    const eitherPlaceholder = this.isBlockLikeBooking(a) || this.isBlockLikeBooking(b) || !!a.provisional_id || !!b.provisional_id;
+
+    if (bothBlockLike) return true;
+    if (amountCompatible && (sameGuest || eitherGuestMissing) && eitherPlaceholder) return true;
+    if (amountCompatible && sameGuest) return true;
+
+    return false;
+  }
+
+  private async chooseCanonicalBooking(candidates: Booking[]): Promise<Booking> {
+    const ranked = await Promise.all(candidates.map(async (candidate) => {
+      const movementRows = await this.query(
+        "SELECT id FROM accounting_movements WHERE reservation_id = ? LIMIT 1",
+        [candidate.id]
+      );
+      const hasMovement = movementRows.length > 0;
+      const isConfirmed = candidate.status === 'confirmed';
+      const isBlock = this.isBlockLikeBooking(candidate);
+      const isManual = candidate.event_origin !== 'ical' && !candidate.external_ref;
+      const score = [
+        isConfirmed && hasMovement && !isBlock ? 0 : 1,
+        isConfirmed && isManual && !isBlock ? 0 : 1,
+        isConfirmed && !isBlock ? 0 : 1,
+        isBlock ? 1 : 0,
+        candidate.created_at || 0,
+      ];
+      return { candidate, score };
+    }));
+
+    ranked.sort((a, b) => {
+      for (let i = 0; i < a.score.length; i++) {
+        if (a.score[i] !== b.score[i]) return a.score[i] - b.score[i];
+      }
+      return 0;
+    });
+
+    return ranked[0].candidate;
+  }
+
   async softDeletePayment(id: string): Promise<void> {
     const now = Date.now();
     await this.ensureInitialized();
@@ -4354,6 +4409,98 @@ export class SQLiteStore implements IDataStore {
     }
 
     return { canonicalId: canonical.id, removedIds };
+  }
+
+  async sanitizeCanonicalState(apartmentId?: string): Promise<{ canonicalCount: number; cleanedCount: number }> {
+    const params: any[] = [];
+    let eventSql = "SELECT * FROM calendar_events WHERE status != 'cancelled'";
+    if (apartmentId) {
+      eventSql += " AND apartment_id = ?";
+      params.push(apartmentId);
+    }
+    eventSql += " ORDER BY updated_at DESC, created_at DESC";
+
+    const activeEvents = await this.query(eventSql, params);
+    const seenEventKeys = new Set<string>();
+    let cleanedCount = 0;
+
+    for (const evt of activeEvents) {
+      const dedupeKey = `${evt.connection_id || 'no-conn'}|${evt.external_uid || evt.ical_uid || evt.id}`;
+      if (seenEventKeys.has(dedupeKey)) {
+        await this.executeWithParams("DELETE FROM calendar_events WHERE id = ?", [evt.id]);
+        cleanedCount++;
+        continue;
+      }
+      seenEventKeys.add(dedupeKey);
+    }
+
+    const bookingParams: any[] = [];
+    let bookingSql = "SELECT * FROM bookings WHERE status != 'cancelled'";
+    if (apartmentId) {
+      bookingSql += " AND apartment_id = ?";
+      bookingParams.push(apartmentId);
+    }
+    bookingSql += " ORDER BY apartment_id ASC, check_in ASC, check_out ASC, created_at ASC";
+
+    const rows = await this.query(bookingSql, bookingParams);
+    const groups = new Map<string, Booking[]>();
+    for (const row of rows) {
+      const booking = row as Booking;
+      const key = `${booking.apartment_id}|${booking.check_in}|${booking.check_out}`;
+      const list = groups.get(key) || [];
+      list.push(booking);
+      groups.set(key, list);
+    }
+
+    let canonicalCount = 0;
+    for (const [, group] of groups) {
+      const pending = [...group];
+      while (pending.length > 0) {
+        const seed = pending.shift()!;
+        const cluster = [seed];
+        for (let i = pending.length - 1; i >= 0; i--) {
+          if (this.shouldMergeBookingPair(seed, pending[i])) {
+            cluster.push(pending[i]);
+            pending.splice(i, 1);
+          }
+        }
+
+        if (cluster.length === 1) {
+          const single = cluster[0];
+          single.property_id = await this.resolvePropertyIdForApartment(single.apartment_id, single.property_id || 'prop_default');
+          if (single.status === 'confirmed' && !this.isBlockLikeBooking(single)) {
+            await this.saveBooking(single);
+            canonicalCount++;
+          }
+          continue;
+        }
+
+        const canonical = await this.chooseCanonicalBooking(cluster);
+        canonical.property_id = await this.resolvePropertyIdForApartment(canonical.apartment_id, canonical.property_id || 'prop_default');
+        canonical.provisional_id = canonical.status === 'confirmed' ? null : canonical.provisional_id || null;
+        canonical.conflict_detected = false;
+        canonical.event_state = canonical.status === 'confirmed' ? 'confirmed' : 'provisional';
+        await this.saveBooking(canonical);
+        canonicalCount++;
+
+        for (const duplicate of cluster) {
+          if (duplicate.id === canonical.id) continue;
+          cleanedCount++;
+          if (duplicate.event_origin === 'ical' || duplicate.event_kind === 'BLOCK' || duplicate.external_ref || duplicate.provisional_id) {
+            const existing = await this.getBooking(duplicate.id);
+            if (existing) {
+              await this.markBookingCancelledFromCalendar(existing, `sanitized_into_${canonical.id}`);
+            }
+          } else {
+            await this.executeWithParams("DELETE FROM accounting_movements WHERE reservation_id = ?", [duplicate.id]);
+            await this.deleteBooking(duplicate.id);
+          }
+        }
+      }
+    }
+
+    console.info(`[CanonicalSanity] apartment=${apartmentId || 'ALL'} canonical=${canonicalCount} cleaned=${cleanedCount}`);
+    return { canonicalCount, cleanedCount };
   }
 
   private async ensureEmailIngestTables() {

@@ -258,6 +258,7 @@ export class SyncCoordinator {
 
                 // Apply to local
                 await projectManager.getStore().load(remoteData);
+                await projectManager.getStore().sanitizeCanonicalState().catch(e => logger.warn('[Sync] Canonical sanitize failed after remote apply', e));
                 localStorage.setItem(`sync_state_${remotePath}`, JSON.stringify(remoteState));
 
                 logger.log('[Sync] Remote database applied successfully');
