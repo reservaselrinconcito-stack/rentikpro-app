@@ -20,7 +20,7 @@ import {
 import { iCalExportService } from '../services/iCalExportService';
 import { pricingStudioStore } from '../services/pricingStudioStore';
 import { toast } from 'sonner';
-import { isConfirmedBooking, isProvisionalBlock, isCovered } from '../utils/bookingClassification';
+import { isConfirmedBooking, isOtaBlockBooking, isPendingProvisionalWorkflowBooking, isRealConflictBooking, isCovered } from '../utils/bookingClassification';
 
 // --- SUBCOMPONENTS ---
 
@@ -495,14 +495,15 @@ export const ChannelManager: React.FC = () => {
    // --- CLASSIFICATION & CONFLICTS (MINI-BLOQUE 4) ---
    const { realConflicts, uncoveredBlocks } = React.useMemo(() => {
       const confirmed = bookings.filter(b => b.status !== 'cancelled' && isConfirmedBooking(b));
-      const provisional = bookings.filter(b => b.status !== 'cancelled' && isProvisionalBlock(b));
+      const otaAvailability = bookings.filter(b => b.status !== 'cancelled' && isOtaBlockBooking(b));
 
-      // Un conflicto es real solo si ambas partes son confirmed (según syncEngine actualizado)
-      const real = bookings.filter(b => b.conflict_detected && b.status !== 'cancelled' && isConfirmedBooking(b));
-      const uncovered = provisional.filter(p => !isCovered(p, confirmed));
+      const real = bookings.filter(b => b.status !== 'cancelled' && isRealConflictBooking(b));
+      const uncovered = otaAvailability.filter(p => !isCovered(p, confirmed));
 
       return { realConflicts: real, uncoveredBlocks: uncovered };
-   }, [bookings]);
+    }, [bookings]);
+
+   const pendingProvisionals = React.useMemo(() => bookings.filter(b => isPendingProvisionalWorkflowBooking(b) && b.status !== 'cancelled'), [bookings]);
 
    const conflictGroups: Record<string, Booking[]> = {};
    realConflicts.forEach(b => {
@@ -969,14 +970,14 @@ export const ChannelManager: React.FC = () => {
                      <BookingEnrichmentList onBookingConfirmed={loadData} />
                      {/* Conflict Center */}
                      {realConflicts.length > 0 ? (
-                        <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-[2.5rem] border border-amber-100 p-8 shadow-xl shadow-amber-100/50">
+                         <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-[2.5rem] border border-amber-100 p-8 shadow-xl shadow-amber-100/50">
                            <div className="flex items-center gap-4 mb-8">
                               <div className="p-4 bg-white text-amber-600 rounded-2xl shadow-sm"><ShieldAlert size={32} /></div>
-                              <div>
-                                 <h3 className="text-2xl font-black text-amber-900">Conflictos de Disponibilidad</h3>
-                                 <p className="text-amber-800/70 font-medium text-sm">Acción requerida: {realConflicts.length} reservas solapadas.</p>
-                              </div>
-                           </div>
+                               <div>
+                                  <h3 className="text-2xl font-black text-amber-900">Conflictos de Disponibilidad</h3>
+                                  <p className="text-amber-800/70 font-medium text-sm">Accion requerida: {realConflicts.length} reservas operativas con conflicto OTA real.</p>
+                               </div>
+                            </div>
                            <div className="grid gap-6">
                               {Object.entries(conflictGroups).map(([aptId, group]) => {
                                  const aptName = apartments.find(a => a.id === aptId)?.name;
@@ -1075,25 +1076,28 @@ export const ChannelManager: React.FC = () => {
                      )}
 
                      {/* UNCOVERED BLOCKS SECTION (MINI-BLOQUE 4) */}
-                     {uncoveredBlocks.length > 0 && (
-                        <div className="bg-slate-50 rounded-[2.5rem] border border-slate-200 p-8">
-                           <h4 className="text-lg font-black text-slate-700 mb-4 flex items-center gap-2">
-                              <LockIcon size={20} className="text-slate-400" /> Bloqueos Provisionales (Fuera de Reservas)
-                           </h4>
-                           <p className="text-xs text-slate-500 mb-6 font-medium">Estos bloqueos de iCal no solapan con ninguna reserva confirmada. Son bloqueos de disponibilidad efectivos.</p>
-                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                              {uncoveredBlocks.map(b => (
-                                 <div key={b.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
+                      {uncoveredBlocks.length > 0 && (
+                         <div className="bg-slate-50 rounded-[2.5rem] border border-slate-200 p-8">
+                            <h4 className="text-lg font-black text-slate-700 mb-4 flex items-center gap-2">
+                               <LockIcon size={20} className="text-slate-400" /> Disponibilidad OTA sin reserva operativa
+                            </h4>
+                            <p className="text-xs text-slate-500 mb-6 font-medium">Estos bloqueos importados desde OTA no tienen una reserva operativa asociada. Se mantienen aqui como disponibilidad de solo lectura.</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                               {uncoveredBlocks.map(b => (
+                                  <div key={b.id} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm flex items-center justify-between">
                                     <div>
                                        <p className="text-xs font-black text-slate-700">{apartments.find(a => a.id === b.apartment_id)?.name}</p>
                                        <p className="text-[10px] text-slate-400 font-bold">{dateFormat.formatRangeForUser(b.check_in, b.check_out)}</p>
                                     </div>
-                                    <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded uppercase tracking-wider">{b.source}</span>
-                                 </div>
-                              ))}
-                           </div>
-                        </div>
-                     )}
+                                     <span className="text-[9px] font-black bg-slate-100 text-slate-500 px-2 py-0.5 rounded uppercase tracking-wider">OTA solo lectura</span>
+                                  </div>
+                               ))}
+                            </div>
+                            {pendingProvisionals.length > 0 && (
+                               <p className="mt-4 text-[10px] font-bold text-slate-400">Pendientes de completar en flujo aparte: {pendingProvisionals.length}</p>
+                            )}
+                         </div>
+                      )}
 
                      {/* Summary Cards */}
                      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

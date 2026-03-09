@@ -1,4 +1,10 @@
-import { Booking } from '../types';
+import { AccountingMovement, Booking } from '../types';
+
+export type BookingEntityClass = 'REAL_BOOKING' | 'OTA_BLOCK' | 'REAL_CONFLICT' | 'PENDING_PROVISIONAL' | 'CANCELLED' | 'UNKNOWN';
+export type AccountingEntityClass = 'OPERATIONAL' | 'OTA_BLOCK' | 'PENDING_PROVISIONAL' | 'UNKNOWN';
+
+const OTA_SOURCE_RE = /(booking|airbnb|vrbo|ical)/i;
+const PENDING_ENRICHMENT = new Set(['PENDING', 'PENDING_DETAILS', 'INQUIRY', 'HOLD', 'PENDING_CONFIRMATION']);
 
 /**
  * Normalizes a string by trimming whitespace and converting to lowercase.
@@ -45,6 +51,27 @@ export const hasAmountPositive = (booking: Partial<Booking> | null | undefined):
     return (booking.total_price || 0) > 0;
 };
 
+export const isImportedOtaRecord = (booking: Partial<Booking> | null | undefined): boolean => {
+    if (!booking) return false;
+    return booking.event_origin === 'ical' || !!booking.external_ref || !!booking.ical_uid || !!booking.connection_id || OTA_SOURCE_RE.test(booking.source || '');
+};
+
+export const isPendingProvisionalWorkflowBooking = (booking: Partial<Booking> | null | undefined): boolean => {
+    if (!booking) return false;
+    if (booking.status === 'cancelled') return false;
+    if (booking.event_state === 'provisional') return true;
+    if (booking.status === 'pending') return true;
+    if (booking.needs_details) return true;
+    return !!booking.provisional_id || PENDING_ENRICHMENT.has((booking.enrichment_status || '').toUpperCase());
+};
+
+export const isOtaBlockBooking = (booking: Partial<Booking> | null | undefined): boolean => {
+    if (!booking) return false;
+    if (booking.event_kind === 'BLOCK' || booking.status === 'blocked') return true;
+    if (isPendingProvisionalWorkflowBooking(booking)) return false;
+    return isImportedOtaRecord(booking) && !hasRealGuest(booking) && !hasAmountPositive(booking);
+};
+
 /**
  * confirmed: tiene huésped real O tiene importe > 0.
  * 
@@ -52,9 +79,10 @@ export const hasAmountPositive = (booking: Partial<Booking> | null | undefined):
  */
 export const isConfirmedBooking = (booking: Partial<Booking> | null | undefined): boolean => {
     if (!booking) return false;
-    if (booking.event_kind === 'BLOCK') return false;
-    if (booking.event_state === 'provisional') return false;
-    return hasRealGuest(booking);
+    if (booking.status === 'cancelled') return false;
+    if (isPendingProvisionalWorkflowBooking(booking)) return false;
+    if (isOtaBlockBooking(booking)) return false;
+    return hasRealGuest(booking) || hasAmountPositive(booking);
 };
 
 /**
@@ -62,8 +90,8 @@ export const isConfirmedBooking = (booking: Partial<Booking> | null | undefined)
  */
 export const isProvisionalBlock = (booking: Partial<Booking> | null | undefined): boolean => {
     if (!booking) return false;
-    if (booking.event_kind === 'BLOCK') return true;
-    if (booking.event_state === 'provisional') return true;
+    if (isPendingProvisionalWorkflowBooking(booking)) return true;
+    if (isOtaBlockBooking(booking)) return true;
     return !hasRealGuest(booking) && !hasAmountPositive(booking);
 };
 
@@ -72,7 +100,55 @@ export const isProvisionalBlock = (booking: Partial<Booking> | null | undefined)
  */
 export const isProvisionalBooking = (booking: Partial<Booking> | null | undefined): boolean => {
     if (!booking) return false;
-    return !!booking.provisional_id;
+    return isPendingProvisionalWorkflowBooking(booking);
+};
+
+export const isOperationalBooking = (booking: Partial<Booking> | null | undefined): boolean => {
+    return isConfirmedBooking(booking);
+};
+
+export const isRealConflictBooking = (booking: Partial<Booking> | null | undefined): boolean => {
+    if (!booking) return false;
+    return isOperationalBooking(booking) && !!booking.conflict_detected;
+};
+
+export const getBookingEntityClass = (booking: Partial<Booking> | null | undefined): BookingEntityClass => {
+    if (!booking) return 'UNKNOWN';
+    if (booking.status === 'cancelled') return 'CANCELLED';
+    if (isPendingProvisionalWorkflowBooking(booking)) return 'PENDING_PROVISIONAL';
+    if (isRealConflictBooking(booking)) return 'REAL_CONFLICT';
+    if (isOtaBlockBooking(booking)) return 'OTA_BLOCK';
+    if (isOperationalBooking(booking)) return 'REAL_BOOKING';
+    return 'UNKNOWN';
+};
+
+export const isOtaAvailabilityMovement = (movement: Partial<AccountingMovement> | null | undefined): boolean => {
+    if (!movement) return false;
+    const imported = !!movement.ical_uid || !!movement.connection_id || OTA_SOURCE_RE.test(movement.platform || '');
+    const placeholder = isPlaceholderGuestName(movement.concept);
+    const stayLike = movement.source_event_type === 'STAY_RESERVATION';
+    return stayLike && imported && placeholder && Number(movement.amount_net || 0) === 0;
+};
+
+export const isPendingProvisionalMovement = (movement: Partial<AccountingMovement> | null | undefined): boolean => {
+    if (!movement) return false;
+    return movement.event_state === 'provisional';
+};
+
+export const isOperationalAccountingMovement = (movement: Partial<AccountingMovement> | null | undefined): boolean => {
+    if (!movement) return false;
+    if (movement.type === 'expense') return true;
+    if (isPendingProvisionalMovement(movement)) return false;
+    if (isOtaAvailabilityMovement(movement)) return false;
+    return Number(movement.amount_net || 0) > 0 || !isPlaceholderGuestName(movement.concept);
+};
+
+export const getAccountingEntityClass = (movement: Partial<AccountingMovement> | null | undefined): AccountingEntityClass => {
+    if (!movement) return 'UNKNOWN';
+    if (isPendingProvisionalMovement(movement)) return 'PENDING_PROVISIONAL';
+    if (isOtaAvailabilityMovement(movement)) return 'OTA_BLOCK';
+    if (isOperationalAccountingMovement(movement)) return 'OPERATIONAL';
+    return 'UNKNOWN';
 };
 
 /**

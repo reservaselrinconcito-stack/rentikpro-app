@@ -3075,7 +3075,6 @@ export class SQLiteStore implements IDataStore {
         console.warn("[ACCOUNTING] Could not infer property_id from apartment_id", e);
       }
     }
-
     const cols = [
       'id', 'date', 'type', 'category', 'concept', 'apartment_id', 'reservation_id', 'traveler_id',
       'platform', 'supplier', 'amount_gross', 'commission', 'vat', 'amount_net', 'payment_method',
@@ -4065,13 +4064,23 @@ export class SQLiteStore implements IDataStore {
 
   async getProvisionalBookings(): Promise<ProvisionalBooking[]> {
     try {
-      // Logic based approach as requested: fetch bookings and filter in memory
       const allBookings = await this.query(`SELECT * FROM bookings ORDER BY created_at DESC`);
+      const pendingStatuses = new Set(['PENDING_DETAILS', 'INQUIRY', 'HOLD', 'PENDING_CONFIRMATION']);
 
       const provisionals = allBookings.filter(b => {
-        const hasWorkflowMarker = !!b.provisional_id || !!b.policy_snapshot || b.status === 'pending' || b.event_state === 'provisional';
-        const isPureIcalBlock = b.event_origin === 'ical' && isProvisionalBlock(b) && !b.provisional_id && !b.policy_snapshot;
-        return hasWorkflowMarker && !isPureIcalBlock;
+        if (b.status === 'confirmed' || b.status === 'cancelled') return false;
+        if (b.event_state === 'provisional' || b.status === 'pending' || b.needs_details) return true;
+
+        if (b.policy_snapshot) {
+          try {
+            const parsed = JSON.parse(b.policy_snapshot);
+            if (pendingStatuses.has((parsed?.status || '').toUpperCase())) return true;
+          } catch (e) {
+            console.warn('Error parsing policy_snapshot while filtering provisional bookings', e);
+          }
+        }
+
+        return false;
       });
 
       return provisionals.map((b: any) => {
@@ -4080,8 +4089,7 @@ export class SQLiteStore implements IDataStore {
             const pb = JSON.parse(b.policy_snapshot);
             return {
               ...pb,
-              // Ensure we use the most up-to-date core fields from the main record
-              status: b.status === 'confirmed' ? 'CONFIRMED' : (b.status === 'cancelled' ? 'CANCELLED' : pb.status),
+              status: pendingStatuses.has((pb.status || '').toUpperCase()) ? pb.status : 'PENDING_DETAILS',
               start_date: b.check_in,
               end_date: b.check_out,
               total_price: b.total_price,

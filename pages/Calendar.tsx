@@ -12,7 +12,7 @@ import {
   Plus, CreditCard, User
 } from 'lucide-react';
 import { formatDateES, formatDateRangeES } from '../utils/dateFormat';
-import { isConfirmedBooking, isProvisionalBlock, isCovered } from '../utils/bookingClassification';
+import { isConfirmedBooking, isImportedOtaRecord, isOtaBlockBooking, isRealConflictBooking, isCovered } from '../utils/bookingClassification';
 import { getBookingDisplayName } from '../utils/bookingDisplay';
 import { DayIndex, formatDay } from '../utils/day';
 import { assignLanes, LaneAssigned } from '../utils/assignLanes';
@@ -284,7 +284,7 @@ const CalendarContent: React.FC = () => {
 
   const { confirmed, provisionalNotCovered, provisionalCovered } = useMemo(() => {
     const cf = bookingsWithConflicts.filter(b => b.status !== 'cancelled' && isConfirmedBooking(b));
-    const pr = bookingsWithConflicts.filter(b => b.status !== 'cancelled' && isProvisionalBlock(b));
+    const pr = bookingsWithConflicts.filter(b => b.status !== 'cancelled' && isOtaBlockBooking(b));
     const prNotCovered = pr.filter(p => !isCovered(p, cf));
     const prCovered = pr.filter(p => isCovered(p, cf));
     return { confirmed: cf, provisionalNotCovered: prNotCovered, provisionalCovered: prCovered };
@@ -556,9 +556,9 @@ const CalendarContent: React.FC = () => {
                                             const colStart = (clippedStart - weekStart) + 1;
                                             const colEnd = (clippedEnd - weekStart) + 2;
 
-                                            const isBlock = isProvisionalBlock(b);
+                                            const isBlock = isOtaBlockBooking(b);
                                             const baseColor = isBlock ? '#94a3b8' : (apt.color || '#4f46e5');
-                                            const isConflict = b.conflict_detected;
+                                            const isConflict = isRealConflictBooking(b);
                                             const isBlack = baseColor === '#000000' || baseColor === '#000';
                                             const textColor = isBlack ? '#FFFFFF' : '#000000';
 
@@ -580,7 +580,7 @@ const CalendarContent: React.FC = () => {
                                                 color: textColor,
                                               };
 
-                                            const baseName = b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler));
+                                            const baseName = isConflict ? `Conflicto OTA · ${getBookingDisplayName(b, traveler)}` : (b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO OTA' : getBookingDisplayName(b, traveler)));
                                             const pax = (b as any).pax_total || b.guests || 0;
                                             const displayName = (pax > 0 && !isBlock && b.event_kind !== 'BLOCK') ? `${baseName} · ${pax}pax` : baseName;
                                             const conflictSources = (b as any).conflict_sources as string[] | undefined;
@@ -743,9 +743,9 @@ const CalendarContent: React.FC = () => {
                         const colStart = (seg.segStartDay - weekStart) + 1;
                         const colEnd = (seg.segEndDayInclusive - weekStart) + 1;
 
-                        const isBlock = isProvisionalBlock(b);
+                        const isBlock = isOtaBlockBooking(b);
                         const baseColor = isBlock ? '#94a3b8' : (apt?.color || '#4f46e5');
-                        const isConflict = b.conflict_detected;
+                        const isConflict = isRealConflictBooking(b);
                         const isBlack = baseColor === '#000000' || baseColor === '#000';
                         const textColor = isBlack ? '#FFFFFF' : '#000000';
 
@@ -767,7 +767,7 @@ const CalendarContent: React.FC = () => {
                             color: textColor,
                           };
 
-                        const baseName = b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO' : getBookingDisplayName(b, traveler));
+                        const baseName = isConflict ? `Conflicto OTA · ${getBookingDisplayName(b, traveler)}` : (b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO OTA' : getBookingDisplayName(b, traveler)));
                         const pax = (b as any).pax_total || b.guests || 0;
                         const displayName = (pax > 0 && !isBlock && b.event_kind !== 'BLOCK') ? `${baseName} · ${pax}pax` : baseName;
                         const conflictSources = (b as any).conflict_sources as string[] | undefined;
@@ -934,8 +934,8 @@ const CalendarContent: React.FC = () => {
               <div className="bg-amber-100 text-amber-700 p-4 rounded-2xl mb-6 flex items-center gap-3 border border-amber-200">
                 <AlertTriangle size={24} />
                 <div className="text-xs font-bold">
-                  <p className="uppercase mb-1">Conflicto Detectado</p>
-                  <p className="opacity-80">Esta reserva se solapa con otra. Revisa el Channel Manager.</p>
+                  <p className="uppercase mb-1">Conflicto OTA real</p>
+                  <p className="opacity-80">Esta reserva operativa se solapa con otra disponibilidad importada o reserva OTA. Revísala desde Channel Manager.</p>
                   {(viewingBooking as any).conflict_sources?.length ? (
                     <p className="opacity-70 mt-1">Fuentes: {(viewingBooking as any).conflict_sources.join(' vs ')}</p>
                   ) : null}
@@ -955,10 +955,14 @@ const CalendarContent: React.FC = () => {
               <div className="p-6 bg-indigo-50 rounded-3xl border border-indigo-100">
                 <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-1">Huésped</p>
                 <div className="flex justify-between items-end">
-                  <p className="text-xl font-black text-indigo-900">{viewingBooking.event_kind === 'BLOCK' ? 'Bloqueo OTA' : getBookingDisplayName(viewingBooking, travelers.find(t => t.id === viewingBooking.traveler_id))}</p>
-                  {isProvisionalBlock(viewingBooking) ? (
+                  <p className="text-xl font-black text-indigo-900">{isRealConflictBooking(viewingBooking) ? `Conflicto OTA · ${getBookingDisplayName(viewingBooking, travelers.find(t => t.id === viewingBooking.traveler_id))}` : (viewingBooking.event_kind === 'BLOCK' ? 'Bloqueo OTA' : getBookingDisplayName(viewingBooking, travelers.find(t => t.id === viewingBooking.traveler_id)))}</p>
+                  {isOtaBlockBooking(viewingBooking) ? (
                     <span className="text-xs font-black text-amber-600 bg-amber-50 px-3 py-1 rounded-xl shadow-sm flex items-center gap-1">
-                      <AlertCircle size={12} /> Bloqueo
+                      <AlertCircle size={12} /> Disponibilidad OTA
+                    </span>
+                  ) : isRealConflictBooking(viewingBooking) ? (
+                    <span className="text-xs font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-xl shadow-sm flex items-center gap-1">
+                      <AlertTriangle size={12} /> Conflicto real
                     </span>
                   ) : (
                     <span className="text-lg font-black text-indigo-600 bg-white px-3 py-1 rounded-xl shadow-sm">{viewingBooking.guests || 1} PAX</span>
@@ -996,27 +1000,36 @@ const CalendarContent: React.FC = () => {
               </button>
             </div>
 
-            {viewingBooking.conflict_detected && (
+            {isRealConflictBooking(viewingBooking) && (
               <button
-                onClick={async () => {
-                  const store = projectManager.getStore();
-                  const result = await store.consolidateCalendarDuplicates(viewingBooking.id);
-                  console.info(`[CalendarUI] resolve duplicate booking=${viewingBooking.id} canonical=${result.canonicalId} removed=${result.removedIds.join(',')}`);
-                  await projectManager.saveProject();
+                onClick={() => {
                   setIsViewModalOpen(false);
-                  loadData();
-                  notifyDataChanged('all');
+                  navigate('/channel-manager');
                 }}
                 className="w-full mt-4 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
               >
-                <ShieldCheck size={18} /> Resolver Duplicado
+                <ShieldCheck size={18} /> Abrir resolucion en Channel Manager
               </button>
             )}
 
-            {(viewingBooking.event_kind === 'BLOCK' || viewingBooking.event_origin === 'ical' || !viewingBooking.external_ref) ? (
+            {isRealConflictBooking(viewingBooking) ? (
+              <div className="w-full mt-8 py-4 bg-amber-50 text-amber-700 rounded-2xl font-black flex items-center justify-center gap-2 border border-amber-100">
+                <ShieldCheck size={18} /> Resolver desde Channel Manager
+              </div>
+            ) : isOtaBlockBooking(viewingBooking) ? (
+              <button onClick={() => {
+                setIsViewModalOpen(false);
+                navigate('/channel-manager');
+              }} className="w-full mt-8 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors bg-orange-50 text-orange-500 hover:bg-orange-100">
+                <ShieldCheck size={18} /> Gestionar disponibilidad OTA
+              </button>
+            ) : isImportedOtaRecord(viewingBooking) ? (
+              <div className="w-full mt-8 py-4 bg-slate-50 text-slate-400 rounded-2xl font-black flex items-center justify-center gap-2 border border-slate-100">
+                <ShieldCheck size={18} /> Reserva OTA sincronizada (Solo lectura)
+              </div>
+            ) : (
               <button onClick={async () => {
-                const label = viewingBooking.event_kind === 'BLOCK' ? 'este bloqueo OTA' : 'esta reserva';
-                if (confirm(`¿Eliminar ${label} del calendario? Quedará resuelto en la capa canónica local y no debe reaparecer tras resync.`)) {
+                if (confirm('¿Eliminar esta reserva local del calendario?')) {
                   const store = projectManager.getStore();
                   console.info(`[CalendarUI] dismiss booking=${viewingBooking.id} kind=${viewingBooking.event_kind || 'BOOKING'} origin=${viewingBooking.event_origin || 'manual'}`);
                   await store.dismissCalendarBooking(viewingBooking.id);
@@ -1025,13 +1038,9 @@ const CalendarContent: React.FC = () => {
                   loadData();
                   notifyDataChanged('all');
                 }
-              }} className={`w-full mt-8 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors ${viewingBooking.event_kind === 'BLOCK' ? 'bg-orange-50 text-orange-500 hover:bg-orange-100' : 'bg-rose-50 text-rose-500 hover:bg-rose-100'}`}>
-                <Trash2 size={18} /> {viewingBooking.event_kind === 'BLOCK' ? 'Eliminar Bloqueo OTA' : 'Eliminar Reserva'}
+              }} className="w-full mt-8 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors bg-rose-50 text-rose-500 hover:bg-rose-100">
+                <Trash2 size={18} /> Eliminar Reserva Local
               </button>
-            ) : (
-              <div className="w-full mt-8 py-4 bg-slate-50 text-slate-400 rounded-2xl font-black flex items-center justify-center gap-2 border border-slate-100">
-                <ShieldCheck size={18} /> Sincronizado con OTA (Solo Lectura)
-              </div>
             )}
           </div>
         </div>

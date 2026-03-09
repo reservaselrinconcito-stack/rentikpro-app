@@ -150,10 +150,10 @@ export const BookingEnrichmentList: React.FC<BookingEnrichmentListProps> = ({ on
             <div className="bg-amber-50 px-4 py-3 border-b border-amber-200 flex justify-between items-center">
                 <h3 className="text-amber-800 font-semibold flex items-center gap-2">
                     <AlertTriangle size={18} />
-                    Provisional Bookings Review
+                    Pendientes de completar
                 </h3>
                 <span className="bg-amber-200 text-amber-800 text-xs px-2 py-1 rounded-full">
-                    {provisionals.length} Pending
+                    {provisionals.length} pendientes
                 </span>
             </div>
 

@@ -10,7 +10,7 @@ import { Plus, Calendar, Trash2, CheckCircle, Clock, XCircle, X, MessageCircle, 
 import { DirectPaymentList } from '../components/DirectPaymentList';
 import { formatDateES } from '../utils/dateFormat';
 import { ensureValidStay } from '../utils/dateLogic';
-import { isConfirmedBooking, isProvisionalBlock, hasRealGuest, hasAmountPositive } from '../utils/bookingClassification';
+import { getBookingEntityClass, isConfirmedBooking, isImportedOtaRecord, isOperationalBooking, isProvisionalBlock } from '../utils/bookingClassification';
 import { getBookingDisplayName } from '../utils/bookingDisplay';
 import { mapCalendarEventToBooking, mergeBookingsAndEvents } from '../utils/bookingMapping';
 import { AlertTriangle, Camera } from 'lucide-react';
@@ -48,7 +48,7 @@ export const Bookings: React.FC = () => {
   const [filterStayStatus, setFilterStayStatus] = useState('ALL');
   const [filterYear, setFilterYear] = useState('ALL');
   const [filterMonth, setFilterMonth] = useState('ALL');
-  const [includeBlocks, setIncludeBlocks] = useState(false);
+  const [includeNonOperational, setIncludeNonOperational] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -129,17 +129,43 @@ export const Bookings: React.FC = () => {
       setTravelers(t);
       setAllApartments(a);
 
-      // Deduplicate bookings from both sources
-      // We prioritize bookings from Accounting (getBookingsFromAccounting) because they are often more enriched
-      // with payment data, but we keep items from Bookings that don't exist in Accounting.
-      const merged = [...accountingBookings];
-      const accIds = new Set(accountingBookings.map(b => b.id));
-      const accExtRefs = new Set(accountingBookings.filter(b => b.external_ref).map(b => b.external_ref));
+      const accountingByKey = new Map<string, Booking>();
+      const linkAccounting = (key: string | undefined, booking: Booking) => {
+        if (!key) return;
+        accountingByKey.set(key, booking);
+      };
+      accountingBookings.forEach(b => {
+        linkAccounting(`id:${b.id}`, b);
+        linkAccounting(`ext:${b.external_ref}`, b);
+        linkAccounting(`ical:${b.ical_uid}`, b);
+      });
 
-      tableBookings.forEach(b => {
-        if (!accIds.has(b.id) && (!b.external_ref || !accExtRefs.has(b.external_ref))) {
-          merged.push(b);
-        }
+      const merged = tableBookings.map(b => {
+        const acc = accountingByKey.get(`id:${b.id}`)
+          || accountingByKey.get(`ext:${b.external_ref}`)
+          || accountingByKey.get(`ical:${b.ical_uid}`);
+
+        if (!acc) return b;
+
+        return {
+          ...b,
+          total_price: (b.total_price || 0) > 0 ? b.total_price : acc.total_price,
+          payments: acc.payments?.length ? acc.payments : b.payments,
+          payment_notes: b.payment_notes || acc.payment_notes,
+        };
+      });
+
+      const matchedKeys = new Set(merged.flatMap(b => [
+        `id:${b.id}`,
+        b.external_ref ? `ext:${b.external_ref}` : '',
+        b.ical_uid ? `ical:${b.ical_uid}` : ''
+      ].filter(Boolean)));
+
+      accountingBookings.forEach(b => {
+        const keyMatches = matchedKeys.has(`id:${b.id}`)
+          || (!!b.external_ref && matchedKeys.has(`ext:${b.external_ref}`))
+          || (!!b.ical_uid && matchedKeys.has(`ical:${b.ical_uid}`));
+        if (!keyMatches) merged.push(b);
       });
 
       console.debug(`[Bookings] Merged Source: ${tableBookings.length} internal + ${accountingBookings.length} accounting. Final: ${merged.length} bookings.`);
@@ -366,7 +392,7 @@ export const Bookings: React.FC = () => {
   ];
 
   const processedBookings = React.useMemo(() => {
-    let result = [...bookings];
+    let result = [...bookings].filter(b => getBookingEntityClass(b) !== 'PENDING_PROVISIONAL');
 
     // 1. Filter
     if (searchTerm) {
@@ -409,8 +435,8 @@ export const Bookings: React.FC = () => {
     }
 
     // 1b. Block Filter
-    if (activeMainTab === 'ALL' && !includeBlocks) {
-      result = result.filter(b => !isProvisionalBlock(b));
+    if (!includeNonOperational) {
+      result = result.filter(b => isOperationalBooking(b));
     }
 
     // 1c. Date Mode Filter (D1.1)
@@ -436,8 +462,7 @@ export const Bookings: React.FC = () => {
         // 1. Exclude cancelled
         if (b.status === 'cancelled') return false;
 
-        // 2. Consistent filter: Confirmed only (blocks are handled by includeBlocks toggle)
-        if (!isConfirmedBooking(b)) return false;
+        if (!isOperationalBooking(b)) return false;
 
         return true;
       });
@@ -470,7 +495,7 @@ export const Bookings: React.FC = () => {
           return 0;
       }
     });
-  }, [bookings, sortBy, allApartments, searchTerm, filterChannel, filterStatus, filterApartment, filterStayStatus, filterYear, filterMonth, travelers]);
+  }, [bookings, sortBy, allApartments, searchTerm, filterChannel, filterStatus, filterApartment, filterStayStatus, filterYear, filterMonth, travelers, activeMainTab, filterDateMode, includeNonOperational]);
 
   const clearFilters = () => {
     setSearchTerm('');
@@ -480,7 +505,7 @@ export const Bookings: React.FC = () => {
     setFilterStayStatus('ALL');
     setFilterYear('ALL');
     setFilterMonth('ALL');
-    setIncludeBlocks(false);
+    setIncludeNonOperational(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -901,16 +926,16 @@ export const Bookings: React.FC = () => {
 
               <div className="flex flex-col gap-1 self-end">
                 <button
-                  onClick={() => setIncludeBlocks(!includeBlocks)}
-                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all border mt-auto ${includeBlocks ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+                  onClick={() => setIncludeNonOperational(!includeNonOperational)}
+                  className={`px-4 py-2.5 rounded-xl text-[10px] font-black uppercase transition-all border mt-auto ${includeNonOperational ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
                 >
-                  {includeBlocks ? '✓ Bloqueos' : 'Ver Bloqueos'}
+                  {includeNonOperational ? 'Incluye OTA' : 'Solo operativas'}
                 </button>
               </div>
             </>
           )}
 
-          {(searchTerm || (activeMainTab === 'ALL' && (filterChannel !== 'ALL' || filterStatus !== 'ALL' || filterApartment !== 'ALL' || filterYear !== 'ALL' || filterMonth !== 'ALL' || includeBlocks))) && (
+          {(searchTerm || (activeMainTab === 'ALL' && (filterChannel !== 'ALL' || filterStatus !== 'ALL' || filterApartment !== 'ALL' || filterYear !== 'ALL' || filterMonth !== 'ALL' || includeNonOperational))) && (
             <button
               onClick={() => { clearFilters(); }}
               className="flex items-center gap-2 px-4 py-3 bg-rose-50 text-rose-600 rounded-2xl text-xs font-black hover:bg-rose-100 transition-colors"
@@ -939,15 +964,20 @@ export const Bookings: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {processedBookings.map(b => (
-                  <tr key={b.id} className="hover:bg-slate-50/50 transition-colors group">
+                {processedBookings.map(b => {
+                  const entityClass = getBookingEntityClass(b);
+                  const isOtaAvailability = entityClass === 'OTA_BLOCK';
+                  const isConflict = entityClass === 'REAL_CONFLICT';
+                  const isReadonlyOta = isImportedOtaRecord(b);
+                  return (
+                    <tr key={b.id} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-8 py-5">
                       <div className="font-bold text-slate-800">{allApartments.find(a => a.id === b.apartment_id)?.name || 'N/A'}</div>
                       <div className="text-[10px] font-bold text-slate-400 uppercase">{properties.find(p => p.id === b.property_id)?.name || 'N/A'}</div>
                     </td>
-                    <td className="px-8 py-5 font-bold text-slate-700">
-                      {b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : getBookingDisplayName(b, travelers.find(t => t.id === b.traveler_id))}
-                    </td>
+                      <td className="px-8 py-5 font-bold text-slate-700">
+                      {isOtaAvailability ? 'Disponibilidad OTA' : getBookingDisplayName(b, travelers.find(t => t.id === b.traveler_id))}
+                      </td>
                     <td className="px-8 py-5">
                       <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${b.source === 'WEBSITE_IMPORT' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
                         {b.source}
@@ -955,16 +985,16 @@ export const Bookings: React.FC = () => {
                     </td>
                     <td className="px-8 py-5 text-xs text-slate-500 font-bold">
                       {formatDateES(b.check_in)} al {formatDateES(b.check_out)}
-                      {b.conflict_detected && <span className="block text-[9px] text-rose-500 font-black mt-1 flex items-center gap-1"><AlertCircle size={10} /> CONFLICTO</span>}
+                      {isConflict && <span className="block text-[9px] text-rose-500 font-black mt-1 flex items-center gap-1"><AlertCircle size={10} /> CONFLICTO OTA REAL</span>}
                     </td>
-                    <td className={`px-8 py-5 font-black ${isProvisionalBlock(b) || b.status === 'blocked' ? 'text-amber-600' : 'text-slate-900'}`}>
-                      {b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isProvisionalBlock(b) || b.status === 'blocked' ? (
+                    <td className={`px-8 py-5 font-black ${isOtaAvailability ? 'text-amber-600' : 'text-slate-900'}`}>
+                      {isOtaAvailability ? (
                         <span className="flex items-center gap-1">
-                          <AlertCircle size={12} /> Bloqueo
+                          <AlertCircle size={12} /> Solo lectura OTA
                         </span>
                       ) : (
-                        `${b.total_price}€`
-                      ))}
+                        `${Number(b.total_price || 0).toLocaleString('es-ES', { maximumFractionDigits: 2 })}€`
+                      )}
                     </td>
                     <td className="px-8 py-5">
                       <div className="flex flex-col gap-1.5">
@@ -975,10 +1005,10 @@ export const Bookings: React.FC = () => {
                           return <span className="inline-flex items-center justify-center bg-slate-100 text-slate-500 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider border border-slate-200/50">Pasada</span>;
                         })()}
                         <div className="flex items-center gap-2 px-1">
-                          {b.status === 'confirmed' ? (
+                          {isOtaAvailability ? (
+                            <span className="text-[9px] font-bold text-amber-500 uppercase flex items-center gap-1"><Clock size={10} /> Disponibilidad OTA</span>
+                          ) : b.status === 'confirmed' ? (
                             <span className="text-[9px] font-bold text-emerald-500 uppercase flex items-center gap-1"><CheckCircle size={10} /> Confirmada</span>
-                          ) : b.status === 'blocked' ? (
-                            <span className="text-[9px] font-bold text-amber-500 uppercase flex items-center gap-1"><Clock size={10} /> Bloqueo</span>
                           ) : (
                             <span className="text-[9px] font-bold text-amber-500 uppercase flex items-center gap-1"><Clock size={10} /> Pendiente</span>
                           )}
@@ -986,23 +1016,24 @@ export const Bookings: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-8 py-5 text-right flex justify-end gap-2">
-                      <button onClick={() => openEditModal(b)} className="text-slate-300 hover:text-indigo-600 transition-colors p-2 bg-slate-50 rounded-xl" title="Editar"><Edit2 size={18} /></button>
-                      <button
+                      {!isReadonlyOta && <button onClick={() => openEditModal(b)} className="text-slate-300 hover:text-indigo-600 transition-colors p-2 bg-slate-50 rounded-xl" title="Editar"><Edit2 size={18} /></button>}
+                      {!isReadonlyOta && <button
                         onClick={() => navigate('/comms', { state: { travelerId: b.traveler_id } })}
                         className="text-slate-300 hover:text-indigo-600 transition-colors p-2 bg-slate-50 rounded-xl"
                         title="Enviar Mensaje"
                       >
                         <MessageCircle size={18} />
-                      </button>
-                      {!b.external_ref && (
+                      </button>}
+                      {!isReadonlyOta && (
                         <button onClick={() => handleDelete(b.id)} className="text-slate-300 hover:text-rose-500 transition-colors p-2 bg-slate-50 rounded-xl" title="Eliminar"><Trash2 size={18} /></button>
                       )}
-                      {b.external_ref && (
-                        <span className="text-[10px] font-black text-slate-400 uppercase bg-slate-100 px-2 py-1 rounded-lg">Sólo Lectura (OTA)</span>
+                      {isReadonlyOta && (
+                        <span className="text-[10px] font-black text-slate-400 uppercase bg-slate-100 px-2 py-1 rounded-lg">Solo lectura OTA</span>
                       )}
                     </td>
-                  </tr>
-                ))}
+                    </tr>
+                  );
+                })}
                 {processedBookings.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-8 py-20 text-center text-slate-400 italic">

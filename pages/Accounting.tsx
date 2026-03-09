@@ -12,6 +12,7 @@ import {
   ChevronDown, ChevronRight, AlertTriangle
 } from 'lucide-react';
 import { stableColorById } from './Properties';
+import { getAccountingEntityClass, isOperationalAccountingMovement } from '../utils/bookingClassification';
 
 type Tab = 'MOVEMENTS' | 'CHARTS' | 'TAX_DRAFT' | 'FISCAL_SETTINGS' | 'SCAN_EXPENSE';
 type FilterMode = 'MONTHLY' | 'YEARLY' | 'HISTORICAL';
@@ -313,6 +314,7 @@ export const Accounting: React.FC = () => {
   // NEW FILTERS
   const [filterPaymentMethod, setFilterPaymentMethod] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<'ALL' | 'income' | 'expense'>('ALL');
+  const [includeNonOperational, setIncludeNonOperational] = useState(false);
 
   // Detectar años disponibles desde los datos
   const availableYears = useMemo(() => {
@@ -442,6 +444,8 @@ export const Accounting: React.FC = () => {
     const searchLower = searchTerm.toLowerCase();
 
     return movements.filter(m => {
+      if (!includeNonOperational && !isOperationalAccountingMovement(m)) return false;
+
       // Bucket filter
       if (bucket !== 'ALL' && m.accounting_bucket !== bucket) return false;
 
@@ -480,7 +484,7 @@ export const Accounting: React.FC = () => {
       const timeB = new Date(b.date).getTime() || 0;
       return sortOrder === 'asc' ? timeA - timeB : timeB - timeA;
     });
-  }, [movements, filterMode, year, month, bucket, searchTerm, sortOrder, apartments, selectedPropertyId, selectedApartmentId, filterType, filterPaymentMethod]);
+  }, [movements, filterMode, year, month, bucket, searchTerm, sortOrder, apartments, selectedPropertyId, selectedApartmentId, filterType, filterPaymentMethod, includeNonOperational]);
 
   const groupedMovements = useMemo(() => {
     // 1. Diagnostics: Find potential duplicates (Global scope)
@@ -981,9 +985,16 @@ export const Accounting: React.FC = () => {
               ))}
             </select>
 
-            {(filterType !== 'ALL' || filterPaymentMethod !== 'ALL') && (
+            <button
+              onClick={() => setIncludeNonOperational(v => !v)}
+              className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${includeNonOperational ? 'bg-indigo-600 text-white border-indigo-700 shadow-lg' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+            >
+              {includeNonOperational ? 'Incluye OTA 0EUR' : 'Solo operativa'}
+            </button>
+
+            {(filterType !== 'ALL' || filterPaymentMethod !== 'ALL' || includeNonOperational) && (
               <button
-                onClick={() => { setFilterType('ALL'); setFilterPaymentMethod('ALL'); }}
+                onClick={() => { setFilterType('ALL'); setFilterPaymentMethod('ALL'); setIncludeNonOperational(false); }}
                 className="ml-auto text-[10px] font-bold text-rose-500 hover:text-rose-700 flex items-center gap-1 bg-rose-50 px-3 py-1 rounded-lg"
               >
                 <X size={12} /> Limpiar Filtros
@@ -1135,7 +1146,7 @@ export const Accounting: React.FC = () => {
                   <th className="px-8 py-6">Unidad</th>
                   <th className="px-8 py-6">Cat / Prov</th>
                   <th className="px-8 py-6">Método</th>
-                  <th className="px-8 py-6 text-right">Neto</th>
+                  <th className="px-8 py-6 text-right">Importe</th>
                   <th className="px-8 py-6 text-center"></th>
                 </tr>
               </thead>
@@ -1187,6 +1198,7 @@ export const Accounting: React.FC = () => {
                         </tr>
                         {isExpanded && item.movements.map(m => {
                           const isDup = showDiagnostics && groupedMovements.duplicates.has(m.id);
+                          const entityClass = getAccountingEntityClass(m);
                           return (
                             <tr key={m.id} className={`bg-white/50 border-l-4 border-indigo-200 hover:bg-indigo-50/30 transition-all group/sub ${isDup ? 'bg-rose-50/50' : ''}`}>
                               <td className="px-12 py-3 opacity-60">
@@ -1194,11 +1206,12 @@ export const Accounting: React.FC = () => {
                               </td>
                               <td className="px-8 py-3">
                                 <div className="flex flex-col">
-                                  <span className={`text-slate-700 font-bold text-[11px] flex items-center gap-2 ${isDup ? 'text-rose-700' : ''}`}>
-                                    {m.concept}
-                                    {isDup && <AlertTriangle size={12} className="text-rose-500" />}
-                                  </span>
-                                </div>
+                                   <span className={`text-slate-700 font-bold text-[11px] flex items-center gap-2 ${isDup ? 'text-rose-700' : ''}`}>
+                                     {m.concept}
+                                     {isDup && <AlertTriangle size={12} className="text-rose-500" />}
+                                     {entityClass === 'OTA_BLOCK' && <span className="text-[8px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded font-black border border-amber-200 uppercase tracking-tighter">OTA</span>}
+                                   </span>
+                                 </div>
                               </td>
                               <td className="px-8 py-3 opacity-60 italic text-[10px] font-medium">{apt?.name}</td>
                               <td className="px-8 py-3">
@@ -1230,6 +1243,7 @@ export const Accounting: React.FC = () => {
                   const isZero = m.amount_net === 0;
                   const apt = apartments.find(a => a.id === m.apartment_id);
                   const isDuplicate = showDiagnostics && groupedMovements.duplicates.has(m.id);
+                  const entityClass = getAccountingEntityClass(m);
 
                   return (
                     <tr key={m.id} className={`transition-all group border-l-4 ${m.reservation_id ? 'border-indigo-200 bg-indigo-50/10' : 'border-transparent'} ${isDuplicate ? 'bg-rose-50/50' : 'hover:bg-indigo-50/30'}`}>
@@ -1241,6 +1255,7 @@ export const Accounting: React.FC = () => {
                           <div className="flex items-center gap-2">
                             <span className={`text-slate-800 font-bold ${isDuplicate ? 'text-rose-700' : ''}`}>{m.concept}</span>
                             {isDuplicate && <AlertTriangle size={14} className="text-rose-500 animate-pulse" />}
+                            {entityClass === 'OTA_BLOCK' && <span className="text-[8px] bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded font-black border border-amber-200 uppercase tracking-tighter">Disponibilidad OTA</span>}
                             {!m.reservation_id && <span className="text-[8px] bg-slate-50 text-slate-500 px-1.5 py-0.5 rounded font-black border border-slate-200 uppercase tracking-tighter">Sin vincular</span>}
                           </div>
                         </div>
