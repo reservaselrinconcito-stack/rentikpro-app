@@ -1008,7 +1008,7 @@ const CalendarContent: React.FC = () => {
                 }}
                 className="w-full mt-4 py-4 rounded-2xl font-black flex items-center justify-center gap-2 transition-colors bg-amber-50 text-amber-700 hover:bg-amber-100"
               >
-                <ShieldCheck size={18} /> Abrir resolucion en Channel Manager
+                <ShieldCheck size={18} /> Abrir resolución en Channel Manager
               </button>
             )}
 

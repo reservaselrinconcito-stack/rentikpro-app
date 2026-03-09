@@ -37,7 +37,24 @@ export class ProjectManager {
     this.store = new SQLiteStore();
     // Register the autosave hook so every booking write/delete
     // schedules a debounced file-save when in file mode.
-    this.store.setWriteHook(() => this.scheduleAutoSaveFile());
+    this.attachWriteHook();
+  }
+
+  private attachWriteHook() {
+    this.store.setWriteHook(() => {
+      this.scheduleAutoSaveFile();
+      void this.refreshCurrentCounts();
+    });
+  }
+
+  private async refreshCurrentCounts(): Promise<void> {
+    try {
+      const counts = await this.store.getCounts();
+      this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
+      notifyDataChanged('all');
+    } catch (e) {
+      logger.warn('[ProjectManager] Could not refresh current counts after write', e);
+    }
   }
 
   // --- INITIALIZATION ---
@@ -276,6 +293,7 @@ export class ProjectManager {
       if (onProgress) onProgress("Guardando proyecto...");
       await this.persistCurrentProject(name);
       this.setActiveContext(id, 'demo');
+
       this.startAutoSave();
 
       notifyDataChanged();
@@ -411,7 +429,7 @@ export class ProjectManager {
 
       // Reset store to a fresh DB instance
       this.store = new SQLiteStore();
-      this.store.setWriteHook(() => this.scheduleAutoSaveFile());
+      this.attachWriteHook();
 
       notifyDataChanged('all');
     } catch (e) {

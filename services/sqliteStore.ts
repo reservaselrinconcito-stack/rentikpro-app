@@ -3800,6 +3800,8 @@ export class SQLiteStore implements IDataStore {
         p.location || '', p.logo || '', p.phone || '', p.email || '', projectId
       ]
     );
+    this.onWriteHook?.();
+    notifyDataChanged('properties');
   }
   async deleteProperty(id: string) { await this.executeWithParams("DELETE FROM properties WHERE id=?", [id]); }
 
@@ -3882,6 +3884,8 @@ export class SQLiteStore implements IDataStore {
         a.publicBasePrice ?? null, a.currency || 'EUR', projectId
       ]
     );
+    this.onWriteHook?.();
+    notifyDataChanged('apartments');
   }
   async deleteApartment(id: string) {
     await this.executeWithParams("DELETE FROM apartments WHERE id=?", [id]);

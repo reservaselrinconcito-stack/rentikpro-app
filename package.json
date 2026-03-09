@@ -1,11 +1,11 @@
 {
   "name": "rentikpro",
   "private": true,
-  "version": "2.1.61",
+  "version": "2.1.62",
   "type": "module",
   "scripts": {
     "dev:web": "vite",
-    "build:web": "vite build",
+    "build:web": "node scripts/generate-version.js && vite build",
     "dev:tauri": "cross-env VITE_TARGET=tauri vite",
     "build:tauri": "npm run prepare:sqljs && node scripts/generate-version.js && cross-env VITE_TARGET=tauri vite build",
     "release:mac": "rm -rf dist && npm run build:tauri && bash scripts/check-tauri-build.sh && npm run tauri -- build",

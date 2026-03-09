@@ -19,6 +19,7 @@ import { useMaintenance } from '../src/hooks/useMaintenance';
 import { MaintenanceOverlay } from '../src/components/MaintenanceOverlay';
 import { DemoBanner } from './DemoBanner';
 import { UpdateButton } from './UpdateButton';
+import { useDataRefresh } from '../services/dataRefresher';
 
 
 interface LayoutProps {
@@ -75,9 +76,14 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [debugPanelOpen, setDebugPanelOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [, setDataVersion] = useState(0);
 
   const [booted, setBooted] = useState(() => isDbReady());
   const [bootError, setBootError] = useState<any>(null);
+
+  useDataRefresh(() => {
+    setDataVersion(v => v + 1);
+  });
 
   const { enabled: maintenanceEnabled, reason: maintenanceReason } = useMaintenance();
   const navigate = useNavigate();
