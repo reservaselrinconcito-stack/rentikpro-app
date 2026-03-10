@@ -192,11 +192,13 @@
     </div>
     <h1>RentikPro</h1>
     <p class="subtitle">Gestión profesional de alojamientos turísticos</p>
-    <div class="version-badge">Instalador real disponible</div>
+    <div class="version-badge" id="release-badge">Buscando release estable...</div>
 
-    <p class="os-hint">Descarga directa del instalador oficial para macOS.</p>
+    <p class="os-hint" id="os-hint">Descarga directa del instalador oficial estable.</p>
 
-    <a class="btn btn-mac-arm" href="/downloads/rentikpro/mac/RentikPro.dmg" download>
+    <div id="download-error" class="error" style="display:none;"></div>
+
+    <a class="btn btn-mac-arm" id="download-mac-arm" href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest" target="_blank" rel="noopener noreferrer">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
         <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.37 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
       </svg>
@@ -204,11 +206,87 @@
       <span class="recommended">Recomendado</span>
     </a>
 
+    <a class="btn btn-mac-intel" id="download-mac-x64" href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest" target="_blank" rel="noopener noreferrer">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.37 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
+      </svg>
+      Descargar para macOS Intel
+    </a>
+
+    <a class="btn btn-win" id="download-win" href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest" target="_blank" rel="noopener noreferrer">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M3 5.56 9.93 4.5v6.6H3V5.56Zm8.06-1.23L21 3v8.1h-8.94V4.33ZM3 12.9h6.93v6.61L3 18.44V12.9Zm8.06 0H21V21l-8.94-1.28V12.9Z" />
+      </svg>
+      Descargar para Windows
+    </a>
+
+    <a class="btn btn-all" id="download-all" href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest" target="_blank" rel="noopener noreferrer">
+      Ver todos los instaladores estables
+    </a>
+
     <div class="footer-note">
       Requiere macOS 11+ o Windows 10+.<br>
       <a href="/">← Volver al inicio</a>
     </div>
   </div>
+
+  <script>
+    const releaseInfoUrl = 'https://rentikpro-updates.reservas-elrinconcito.workers.dev/release.json';
+    const fallbackReleaseUrl = 'https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest';
+    const badge = document.getElementById('release-badge');
+    const osHint = document.getElementById('os-hint');
+    const errorBox = document.getElementById('download-error');
+    const links = {
+      macArm: document.getElementById('download-mac-arm'),
+      macX64: document.getElementById('download-mac-x64'),
+      win: document.getElementById('download-win'),
+      all: document.getElementById('download-all'),
+    };
+
+    const setLink = (node, href, label) => {
+      if (!node) return;
+      node.href = href || fallbackReleaseUrl;
+      if (label) {
+        node.setAttribute('data-label', label);
+      }
+    };
+
+    const applyRelease = (release) => {
+      if (!release) return;
+      badge.textContent = `Release estable v${release.version}`;
+      if (release.downloads?.macos_arm64?.url) links.macArm.href = release.downloads.macos_arm64.url;
+      if (release.downloads?.macos_x64?.url) links.macX64.href = release.downloads.macos_x64.url;
+      if (release.downloads?.windows_x64?.url) links.win.href = release.downloads.windows_x64.url;
+      links.all.href = release.release_url || fallbackReleaseUrl;
+
+      const ua = navigator.userAgent || '';
+      if (/Windows/i.test(ua)) {
+        osHint.textContent = `Windows detectado. Instalador estable v${release.version} listo para descargar.`;
+        links.win.querySelector('.recommended')?.remove();
+      } else if (/Intel/i.test(ua) || /x86_64/i.test(ua)) {
+        osHint.textContent = `Mac Intel detectado. Descarga el instalador estable v${release.version}.`;
+      } else {
+        osHint.textContent = `Mac Apple Silicon detectado. Descarga el instalador estable v${release.version}.`;
+      }
+    };
+
+    fetch(`${releaseInfoUrl}?t=${Date.now()}`, { cache: 'no-store' })
+      .then((response) => {
+        if (!response.ok) throw new Error(`release ${response.status}`);
+        return response.json();
+      })
+      .then(applyRelease)
+      .catch(() => {
+        badge.textContent = 'Instalador estable en GitHub Releases';
+        osHint.textContent = 'Si la release estable no responde, abrimos GitHub Releases para evitar descargas rotas.';
+        errorBox.style.display = 'block';
+        errorBox.textContent = 'No hemos podido resolver la release estable automaticamente. Usa GitHub Releases.';
+        links.macArm.href = fallbackReleaseUrl;
+        links.macX64.href = fallbackReleaseUrl;
+        links.win.href = fallbackReleaseUrl;
+        links.all.href = fallbackReleaseUrl;
+      });
+  </script>
 
 </body>
 
