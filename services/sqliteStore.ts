@@ -37,7 +37,7 @@ import { logger } from './logger';
 import { APP_VERSION, SCHEMA_VERSION } from '../src/version';
 import { notifyDataChanged, type EntityType } from './dataRefresher';
 import { guestService } from './guestService';
-import { isProvisionalBlock, isProvisionalBooking } from '../utils/bookingClassification';
+import { hasAmountPositive, hasRealGuest, isProvisionalBlock, isProvisionalBooking } from '../utils/bookingClassification';
 import { ensureValidStay } from '../utils/dateLogic';
 import { isDemoMode } from '../utils/demoMode';
 
@@ -1846,6 +1846,8 @@ export class SQLiteStore implements IDataStore {
     // Always update timestamp on write
     b.updated_at = Date.now();
 
+    this.applyManagedBookingClassification(b);
+
     const values: any[] = [
       b.id, b.property_id, b.apartment_id, b.traveler_id, b.check_in, b.check_out, b.status, b.total_price, b.guests, b.source,
       b.external_ref || null, b.created_at, b.conflict_detected ? 1 : 0, b.linked_event_id || null, b.rate_plan_id || null, b.summary || null, b.guest_name || null,
@@ -3290,6 +3292,40 @@ export class SQLiteStore implements IDataStore {
 
   private isBlockLikeBooking(booking: Partial<Booking>): boolean {
     return (booking.event_kind === 'BLOCK') || isProvisionalBlock(booking as Booking) || booking.status === 'blocked';
+  }
+
+  private hasManualClassificationOverride(booking: Partial<Booking>): boolean {
+    if ((booking.source || '').toUpperCase() === 'MANUAL') return true;
+
+    try {
+      const raw = typeof booking.field_sources === 'string' ? booking.field_sources : null;
+      if (!raw) return false;
+      const fieldSources = JSON.parse(raw);
+      const keys = ['status', 'guest_name', 'total_price', 'source', 'check_in', 'check_out'];
+      return keys.some((key) => fieldSources?.[key] === 'MANUAL');
+    } catch {
+      return false;
+    }
+  }
+
+  private applyManagedBookingClassification(booking: Booking): void {
+    if (booking.status === 'cancelled') return;
+    if (!this.hasManualClassificationOverride(booking)) return;
+
+    const blockLike = !hasRealGuest(booking) && !hasAmountPositive(booking);
+
+    booking.event_kind = blockLike ? 'BLOCK' : 'BOOKING';
+
+    if (blockLike) {
+      booking.status = 'blocked';
+      booking.event_state = 'confirmed';
+      return;
+    }
+
+    if (booking.status === 'blocked') {
+      booking.status = 'confirmed';
+    }
+    booking.event_state = booking.event_state === 'provisional' ? 'provisional' : 'confirmed';
   }
 
   private shouldMergeBookingPair(a: Booking, b: Booking): boolean {
