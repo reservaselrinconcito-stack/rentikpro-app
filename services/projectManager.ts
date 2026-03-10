@@ -32,6 +32,9 @@ export class ProjectManager {
   private fileSaveState: 'idle' | 'saving' | 'saved' | 'error' = 'idle';
   private fileAutoSaveTimer: any = null;
   public isSavingToFile: boolean = false; // reentrance guard to avoid saveToFile -> saveProject -> saveToFile loop
+  private isPersistingProject: boolean = false;
+  private projectDirty: boolean = false;
+  private lastIdbSnapshotAt: number | null = null;
 
   constructor() {
     this.store = new SQLiteStore();
@@ -42,9 +45,19 @@ export class ProjectManager {
 
   private attachWriteHook() {
     this.store.setWriteHook(() => {
+      this.projectDirty = true;
       this.scheduleAutoSaveFile();
       void this.refreshCurrentCounts();
     });
+  }
+
+  private markProjectClean(): void {
+    this.projectDirty = false;
+  }
+
+  private shouldRefreshIdbSnapshot(): boolean {
+    if (this.lastIdbSnapshotAt == null) return true;
+    return (Date.now() - this.lastIdbSnapshotAt) >= 10 * 60 * 1000;
   }
 
   private async refreshCurrentCounts(notify: boolean = true): Promise<void> {
@@ -67,6 +80,7 @@ export class ProjectManager {
     }
 
     await this.refreshCurrentCounts(true);
+    this.markProjectClean();
   }
 
   // --- INITIALIZATION ---
@@ -484,6 +498,7 @@ export class ProjectManager {
   private startAutoSave() {
     if (this.autoSaveInterval) clearInterval(this.autoSaveInterval);
     this.autoSaveInterval = setInterval(() => {
+      if (!this.projectDirty) return;
       this.saveProject().catch(e => console.warn("Auto-save failed", e));
     }, 30000); // 30s auto-save to IndexedDB
   }
@@ -493,7 +508,11 @@ export class ProjectManager {
   async saveProject(): Promise<void> {
     console.log('[SAVE:PM] begin', { projectId: this.currentProjectId });
     if (!this.store || !this.currentProjectId) return;
-    const isTauri = isTauriRuntime();
+    if (this.isPersistingProject) return;
+
+    this.isPersistingProject = true;
+    try {
+      const isTauri = isTauriRuntime();
     const isDemo = this.currentProjectMode === 'demo';
     const workspacePath = (isTauri && !isDemo) ? (localStorage.getItem('rp_workspace_path') || '') : '';
     const folderPath = (isTauri && !isDemo) ? (localStorage.getItem('rp_last_project_path') || '') : '';
@@ -505,14 +524,17 @@ export class ProjectManager {
       const { workspaceManager } = await import('./workspaceManager');
       await workspaceManager.saveWorkspace(workspacePath, dbBytes);
 
-      try {
-        const name = `Workspace ${workspaceManager.getWorkspaceDisplayName()}`;
-        await this.snapshotCurrentProjectToIdb(name);
-      } catch (e) {
-        logger.warn('[ProjectManager] IDB snapshot failed (workspace mode)', e);
+      if (this.shouldRefreshIdbSnapshot()) {
+        try {
+          const name = `Workspace ${workspaceManager.getWorkspaceDisplayName()}`;
+          await this.snapshotCurrentProjectToIdb(name, dbBytes);
+        } catch (e) {
+          logger.warn('[ProjectManager] IDB snapshot failed (workspace mode)', e);
+        }
       }
 
       this.lastSyncedAt = Date.now();
+      this.markProjectClean();
       return;
     }
 
@@ -521,19 +543,22 @@ export class ProjectManager {
     if (isTauri && folderPath) {
       await this.persistCurrentProjectToFolder(folderPath);
 
-      try {
-        const cached = localStorage.getItem('rp_last_project_json');
-        const nameFromJson = cached ? (JSON.parse(cached)?.name as string | undefined) : undefined;
-        const name = nameFromJson || `Proyecto ${new Date().toLocaleDateString()}`;
-        await this.snapshotCurrentProjectToIdb(name);
-      } catch (e) {
-        logger.warn('[ProjectManager] IDB snapshot failed (folder mode)', e);
+      if (this.shouldRefreshIdbSnapshot()) {
+        try {
+          const cached = localStorage.getItem('rp_last_project_json');
+          const nameFromJson = cached ? (JSON.parse(cached)?.name as string | undefined) : undefined;
+          const name = nameFromJson || `Proyecto ${new Date().toLocaleDateString()}`;
+          await this.snapshotCurrentProjectToIdb(name);
+        } catch (e) {
+          logger.warn('[ProjectManager] IDB snapshot failed (folder mode)', e);
+        }
       }
 
       this.lastSyncedAt = Date.now();
       if (this.currentProjectMode === 'real') {
         syncCoordinator.syncUp().catch(e => logger.warn('[ProjectManager] Async SyncUp failed', e));
       }
+      this.markProjectClean();
       return;
     }
 
@@ -546,23 +571,27 @@ export class ProjectManager {
     if (this.storageMode === 'file' && !this.isSavingToFile) {
       this.scheduleAutoSaveFile();
     }
+    } finally {
+      this.isPersistingProject = false;
+    }
   }
 
-  private async snapshotCurrentProjectToIdb(name: string): Promise<void> {
+  private async snapshotCurrentProjectToIdb(name: string, data?: Uint8Array): Promise<void> {
     if (!this.currentProjectId) return;
 
-    const data = this.store.export();
+    const bytes = data || this.store.export();
     const counts = await this.store.getCounts();
     this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
 
     await projectPersistence.saveProject(
       this.currentProjectId,
       name,
-      data,
+      bytes,
       this.currentProjectMode,
       this.currentCounts.bookings,
       this.currentCounts.accounting
     );
+    this.lastIdbSnapshotAt = Date.now();
   }
 
   private bytesToBase64(bytes: Uint8Array): string {
@@ -660,6 +689,7 @@ export class ProjectManager {
     if (this.currentProjectMode === 'real') {
       syncCoordinator.syncUp().catch(e => logger.warn("[ProjectManager] Async SyncUp failed", e));
     }
+    this.markProjectClean();
   }
 
   getProjectStats() {
