@@ -1,10 +1,15 @@
 
 import { projectManager } from './projectManager';
-import { Booking, CheckInRequest } from '../types';
+import { Booking, CheckInDeliveryChannel, CheckInRequest } from '../types';
 
 const PUBLIC_CHECKIN_BASE = window.location.origin + '/#/checkin';
 
 export class CheckInService {
+    private async getRequestById(requestId: string): Promise<CheckInRequest | null> {
+        const store = projectManager.getStore();
+        const requests = await store.getCheckInRequests();
+        return requests.find(r => r.id === requestId) || null;
+    }
 
     /**
      * Generates a locator RP-YYMM-XXXXXX
@@ -116,13 +121,38 @@ export class CheckInService {
         return `${PUBLIC_CHECKIN_BASE}/${token}`;
     }
 
-    async markAsSent(requestId: string): Promise<void> {
+    async prepareDelivery(requestId: string, channel: CheckInDeliveryChannel, recipient?: string, notes?: string): Promise<void> {
         const store = projectManager.getStore();
-        const requests = await store.getCheckInRequests();
-        const req = requests.find(r => r.id === requestId);
+        const req = await this.getRequestById(requestId);
+        if (req) {
+            req.last_prepared_at = Date.now();
+            req.delivery_recipient = recipient || req.delivery_recipient;
+            req.delivery_notes = notes || req.delivery_notes;
+            req.sent_via = channel;
+            await store.saveCheckInRequest(req);
+        }
+    }
+
+    async markAsSent(requestId: string, channel?: CheckInDeliveryChannel, recipient?: string, notes?: string): Promise<void> {
+        const store = projectManager.getStore();
+        const req = await this.getRequestById(requestId);
         if (req) {
             req.status = 'SENT';
             req.sent_at = Date.now();
+            req.sent_via = channel || req.sent_via;
+            req.delivery_recipient = recipient || req.delivery_recipient;
+            req.delivery_notes = notes || req.delivery_notes;
+            await store.saveCheckInRequest(req);
+        }
+    }
+
+    async markAsCompleted(requestId: string, guestFormJson?: string): Promise<void> {
+        const store = projectManager.getStore();
+        const req = await this.getRequestById(requestId);
+        if (req) {
+            req.status = 'COMPLETED';
+            req.completed_at = Date.now();
+            if (guestFormJson) req.guest_form_json = guestFormJson;
             await store.saveCheckInRequest(req);
         }
     }

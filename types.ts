@@ -74,16 +74,22 @@ export interface Traveler {
   id: string;
   nombre: string;
   apellidos: string;
+  segundo_apellido?: string;
+  sexo?: 'M' | 'F' | 'X' | '';
   tipo_documento: string;
   documento?: string; // Made optional for flexible import
+  numero_soporte?: string;
   fecha_nacimiento?: string;
   telefono?: string;
+  telefono_fijo?: string;
+  telefono_movil?: string;
   email?: string;
   nacionalidad?: string;
   provincia?: string;
   cp?: string;
   localidad?: string;
   direccion?: string;
+  pais_residencia?: string;
   created_at: number;
   updated_at?: number;
   total_stays?: number;
@@ -1423,7 +1429,62 @@ export interface CheckInToken {
   created_at: number;
 }
 
+export interface SesHospedajesGuestData {
+  nombre: string;
+  primer_apellido: string;
+  segundo_apellido?: string;
+  sexo?: string;
+  numero_documento: string;
+  numero_soporte?: string;
+  tipo_documento: string;
+  nacionalidad?: string;
+  fecha_nacimiento?: string;
+  direccion_completa?: string;
+  localidad?: string;
+  pais?: string;
+  telefono_fijo?: string;
+  telefono_movil?: string;
+  email?: string;
+}
+
+export interface SesHospedajesContractData {
+  numero_viajeros?: number;
+  parentesco_menores?: string;
+  numero_referencia?: string;
+  fecha_contrato?: string;
+  firma_huesped?: string;
+  firma_alojamiento?: string;
+}
+
+export interface SesHospedajesExecutionData {
+  fecha_hora_entrada?: string;
+  fecha_hora_salida?: string;
+}
+
+export interface SesHospedajesPropertyData {
+  direccion_completa?: string;
+  numero_habitaciones?: number | null;
+  conexion_internet?: 'SI' | 'NO' | '';
+}
+
+export interface SesHospedajesPaymentData {
+  tipo_pago?: string;
+  medio_pago_identificacion?: string;
+  titular_pago?: string;
+  tarjeta_caducidad?: string;
+  fecha_pago?: string;
+}
+
+export interface SesHospedajesForm {
+  guest: SesHospedajesGuestData;
+  contract: SesHospedajesContractData;
+  execution: SesHospedajesExecutionData;
+  property: SesHospedajesPropertyData;
+  payment: SesHospedajesPaymentData;
+}
+
 export type CheckInRequestStatus = 'PENDING' | 'SENT' | 'COMPLETED';
+export type CheckInDeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SMS' | 'MANUAL';
 
 export interface CheckInRequest {
   id: string; // reservation_id or booking_id
@@ -1433,6 +1494,11 @@ export interface CheckInRequest {
   token?: string;
   sent_at?: number;
   completed_at?: number;
+  last_prepared_at?: number;
+  sent_via?: CheckInDeliveryChannel;
+  delivery_recipient?: string;
+  delivery_notes?: string;
+  guest_form_json?: string;
   created_at: number;
   project_id?: string;
 }

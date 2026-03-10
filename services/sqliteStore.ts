@@ -168,7 +168,10 @@ export class SQLiteStore implements IDataStore {
     bookings_updated_at: false,
     bookings_pax_fields: false,
     accounting_pax_infants: false,
-    bookings_needs_details: false
+    bookings_needs_details: false,
+    travelers_ses_fields: false,
+    checkin_request_delivery_meta: false,
+    checkin_request_guest_form: false
   };
 
   // Optional callback registered by ProjectManager to trigger file-mode autosave
@@ -614,6 +617,21 @@ export class SQLiteStore implements IDataStore {
       const mInfo = await this.query("PRAGMA table_info(marketing_campaigns)");
       this.schemaFlags.marketing_email_template_id = mInfo.some((c: any) => c.name === 'email_template_id');
 
+      const tInfo = await this.query("PRAGMA table_info(travelers)");
+      this.schemaFlags.travelers_ses_fields = tInfo.some((c: any) => c.name === 'segundo_apellido')
+        && tInfo.some((c: any) => c.name === 'sexo')
+        && tInfo.some((c: any) => c.name === 'numero_soporte')
+        && tInfo.some((c: any) => c.name === 'telefono_fijo')
+        && tInfo.some((c: any) => c.name === 'telefono_movil')
+        && tInfo.some((c: any) => c.name === 'pais_residencia');
+
+      const reqInfo = await this.query("PRAGMA table_info(checkin_requests)");
+      this.schemaFlags.checkin_request_delivery_meta = reqInfo.some((c: any) => c.name === 'last_prepared_at')
+        && reqInfo.some((c: any) => c.name === 'sent_via')
+        && reqInfo.some((c: any) => c.name === 'delivery_recipient')
+        && reqInfo.some((c: any) => c.name === 'delivery_notes');
+      this.schemaFlags.checkin_request_guest_form = reqInfo.some((c: any) => c.name === 'guest_form_json');
+
       this.schemaFlags.accounting_stay_metadata = aInfo.some((c: any) => c.name === 'check_in');
 
       logger.log("[DB] Schema Detection:", this.schemaFlags);
@@ -836,7 +854,7 @@ export class SQLiteStore implements IDataStore {
     await this.execute("CREATE TABLE IF NOT EXISTS properties (id TEXT PRIMARY KEY, name TEXT, description TEXT, color TEXT, created_at INTEGER, updated_at INTEGER, project_id TEXT, is_active INTEGER DEFAULT 1, timezone TEXT DEFAULT 'Europe/Madrid', currency TEXT DEFAULT 'EUR', web_calendar_enabled INTEGER DEFAULT 0, public_token TEXT, allowed_origins_json TEXT, show_prices INTEGER DEFAULT 0, max_range_days INTEGER DEFAULT 365, last_published_at INTEGER, location TEXT, logo TEXT, phone TEXT, email TEXT);");
     await this.execute("CREATE TABLE IF NOT EXISTS apartments (id TEXT PRIMARY KEY, property_id TEXT, name TEXT, color TEXT, created_at INTEGER, updated_at INTEGER, project_id TEXT, is_active INTEGER DEFAULT 1, deleted_at INTEGER, ical_export_token TEXT, ical_out_url TEXT, ical_last_publish INTEGER, ical_event_count INTEGER, public_base_price REAL, currency TEXT DEFAULT 'EUR');");
     await this.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT, updated_at INTEGER);");
-    await this.execute("CREATE TABLE IF NOT EXISTS travelers (id TEXT PRIMARY KEY, nombre TEXT, apellidos TEXT, tipo_documento TEXT, documento TEXT, fecha_nacimiento TEXT, telefono TEXT, email TEXT, nacionalidad TEXT, provincia TEXT, cp TEXT, localidad TEXT, direccion TEXT, created_at INTEGER, updated_at INTEGER, project_id TEXT, traveler_key TEXT, needs_document INTEGER DEFAULT 0, total_stays INTEGER DEFAULT 0, last_checkout TEXT);");
+    await this.execute("CREATE TABLE IF NOT EXISTS travelers (id TEXT PRIMARY KEY, nombre TEXT, apellidos TEXT, segundo_apellido TEXT, sexo TEXT, tipo_documento TEXT, documento TEXT, numero_soporte TEXT, fecha_nacimiento TEXT, telefono TEXT, telefono_fijo TEXT, telefono_movil TEXT, email TEXT, nacionalidad TEXT, provincia TEXT, cp TEXT, localidad TEXT, direccion TEXT, pais_residencia TEXT, created_at INTEGER, updated_at INTEGER, project_id TEXT, traveler_key TEXT, needs_document INTEGER DEFAULT 0, total_stays INTEGER DEFAULT 0, last_checkout TEXT);");
 
     // Simple migration for existing travelers table
     try {
@@ -850,6 +868,12 @@ export class SQLiteStore implements IDataStore {
     await this.safeMigration("ALTER TABLE travelers ADD COLUMN needs_document INTEGER DEFAULT 0");
     await this.safeMigration("ALTER TABLE travelers ADD COLUMN total_stays INTEGER DEFAULT 0");
     await this.safeMigration("ALTER TABLE travelers ADD COLUMN last_checkout TEXT");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN segundo_apellido TEXT");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN sexo TEXT");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN numero_soporte TEXT");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN telefono_fijo TEXT");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN telefono_movil TEXT");
+    await this.safeMigration("ALTER TABLE travelers ADD COLUMN pais_residencia TEXT");
     await this.safeMigration("ALTER TABLE properties ADD COLUMN project_id TEXT");
     await this.safeMigration("ALTER TABLE properties ADD COLUMN updated_at INTEGER");
     await this.safeMigration("ALTER TABLE properties ADD COLUMN is_active INTEGER DEFAULT 1");
@@ -1523,10 +1547,20 @@ export class SQLiteStore implements IDataStore {
       token TEXT,
       sent_at INTEGER,
       completed_at INTEGER,
+      last_prepared_at INTEGER,
+      sent_via TEXT,
+      delivery_recipient TEXT,
+      delivery_notes TEXT,
+      guest_form_json TEXT,
       created_at INTEGER,
       project_id TEXT
     );`);
     await this.execute(`CREATE INDEX IF NOT EXISTS idx_checkin_requests_booking ON checkin_requests(booking_id);`);
+    await this.safeMigration("ALTER TABLE checkin_requests ADD COLUMN last_prepared_at INTEGER", "Add last_prepared_at to checkin_requests");
+    await this.safeMigration("ALTER TABLE checkin_requests ADD COLUMN sent_via TEXT", "Add sent_via to checkin_requests");
+    await this.safeMigration("ALTER TABLE checkin_requests ADD COLUMN delivery_recipient TEXT", "Add delivery_recipient to checkin_requests");
+    await this.safeMigration("ALTER TABLE checkin_requests ADD COLUMN delivery_notes TEXT", "Add delivery_notes to checkin_requests");
+    await this.safeMigration("ALTER TABLE checkin_requests ADD COLUMN guest_form_json TEXT", "Add guest_form_json to checkin_requests");
 
     // --- BLOCK MÓVIL 2: ZOOM UI ---
     await this.safeMigration("ALTER TABLE user_settings ADD COLUMN ui_scale REAL DEFAULT 1.0", "Add ui_scale to user_settings");
@@ -1616,14 +1650,26 @@ export class SQLiteStore implements IDataStore {
   }
 
   async saveCheckInRequest(req: CheckInRequest): Promise<void> {
+    const columns = ['id', 'booking_id', 'status', 'locator', 'token', 'sent_at', 'completed_at', 'created_at', 'project_id'];
+    const values: any[] = [
+      req.id, req.booking_id, req.status, req.locator || null, req.token || null,
+      req.sent_at || null, req.completed_at || null, req.created_at, req.project_id || localStorage.getItem('active_project_id')
+    ];
+
+    if (this.schemaFlags.checkin_request_delivery_meta) {
+      columns.push('last_prepared_at', 'sent_via', 'delivery_recipient', 'delivery_notes');
+      values.push(req.last_prepared_at || null, req.sent_via || null, req.delivery_recipient || null, req.delivery_notes || null);
+    }
+
+    if (this.schemaFlags.checkin_request_guest_form) {
+      columns.push('guest_form_json');
+      values.push(req.guest_form_json || null);
+    }
+
+    const placeholders = columns.map(() => '?').join(',');
     await this.executeWithParams(
-      `INSERT OR REPLACE INTO checkin_requests (
-        id, booking_id, status, locator, token, sent_at, completed_at, created_at, project_id
-      ) VALUES (?,?,?,?,?,?,?,?,?)`,
-      [
-        req.id, req.booking_id, req.status, req.locator || null, req.token || null,
-        req.sent_at || null, req.completed_at || null, req.created_at, req.project_id || localStorage.getItem('active_project_id')
-      ]
+      `INSERT OR REPLACE INTO checkin_requests (${columns.join(',')}) VALUES (${placeholders})`,
+      values
     );
   }
 
@@ -1724,16 +1770,25 @@ export class SQLiteStore implements IDataStore {
     const docValue = t.documento || null; // Ensure null if undefined/empty
     const needsDoc = t.needs_document ? 1 : 0;
 
+    const columns = ['id', 'nombre', 'apellidos', 'tipo_documento', 'documento', 'fecha_nacimiento', 'telefono', 'email', 'nacionalidad', 'provincia', 'cp', 'localidad', 'direccion', 'created_at', 'updated_at', 'needs_document', 'project_id', 'traveler_key', 'total_stays', 'last_checkout'];
+    const values: any[] = [
+      t.id, t.nombre, t.apellidos, t.tipo_documento || 'DNI', docValue,
+      t.fecha_nacimiento || null, t.telefono || null, t.email || null,
+      t.nacionalidad || null,
+      t.provincia || null, t.cp || null, t.localidad || null, t.direccion || null,
+      t.created_at || Date.now(), t.updated_at || Date.now(), needsDoc, projectId,
+      t.traveler_key || null, t.total_stays || 0, t.last_checkout || null
+    ];
+
+    if (this.schemaFlags.travelers_ses_fields) {
+      columns.push('segundo_apellido', 'sexo', 'numero_soporte', 'telefono_fijo', 'telefono_movil', 'pais_residencia');
+      values.push(t.segundo_apellido || null, t.sexo || null, t.numero_soporte || null, t.telefono_fijo || null, t.telefono_movil || null, t.pais_residencia || null);
+    }
+
+    const placeholders = columns.map(() => '?').join(',');
     await this.executeWithParams(
-      "INSERT OR REPLACE INTO travelers (id, nombre, apellidos, tipo_documento, documento, fecha_nacimiento, telefono, email, nacionalidad, provincia, cp, localidad, direccion, created_at, updated_at, needs_document, project_id, traveler_key, total_stays, last_checkout) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-      [
-        t.id, t.nombre, t.apellidos, t.tipo_documento || 'DNI', t.documento || null,
-        t.fecha_nacimiento || null, t.telefono || null, t.email || null,
-        t.nacionalidad || null,
-        t.provincia || null, t.cp || null, t.localidad || null, t.direccion || null,
-        t.created_at || Date.now(), t.updated_at || Date.now(), needsDoc, projectId,
-        t.traveler_key || null, t.total_stays || 0, t.last_checkout || null
-      ]
+      `INSERT OR REPLACE INTO travelers (${columns.join(',')}) VALUES (${placeholders})`,
+      values
     );
   }
 

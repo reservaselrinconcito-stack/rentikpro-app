@@ -25,12 +25,12 @@ export const CleaningPage: React.FC<Props> = ({ store }) => {
         setLoading(true);
         try {
             // 1. Generate tasks for Today and next 7 days
-            const today = new Date().toISOString().split('T')[0];
-            const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+            const today = new Date().toLocaleDateString('en-CA');
+            const nextWeekDate = new Date();
+            nextWeekDate.setDate(nextWeekDate.getDate() + 7);
+            const nextWeek = nextWeekDate.toLocaleDateString('en-CA');
 
-            // Auto-generate for today? Or should this be triggered by cron/dashboard?
-            // Trigger it here for v1 "on view"
-            await cleaningService.generateDailyTasks(today);
+            await cleaningService.generateTasksForRange(today, nextWeek);
 
             // Fetch Context (FIXED)
             if (Object.keys(apartments).length === 0) {
@@ -47,18 +47,20 @@ export const CleaningPage: React.FC<Props> = ({ store }) => {
             }
 
             // 2. Fetch Tasks
-            let start = today;
-            let end = today;
+            let fetchedTasks: CleaningTask[] = [];
 
-            if (filter === 'upcoming') {
-                start = today;
-                end = nextWeek;
-            } else if (filter === 'all') {
-                start = '2020-01-01'; // arbitrary past
-                end = '2030-01-01';
+            if (filter === 'today') {
+                fetchedTasks = (await cleaningService.getTasksForRange(today, '2030-01-01'))
+                    .filter(task => task.status !== 'DONE');
+            } else if (filter === 'upcoming') {
+                fetchedTasks = (await cleaningService.getTasksForRange(today, nextWeek))
+                    .filter(task => task.status !== 'DONE');
+            } else {
+                fetchedTasks = (await cleaningService.getTasksForRange('2020-01-01', today))
+                    .filter(task => task.status === 'DONE' || task.due_date < today)
+                    .sort((a, b) => b.due_date.localeCompare(a.due_date));
             }
 
-            const fetchedTasks = await cleaningService.getTasksForRange(start, end);
             setTasks(fetchedTasks);
 
             // 3. Fetch Context (Apartments, Templates, Properties)
@@ -124,7 +126,7 @@ export const CleaningPage: React.FC<Props> = ({ store }) => {
                             onClick={() => setFilter('today')}
                             className={`px-4 py-2 rounded-lg font-medium transition-colors ${filter === 'today' ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
                         >
-                            Hoy
+                            Pendientes
                         </button>
                         <button
                             onClick={() => setFilter('upcoming')}
@@ -149,7 +151,7 @@ export const CleaningPage: React.FC<Props> = ({ store }) => {
                 ) : tasks.length === 0 ? (
                     <div className="bg-white rounded-xl shadow p-10 text-center">
                         <p className="text-xl text-gray-400">No hay tareas pendientes en este rango.</p>
-                        <p className="text-sm text-gray-400 mt-2">Las tareas se generan automáticamente al finalizar reservas.</p>
+                        <p className="text-sm text-gray-400 mt-2">Las tareas se generan automáticamente desde las salidas previstas y se mueven a histórico cuando corresponde.</p>
                     </div>
                 ) : (
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
