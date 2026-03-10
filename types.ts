@@ -993,7 +993,7 @@ export interface IDataStore {
   saveMovement(m: AccountingMovement): Promise<void>;
   deleteMovement(id: string): Promise<void>;
 
-  getCounts(): Promise<any>;
+  getCounts(options?: { includeDerivedFromAccounting?: boolean }): Promise<any>;
 
   // Fiscal
   getFiscalProfile(): Promise<FiscalProfile | null>;

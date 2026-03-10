@@ -35,7 +35,7 @@ import {
 import { PaymentScheduleItem, CheckoutResult, checkoutService } from './checkoutService';
 import { logger } from './logger';
 import { APP_VERSION, SCHEMA_VERSION } from '../src/version';
-import { notifyDataChanged } from './dataRefresher';
+import { notifyDataChanged, type EntityType } from './dataRefresher';
 import { guestService } from './guestService';
 import { isProvisionalBlock, isProvisionalBooking } from '../utils/bookingClassification';
 import { ensureValidStay } from '../utils/dateLogic';
@@ -174,10 +174,63 @@ export class SQLiteStore implements IDataStore {
   // Optional callback registered by ProjectManager to trigger file-mode autosave
   // when data changes. Using a callback avoids a circular import.
   private onWriteHook: (() => void) | null = null;
+  private silentWriteDepth = 0;
+  private deferredAutoPublishApartmentIds = new Set<string>();
 
   /** Register a callback to be invoked after every saveBooking / deleteBooking. */
   setWriteHook(fn: () => void): void {
     this.onWriteHook = fn;
+  }
+
+  async runSilentWriteBatch<T>(fn: () => Promise<T>): Promise<T> {
+    const isOuterBatch = this.silentWriteDepth === 0;
+    let completed = false;
+
+    this.silentWriteDepth += 1;
+    try {
+      const result = isOuterBatch
+        ? await this.runTransaction(fn)
+        : await fn();
+      completed = true;
+      return result;
+    } finally {
+      this.silentWriteDepth = Math.max(0, this.silentWriteDepth - 1);
+
+      if (isOuterBatch) {
+        const apartmentIds = completed ? Array.from(this.deferredAutoPublishApartmentIds) : [];
+        this.deferredAutoPublishApartmentIds.clear();
+        apartmentIds.forEach((apartmentId) => this.dispatchAutoPublish(apartmentId));
+      }
+    }
+  }
+
+  private isSilentWriteActive(): boolean {
+    return this.silentWriteDepth > 0;
+  }
+
+  private emitWriteHook(): void {
+    if (this.isSilentWriteActive()) return;
+    this.onWriteHook?.();
+  }
+
+  private emitDataChanged(entity: EntityType): void {
+    if (this.isSilentWriteActive()) return;
+    notifyDataChanged(entity);
+  }
+
+  private dispatchAutoPublish(apartmentId: string): void {
+    window.dispatchEvent(new CustomEvent('rentikpro:ical-auto-publish', {
+      detail: { apartmentId }
+    }));
+  }
+
+  private queueAutoPublish(apartmentId?: string): void {
+    if (!apartmentId) return;
+    if (this.isSilentWriteActive()) {
+      this.deferredAutoPublishApartmentIds.add(apartmentId);
+      return;
+    }
+    this.dispatchAutoPublish(apartmentId);
   }
 
 
@@ -1858,15 +1911,13 @@ export class SQLiteStore implements IDataStore {
 
     // MINI-BLOQUE B3: Trigger auto-publish if state affects availability
     if (b.status === 'confirmed' || b.status === 'cancelled') {
-      window.dispatchEvent(new CustomEvent('rentikpro:ical-auto-publish', {
-        detail: { apartmentId: b.apartment_id }
-      }));
+      this.queueAutoPublish(b.apartment_id);
     }
 
     // Notify file-mode autosave (no-op if not in file mode)
-    this.onWriteHook?.();
+    this.emitWriteHook();
 
-    notifyDataChanged('bookings');
+    this.emitDataChanged('bookings');
   }
 
   async getBooking(id: string): Promise<Booking | null> {
@@ -2073,12 +2124,10 @@ export class SQLiteStore implements IDataStore {
     }
     await this.executeWithParams("DELETE FROM bookings WHERE id = ?", [id]);
     if (booking?.apartment_id) {
-      window.dispatchEvent(new CustomEvent('rentikpro:ical-auto-publish', {
-        detail: { apartmentId: booking.apartment_id }
-      }));
+      this.queueAutoPublish(booking.apartment_id);
     }
     // Notify file-mode autosave (no-op if not in file mode)
-    this.onWriteHook?.();
+    this.emitWriteHook();
   }
 
   async softDeleteReservation(id: string): Promise<void> {
@@ -2090,31 +2139,65 @@ export class SQLiteStore implements IDataStore {
       [now, now, id]
     );
     if (booking?.apartment_id) {
-      window.dispatchEvent(new CustomEvent('rentikpro:ical-auto-publish', {
-        detail: { apartmentId: booking.apartment_id }
-      }));
+      this.queueAutoPublish(booking.apartment_id);
     }
-    this.onWriteHook?.();
+    this.emitWriteHook();
   }
 
-  async getCounts(): Promise<any> {
+  async getCounts(options?: { includeDerivedFromAccounting?: boolean }): Promise<any> {
     const projectId = localStorage.getItem('active_project_id');
-    const [t, s, b, m, p, ab] = await Promise.all([
+    const [t, s, b, m, p, activeRows, provisionalRows] = await Promise.all([
       this.query("SELECT COUNT(*) as c FROM travelers WHERE project_id = ? OR project_id IS NULL", [projectId]),
       this.query("SELECT COUNT(*) as c FROM stays WHERE project_id = ? OR project_id IS NULL", [projectId]),
       this.query("SELECT COUNT(*) as c FROM bookings WHERE project_id = ? OR project_id IS NULL", [projectId]),
       this.query("SELECT COUNT(*) as c FROM accounting_movements WHERE project_id = ? OR project_id IS NULL", [projectId]),
       this.query("SELECT COUNT(*) as c FROM properties"),
-      this.getBookingsFromAccounting()
+      this.query(
+        `SELECT COUNT(*) as c
+         FROM bookings
+         WHERE (project_id = ? OR project_id IS NULL)
+           AND status != 'cancelled'
+           AND status != 'pending'
+           AND COALESCE(event_state, 'confirmed') != 'provisional'
+           AND COALESCE(needs_details, 0) = 0
+           AND COALESCE(event_kind, 'BOOKING') != 'BLOCK'`,
+        [projectId]
+      ),
+      this.query(
+        `SELECT COUNT(*) as c
+         FROM bookings
+         WHERE (project_id = ? OR project_id IS NULL)
+           AND status != 'cancelled'
+           AND (
+             status = 'pending'
+             OR status = 'blocked'
+             OR COALESCE(event_state, 'confirmed') = 'provisional'
+             OR COALESCE(needs_details, 0) = 1
+             OR provisional_id IS NOT NULL
+             OR COALESCE(event_kind, 'BOOKING') = 'BLOCK'
+           )`,
+        [projectId]
+      )
     ]);
+
+    let activeBookings = Number(activeRows[0]?.c) || 0;
+    let provisionalBookings = Number(provisionalRows[0]?.c) || 0;
+
+    if (options?.includeDerivedFromAccounting) {
+      const derivedBookings = await this.getBookingsFromAccounting();
+      activeBookings = derivedBookings.filter((booking) => booking.status === 'confirmed').length;
+      provisionalBookings = derivedBookings.filter((booking) => booking.event_state === 'provisional').length;
+    }
+
     return {
       travelers: t[0]?.c || 0,
       stays: s[0]?.c || 0,
       bookings: b[0]?.c || 0,
       accounting: m[0]?.c || 0,
+      accounting_movements: m[0]?.c || 0,
       properties: p[0]?.c || 0,
-      active_bookings: ab.filter(b => b.status === 'confirmed').length,
-      provisional_bookings: ab.filter(b => b.event_state === 'provisional').length
+      active_bookings: activeBookings,
+      provisional_bookings: provisionalBookings
     };
   }
 
@@ -2538,7 +2621,7 @@ export class SQLiteStore implements IDataStore {
     logger.log(`[WEB:SAVE] sql ok id=${w.id} subdomain=${w.subdomain}`);
 
     // Notify file-mode autosave
-    this.onWriteHook?.();
+    this.emitWriteHook();
   }
 
   async deleteWebsite(id: string): Promise<void> {
@@ -3800,8 +3883,8 @@ export class SQLiteStore implements IDataStore {
         p.location || '', p.logo || '', p.phone || '', p.email || '', projectId
       ]
     );
-    this.onWriteHook?.();
-    notifyDataChanged('properties');
+    this.emitWriteHook();
+    this.emitDataChanged('properties');
   }
   async deleteProperty(id: string) { await this.executeWithParams("DELETE FROM properties WHERE id=?", [id]); }
 
@@ -3884,8 +3967,8 @@ export class SQLiteStore implements IDataStore {
         a.publicBasePrice ?? null, a.currency || 'EUR', projectId
       ]
     );
-    this.onWriteHook?.();
-    notifyDataChanged('apartments');
+    this.emitWriteHook();
+    this.emitDataChanged('apartments');
   }
   async deleteApartment(id: string) {
     await this.executeWithParams("DELETE FROM apartments WHERE id=?", [id]);

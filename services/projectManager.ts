@@ -47,14 +47,26 @@ export class ProjectManager {
     });
   }
 
-  private async refreshCurrentCounts(): Promise<void> {
+  private async refreshCurrentCounts(notify: boolean = true): Promise<void> {
     try {
       const counts = await this.store.getCounts();
       this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
-      notifyDataChanged('all');
+      if (notify) {
+        notifyDataChanged('all');
+      }
     } catch (e) {
       logger.warn('[ProjectManager] Could not refresh current counts after write', e);
     }
+  }
+
+  private async finalizeLoadedProject(warnLabel: string): Promise<void> {
+    try {
+      await this.store.runSilentWriteBatch(() => this.store.sanitizeCanonicalState());
+    } catch (e) {
+      logger.warn(warnLabel, e);
+    }
+
+    await this.refreshCurrentCounts(true);
   }
 
   // --- INITIALIZATION ---
@@ -184,13 +196,10 @@ export class ProjectManager {
       this.currentProjectMode = 'real';
       this.lastSyncedAt = Date.now();
 
-      const counts = await this.store.getCounts();
-      this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
-
       this.setActiveContext(projectId, 'real');
       this.storageMode = 'file';
 
-      await this.store.sanitizeCanonicalState().catch(e => logger.warn('[FileMode] Canonical sanitize failed after load', e));
+      await this.finalizeLoadedProject('[FileMode] Canonical sanitize failed after load');
 
       // Persist metadata+snapshot to IDB as fallback.
       try {
@@ -200,7 +209,6 @@ export class ProjectManager {
       }
 
       this.startAutoSave();
-      notifyDataChanged('all');
       return true;
     } catch (e: any) {
       // Permission lost or handle revoked: drop back to IDB.
@@ -318,14 +326,10 @@ export class ProjectManager {
       this.currentProjectMode = record.mode;
       this.lastSyncedAt = Date.now();
 
-      // Initial counts load
-      const counts = await this.store.getCounts();
-      this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
-
       this.setActiveContext(record.id, record.mode);
       this.startAutoSave();
 
-      await this.store.sanitizeCanonicalState().catch(e => logger.warn('[ProjectManager] Canonical sanitize failed after loadProject', e));
+      await this.finalizeLoadedProject('[ProjectManager] Canonical sanitize failed after loadProject');
 
       // Non-blocking WebDAV pull (never blocks UI). If remote changes apply, SyncCoordinator will call store.load() + notify.
       if (!isTauri && this.currentProjectMode === 'real') {
@@ -353,7 +357,6 @@ export class ProjectManager {
         });
       }
 
-      notifyDataChanged();
       return true;
     } catch (err) {
       logger.error("Error loading project:", err);
@@ -371,16 +374,13 @@ export class ProjectManager {
       this.currentProjectMode = record.mode;
       this.lastSyncedAt = Date.now();
 
-      const counts = await this.store.getCounts();
-      this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
-
       if (this.autoSaveInterval) {
         clearInterval(this.autoSaveInterval);
         this.autoSaveInterval = null;
       }
       // Do NOT set active_project_id and do NOT persist back to IDB.
-      await this.store.sanitizeCanonicalState().catch(e => logger.warn('[ProjectManager] Canonical sanitize failed after legacy load', e));
-      notifyDataChanged('all');
+      await this.store.runSilentWriteBatch(() => this.store.sanitizeCanonicalState()).catch(e => logger.warn('[ProjectManager] Canonical sanitize failed after legacy load', e));
+      await this.refreshCurrentCounts(true);
       return true;
     } catch (e) {
       logger.error('[ProjectManager] loadLegacyIdbProjectReadOnly failed', e);
@@ -712,10 +712,10 @@ export class ProjectManager {
       this.currentProjectMode = 'real';
       const activeDataProjectId = await this.inferActiveDataProjectId(id);
       this.setActiveContext(activeDataProjectId, 'real');
-      await this.store.sanitizeCanonicalState().catch(e => logger.warn('[ProjectManager] Canonical sanitize failed after importProjectFromFile', e));
+      await this.store.runSilentWriteBatch(() => this.store.sanitizeCanonicalState()).catch(e => logger.warn('[ProjectManager] Canonical sanitize failed after importProjectFromFile', e));
       await this.persistCurrentProject(file.name.replace('.sqlite', ''));
       this.startAutoSave();
-      notifyDataChanged();
+      await this.refreshCurrentCounts(true);
     }
   }
 
@@ -1010,9 +1010,6 @@ export class ProjectManager {
       ? projectId
       : await this.inferActiveDataProjectId(projectId);
 
-    const counts = await this.store.getCounts();
-    this.currentCounts = { bookings: counts.bookings, accounting: counts.accounting };
-
     if (setAsActive) {
       this.setActiveContext(projectId, mode);
     } else {
@@ -1035,9 +1032,7 @@ export class ProjectManager {
       }
     }
 
-    await this.store.sanitizeCanonicalState().catch(e => logger.warn('[ProjectManager] Canonical sanitize failed after loadProjectFromSqliteBytes', e));
-
-    notifyDataChanged('all');
+    await this.finalizeLoadedProject('[ProjectManager] Canonical sanitize failed after loadProjectFromSqliteBytes');
   }
 
   // --- FILE-MODE OPERATIONS (Chrome/Edge only — Safari falls back to IDB) ---
