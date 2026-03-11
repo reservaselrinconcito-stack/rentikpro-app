@@ -38,7 +38,7 @@ export async function chooseNewWorkspace(): Promise<string | null> {
 }
 
 export async function switchWorkspace(path: string) {
-  prepareWorkspaceSwitch(path);
   await setActiveWorkspace(path);
+  prepareWorkspaceSwitch(path);
   window.location.reload();
 }

@@ -1,7 +1,7 @@
 import { isTauri } from '../utils/isTauri';
 import { SQLiteStore } from './sqliteStore';
 import { APP_VERSION } from '../src/version';
-import { exists } from "@tauri-apps/plugin-fs";
+import { exists, readDir } from "@tauri-apps/plugin-fs";
 import { setWorkspaceBootState } from "../src/services/workspaceBootState";
 
 const WORKSPACE_PATH_KEY = 'rp_workspace_path';
@@ -60,30 +60,65 @@ type OpenWorkspaceResultRaw = {
 };
 
 export class WorkspaceManager {
+  private async detectFolderKind(path: string): Promise<'workspace' | 'project' | null> {
+    const workspaceJson = `${path}/workspace.json`;
+    const workspaceDb = `${path}/database.sqlite`;
+    if (await exists(workspaceJson) && await exists(workspaceDb)) {
+      return 'workspace';
+    }
+
+    const projectJson = `${path}/project.json`;
+    const projectDb = `${path}/db.sqlite`;
+    if (await exists(projectJson) && await exists(projectDb)) {
+      return 'project';
+    }
+
+    return null;
+  }
+
+  private async listNestedWorkspaceFolders(path: string): Promise<string[]> {
+    try {
+      const { join } = await import('@tauri-apps/api/path');
+      const entries = await readDir(path);
+      const nested: string[] = [];
+      for (const entry of entries) {
+        if (!entry.isDirectory || !entry.name) continue;
+        const childPath = await join(path, entry.name);
+        if (await this.detectFolderKind(childPath)) {
+          nested.push(entry.name);
+        }
+      }
+      return nested.sort();
+    } catch {
+      return [];
+    }
+  }
+
   private async normalizeWorkspaceRoot(path: string): Promise<string> {
     let normalized = await this.ensureDirectoryPath(path);
 
     try {
       const { basename, dirname } = await import('@tauri-apps/api/path');
       const folderName = (await basename(normalized)).toLowerCase();
-      if (folderName !== 'backups') {
-        return normalized;
+
+      if (folderName === 'backups' || folderName === 'media' || folderName === 'sync') {
+        const parent = await dirname(normalized);
+        if (await this.detectFolderKind(parent)) {
+          return parent;
+        }
       }
 
-      const parent = await dirname(normalized);
-      const parentWorkspaceJson = `${parent}/workspace.json`;
-      const parentWorkspaceDb = `${parent}/database.sqlite`;
-      const parentProjectJson = `${parent}/project.json`;
-      const parentProjectDb = `${parent}/db.sqlite`;
-
-      const parentLooksLikeWorkspace = await exists(parentWorkspaceJson) && await exists(parentWorkspaceDb);
-      const parentLooksLikeProject = await exists(parentProjectJson) && await exists(parentProjectDb);
-
-      if (parentLooksLikeWorkspace || parentLooksLikeProject) {
-        return parent;
+      if (folderName === 'workspaces') {
+        const nested = await this.listNestedWorkspaceFolders(normalized);
+        if (nested.length > 0) {
+          const sample = nested[0];
+          throw new Error(`Has seleccionado la carpeta contenedora 'workspaces'. Elige un workspace concreto dentro, por ejemplo '${sample}'.`);
+        }
       }
-    } catch {
-      // ignore and keep provided path
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
     }
 
     return normalized;
