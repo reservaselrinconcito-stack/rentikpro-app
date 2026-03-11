@@ -61,6 +61,15 @@ const emptySesForm = (): SesHospedajesForm => ({
 const toDateOnly = (value?: string) => value ? value.split('T')[0] : '';
 const toDateTimeLocal = (value?: string) => value ? value.slice(0, 16) : '';
 
+const mergeCheckInBookings = (bookings: Booking[], accounting: Booking[]): Booking[] => {
+  const merged = [...accounting];
+  const ids = new Set(accounting.map(b => b.id));
+  bookings.forEach(b => {
+    if (!ids.has(b.id)) merged.push(b);
+  });
+  return merged;
+};
+
 export const CheckInScan: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -110,6 +119,7 @@ export const CheckInScan: React.FC = () => {
   const [sesForm, setSesForm] = useState<SesHospedajesForm>(emptySesForm());
 
   const [existingTravelerId, setExistingTravelerId] = useState<string | null>(null);
+  const selectedRequest = bookingId ? requests.find(r => r.booking_id === bookingId) || null : null;
 
   useEffect(() => {
     loadAll();
@@ -119,11 +129,13 @@ export const CheckInScan: React.FC = () => {
     setLoading(true);
     const store = projectManager.getStore();
     try {
-      const [p, b, reqs] = await Promise.all([
+      const [p, ownBookings, accountingBookings, reqs] = await Promise.all([
         store.getProperties(),
         store.getBookings(),
+        store.getBookingsFromAccounting(),
         checkinService.regenerateRequests()
       ]);
+      const b = mergeCheckInBookings(ownBookings, accountingBookings);
       setProperties(p);
       setBookings(b);
       setRequests(reqs);
@@ -144,7 +156,13 @@ export const CheckInScan: React.FC = () => {
               setSesForm(emptySesForm());
             }
           } else {
-            setSesForm(emptySesForm());
+            setSesForm(prev => ({
+              ...emptySesForm(),
+              contract: {
+                ...emptySesForm().contract,
+                numero_referencia: req?.locator || target.locator || target.external_ref || prev.contract.numero_referencia || '',
+              },
+            }));
           }
         }
       } else {
@@ -200,7 +218,7 @@ export const CheckInScan: React.FC = () => {
       contract: {
         ...prev.contract,
         numero_viajeros: selectedBooking?.guests || prev.contract.numero_viajeros,
-        numero_referencia: selectedBooking?.locator || selectedBooking?.external_ref || prev.contract.numero_referencia,
+        numero_referencia: selectedRequest?.locator || selectedBooking?.locator || selectedBooking?.external_ref || prev.contract.numero_referencia,
         fecha_contrato: toDateOnly(selectedBooking?.created_at ? new Date(selectedBooking.created_at).toISOString() : prev.contract.fecha_contrato),
       },
       execution: {
@@ -218,7 +236,7 @@ export const CheckInScan: React.FC = () => {
         fecha_pago: prev.payment.fecha_pago || toDateOnly(new Date().toISOString()),
       }
     }));
-  }, [formData, selectedBooking, selectedApt, selectedProp, apartments, properties]);
+  }, [formData, selectedBooking, selectedApt, selectedProp, apartments, properties, selectedRequest]);
 
   const handleSendEmail = async (req: CheckInRequest) => {
     const store = projectManager.getStore();
@@ -373,12 +391,14 @@ export const CheckInScan: React.FC = () => {
   };
 
   const handleSave = async () => {
+    const contractReference = sesForm.contract.numero_referencia || selectedRequest?.locator || selectedBooking?.locator || selectedBooking?.external_ref || '';
+
     if (!formData.nombre || !formData.apellidos || !formData.documento) {
       toast.error("Nombre, primer apellido y documento son obligatorios");
       return;
     }
 
-    if (!sesForm.contract.numero_referencia || !sesForm.execution.fecha_hora_entrada) {
+    if (!contractReference || !sesForm.execution.fecha_hora_entrada) {
       toast.error("Completa referencia de contrato y fecha/hora de entrada para SES Hospedajes");
       return;
     }
@@ -414,10 +434,25 @@ export const CheckInScan: React.FC = () => {
       await store.saveTraveler(traveler);
 
       if (bookingId) {
-        await store.updateReservation(bookingId, { traveler_id: travelerId }, 'CHECKIN_SCAN');
+        try {
+          await store.updateReservation(bookingId, { traveler_id: travelerId }, 'CHECKIN_SCAN');
+        } catch {
+          await store.executeWithParams(
+            'UPDATE accounting_movements SET traveler_id = ? WHERE reservation_id = ?',
+            [travelerId, bookingId]
+          );
+        }
+
         const req = requests.find(r => r.booking_id === bookingId);
         if (req) {
-          await checkinService.markAsCompleted(req.id, JSON.stringify(sesForm));
+          const completedForm = {
+            ...sesForm,
+            contract: {
+              ...sesForm.contract,
+              numero_referencia: contractReference,
+            },
+          };
+          await checkinService.markAsCompleted(req.id, JSON.stringify(completedForm));
         }
         toast.success(`Viajero vinculado a la reserva: ${targetBookingName}`, { id: loader });
       } else {
@@ -551,6 +586,12 @@ export const CheckInScan: React.FC = () => {
                               title="Copia para WhatsApp"
                             >
                               <MessageCircle size={18} />
+                            </button>
+                            <button
+                              onClick={() => navigate(`/checkin-scan?bookingId=${booking.id}`)}
+                              className="px-4 py-2 bg-slate-50 text-slate-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all"
+                            >
+                              Registrar Manual
                             </button>
                             <button
                               onClick={() => checkinService.markAsSent(req.id, 'MANUAL', req.delivery_recipient, 'Marcado manualmente desde operativa').then(() => loadAll())}
