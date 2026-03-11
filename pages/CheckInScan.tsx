@@ -121,10 +121,6 @@ export const CheckInScan: React.FC = () => {
   const [existingTravelerId, setExistingTravelerId] = useState<string | null>(null);
   const selectedRequest = bookingId ? requests.find(r => r.booking_id === bookingId) || null : null;
 
-  useEffect(() => {
-    loadAll();
-  }, []);
-
   const loadAll = async () => {
     setLoading(true);
     const store = projectManager.getStore();
@@ -177,6 +173,35 @@ export const CheckInScan: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    setView(bookingId ? 'SCAN' : 'LIST');
+    setSelectedBooking(null);
+    setTargetBookingName(null);
+    setExistingTravelerId(null);
+    setImagePreview(null);
+    setScanError(null);
+    setFormData({
+      nombre: '',
+      apellidos: '',
+      segundo_apellido: '',
+      sexo: '',
+      documento: '',
+      numero_soporte: '',
+      tipo_documento: 'DNI',
+      fecha_nacimiento: '',
+      nacionalidad: 'ESP',
+      email: '',
+      telefono: '',
+      telefono_fijo: '',
+      telefono_movil: '',
+      direccion: '',
+      localidad: '',
+      pais_residencia: 'ESPANA',
+    });
+    setSesForm(emptySesForm());
+    loadAll();
+  }, [bookingId]);
 
   useEffect(() => {
     if (selectedProp) {
