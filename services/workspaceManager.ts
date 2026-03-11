@@ -60,6 +60,35 @@ type OpenWorkspaceResultRaw = {
 };
 
 export class WorkspaceManager {
+  private async normalizeWorkspaceRoot(path: string): Promise<string> {
+    let normalized = await this.ensureDirectoryPath(path);
+
+    try {
+      const { basename, dirname } = await import('@tauri-apps/api/path');
+      const folderName = (await basename(normalized)).toLowerCase();
+      if (folderName !== 'backups') {
+        return normalized;
+      }
+
+      const parent = await dirname(normalized);
+      const parentWorkspaceJson = `${parent}/workspace.json`;
+      const parentWorkspaceDb = `${parent}/database.sqlite`;
+      const parentProjectJson = `${parent}/project.json`;
+      const parentProjectDb = `${parent}/db.sqlite`;
+
+      const parentLooksLikeWorkspace = await exists(parentWorkspaceJson) && await exists(parentWorkspaceDb);
+      const parentLooksLikeProject = await exists(parentProjectJson) && await exists(parentProjectDb);
+
+      if (parentLooksLikeWorkspace || parentLooksLikeProject) {
+        return parent;
+      }
+    } catch {
+      // ignore and keep provided path
+    }
+
+    return normalized;
+  }
+
   getWorkspacePath(): string | null {
     try {
       return localStorage.getItem(WORKSPACE_PATH_KEY);
@@ -95,10 +124,11 @@ export class WorkspaceManager {
 
   async setupWorkspace(path: string): Promise<void> {
     this.requireTauri();
-    const wsPath = await this.ensureDirectoryPath(path);
+    const wsPath = await this.normalizeWorkspaceRoot(path);
 
     const { invoke } = await import('@tauri-apps/api/core');
     await invoke<void>('setup_workspace', { path: wsPath });
+    this.setWorkspacePath(wsPath);
 
     // If a valid workspace already exists here, do not overwrite it.
     try {
@@ -127,7 +157,7 @@ export class WorkspaceManager {
   async openWorkspace(path: string): Promise<WorkspaceOpenResult> {
     this.requireTauri();
 
-    const wsPath = await this.ensureDirectoryPath(path);
+    const wsPath = await this.normalizeWorkspaceRoot(path);
 
     // ── Phase 1: VALIDATE_PATH ──
     setWorkspaceBootState({ state: "VALIDATE_PATH", path: wsPath });
@@ -220,7 +250,7 @@ export class WorkspaceManager {
   // This validates the folder and ensures required workspace files exist.
   async setActiveWorkspace(path: string): Promise<void> {
     this.requireTauri();
-    const wsPath = await this.ensureDirectoryPath(path);
+    const wsPath = await this.normalizeWorkspaceRoot(path);
     await this.setupWorkspace(wsPath);
     // Validate workspace and persist rp_workspace_path.
     await this.openWorkspace(wsPath);
@@ -228,13 +258,14 @@ export class WorkspaceManager {
 
   async saveWorkspace(path: string, dbBytes: Uint8Array): Promise<void> {
     this.requireTauri();
+    const wsPath = await this.normalizeWorkspaceRoot(path);
     if (!looksLikeSqlite(dbBytes)) {
       throw new Error("No se puede guardar: la base de datos no es un SQLite valido.");
     }
     const { invoke } = await import('@tauri-apps/api/core');
     const dbB64 = bytesToBase64(dbBytes);
     await invoke<void>('save_workspace', {
-      path,
+      path: wsPath,
       dbB64,
     } as any);
   }
@@ -322,7 +353,11 @@ export class WorkspaceManager {
     const p = this.getWorkspacePath();
     if (!p) return 'Workspace';
     const parts = p.replace(/\\/g, '/').split('/').filter(Boolean);
-    return parts[parts.length - 1] || p;
+    const last = parts[parts.length - 1] || p;
+    if (last.toLowerCase() === 'backups' && parts.length >= 2) {
+      return parts[parts.length - 2] || last;
+    }
+    return last;
   }
 
   getDefaultWorkspaceJson(): any {

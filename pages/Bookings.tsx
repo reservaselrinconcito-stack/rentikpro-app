@@ -12,6 +12,7 @@ import { formatDateES } from '../utils/dateFormat';
 import { ensureValidStay } from '../utils/dateLogic';
 import { getBookingEntityClass, isConfirmedBooking, isImportedOtaRecord, isOperationalBooking, isProvisionalBlock } from '../utils/bookingClassification';
 import { getBookingDisplayName } from '../utils/bookingDisplay';
+import { getBookingCommissionChannelKey, getBookingOriginInfo } from '../utils/bookingSource';
 import { mapCalendarEventToBooking, mergeBookingsAndEvents } from '../utils/bookingMapping';
 import { AlertTriangle, Camera } from 'lucide-react';
 import { getStayStatus } from '../utils/bookingStayStatus';
@@ -59,6 +60,13 @@ export const Bookings: React.FC = () => {
   const [debugData, setDebugData] = useState<any>(null);
   const [isPulseModalOpen, setIsPulseModalOpen] = useState(false);
   const [channelCommissions, setChannelCommissions] = useState<Record<string, { type: string; value: number }>>({});
+  const diagnosticsEnabled = React.useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return !!import.meta.env.DEV
+      || import.meta.env.VITE_ENABLE_DIAGNOSTICS === '1'
+      || params.get('diag') === '1'
+      || localStorage.getItem('rp_enable_diagnostics') === '1';
+  }, []);
 
   // Load channel commissions once
   useEffect(() => {
@@ -93,8 +101,15 @@ export const Bookings: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!diagnosticsEnabled) return;
     if (showDebug) runDebug();
-  }, [showDebug, bookings.length]);
+  }, [diagnosticsEnabled, showDebug, bookings.length]);
+
+  useEffect(() => {
+    if (!diagnosticsEnabled && showDebug) {
+      setShowDebug(false);
+    }
+  }, [diagnosticsEnabled, showDebug]);
 
   const [form, setForm] = useState<Partial<Booking>>({
     property_id: '',
@@ -113,6 +128,7 @@ export const Bookings: React.FC = () => {
 
   // Extra form field for Payment Method (mapped to accounting)
   const [paymentMethod, setPaymentMethod] = useState<string>('Transferencia');
+  const isEditingImportedOta = !!editingBookingId && isImportedOtaRecord(form as Booking);
 
   const loadData = useCallback(async () => {
     const store = projectManager.getStore();
@@ -287,7 +303,18 @@ export const Bookings: React.FC = () => {
       payment_notes: primary.payment_notes || (primary as any).summary || '',
       payments: mergedPayments,
       locator: (primary as any).locator || '',
-      needs_details: (primary as any).needs_details || false
+      needs_details: (primary as any).needs_details || false,
+      external_ref: primary.external_ref,
+      event_origin: primary.event_origin,
+      event_kind: primary.event_kind,
+      event_state: primary.event_state,
+      connection_id: primary.connection_id,
+      ical_uid: primary.ical_uid,
+      ota: primary.ota,
+      raw_summary: primary.raw_summary,
+      raw_description: primary.raw_description,
+      commission_override: (primary as any).commission_override ?? null,
+      commission_type_override: (primary as any).commission_type_override ?? null,
     });
 
     // Try to find associated movement to preload payment method
@@ -309,7 +336,9 @@ export const Bookings: React.FC = () => {
       payments: [
         { id: crypto.randomUUID(), type: 'confirmacion', amount: 0, date: '', method: 'Transferencia', status: 'pendiente' },
         { id: crypto.randomUUID(), type: 'final', amount: 0, date: '', method: 'Transferencia', status: 'pendiente' }
-      ]
+      ],
+      commission_override: null,
+      commission_type_override: null,
     });
     setPaymentMethod('Transferencia');
     setIsModalOpen(true);
@@ -472,7 +501,19 @@ export const Bookings: React.FC = () => {
     return result.sort((a, b) => {
       switch (sortBy) {
         case 'checkin_asc':
-          return a.check_in.localeCompare(b.check_in);
+          {
+            const rank = (booking: Booking) => {
+              const stay = getStayStatus(booking.check_in, booking.check_out);
+              if (stay === 'upcoming') return 0;
+              if (stay === 'staying') return 1;
+              return 2;
+            };
+            const byRank = rank(a) - rank(b);
+            if (byRank !== 0) return byRank;
+            const byCheckIn = a.check_in.localeCompare(b.check_in);
+            if (byCheckIn !== 0) return byCheckIn;
+            return (b.created_at || 0) - (a.created_at || 0);
+          }
         case 'checkin_desc':
           return b.check_in.localeCompare(a.check_in);
         case 'checkout_asc':
@@ -545,7 +586,17 @@ export const Bookings: React.FC = () => {
         project_id: projectManager.getCurrentProjectId() || undefined,
         locator: (form as any).locator || undefined,
         needs_details: (form as any).needs_details ?? (form.status === 'pending' && form.source === 'BOOKING'),
-        enrichment_status: (form as any).enrichment_status || (form.status === 'confirmed' ? 'COMPLETE' : 'PENDING')
+        enrichment_status: (form as any).enrichment_status || (form.status === 'confirmed' ? 'COMPLETE' : 'PENDING'),
+        event_origin: form.event_origin,
+        event_kind: form.event_kind,
+        event_state: form.event_state,
+        connection_id: form.connection_id,
+        ical_uid: form.ical_uid,
+        ota: form.ota,
+        raw_summary: form.raw_summary,
+        raw_description: form.raw_description,
+        commission_override: (form as any).commission_override ?? null,
+        commission_type_override: (form as any).commission_type_override ?? null,
       };
 
       // Refined Rule: No Guest and No Amount => classify as Block
@@ -624,12 +675,14 @@ export const Bookings: React.FC = () => {
           >
             <Upload size={16} /> Importar Solicitud
           </button>
-          <button
-            onClick={() => setShowDebug(!showDebug)}
-            className={`px-6 py-4 rounded-3xl font-bold text-xs shadow-sm transition-all flex items-center gap-2 border ${showDebug ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600'}`}
-          >
-            <AlertCircle size={16} /> DEBUG
-          </button>
+          {diagnosticsEnabled && (
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className={`px-6 py-4 rounded-3xl font-bold text-xs shadow-sm transition-all flex items-center gap-2 border ${showDebug ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600'}`}
+            >
+              <AlertCircle size={16} /> DEBUG
+            </button>
+          )}
           <button onClick={openNewModal} className="bg-indigo-600 text-white px-8 py-4 rounded-3xl font-black text-xs shadow-xl shadow-indigo-100 hover:scale-105 transition-all flex items-center gap-2">
             <Plus size={16} /> Añadir Reserva
           </button>
@@ -649,7 +702,7 @@ export const Bookings: React.FC = () => {
         </div>
       )}
 
-      {showDebug && debugData && (
+      {diagnosticsEnabled && showDebug && debugData && (
         <div className="bg-slate-900 rounded-[2rem] p-8 text-white animate-in zoom-in duration-300 shadow-2xl mb-8">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-black uppercase tracking-tighter text-indigo-400">Panel de Diagnóstico de Origen de Datos</h3>
@@ -969,6 +1022,7 @@ export const Bookings: React.FC = () => {
                   const isOtaAvailability = entityClass === 'OTA_BLOCK';
                   const isConflict = entityClass === 'REAL_CONFLICT';
                   const isReadonlyOta = isImportedOtaRecord(b);
+                  const originInfo = getBookingOriginInfo(b);
                   return (
                     <tr key={b.id} className="hover:bg-slate-50/50 transition-colors group">
                     <td className="px-8 py-5">
@@ -979,9 +1033,16 @@ export const Bookings: React.FC = () => {
                       {isOtaAvailability ? 'Disponibilidad OTA' : getBookingDisplayName(b, travelers.find(t => t.id === b.traveler_id))}
                       </td>
                     <td className="px-8 py-5">
-                      <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${b.source === 'WEBSITE_IMPORT' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
-                        {b.source}
-                      </span>
+                      <div className="flex flex-col items-start gap-1">
+                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase ${originInfo.channelKey && originInfo.channelKey !== 'OTHER' ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'}`}>
+                          {originInfo.label}
+                        </span>
+                        {originInfo.detail && (
+                          <span className="text-[10px] font-bold text-slate-400">
+                            {originInfo.detail}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-8 py-5 text-xs text-slate-500 font-bold">
                       {formatDateES(b.check_in)} al {formatDateES(b.check_out)}
@@ -1016,7 +1077,7 @@ export const Bookings: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-8 py-5 text-right flex justify-end gap-2">
-                      {!isReadonlyOta && <button onClick={() => openEditModal(b)} className="text-slate-300 hover:text-indigo-600 transition-colors p-2 bg-slate-50 rounded-xl" title="Editar"><Edit2 size={18} /></button>}
+                      <button onClick={() => openEditModal(b)} className="text-slate-300 hover:text-indigo-600 transition-colors p-2 bg-slate-50 rounded-xl" title={isReadonlyOta ? 'Editar datos internos OTA' : 'Editar'}><Edit2 size={18} /></button>
                       {!isReadonlyOta && <button
                         onClick={() => navigate('/comms', { state: { travelerId: b.traveler_id } })}
                         className="text-slate-300 hover:text-indigo-600 transition-colors p-2 bg-slate-50 rounded-xl"
@@ -1028,7 +1089,7 @@ export const Bookings: React.FC = () => {
                         <button onClick={() => handleDelete(b.id)} className="text-slate-300 hover:text-rose-500 transition-colors p-2 bg-slate-50 rounded-xl" title="Eliminar"><Trash2 size={18} /></button>
                       )}
                       {isReadonlyOta && (
-                        <span className="text-[10px] font-black text-slate-400 uppercase bg-slate-100 px-2 py-1 rounded-lg">Solo lectura OTA</span>
+                        <span className="text-[10px] font-black text-slate-400 uppercase bg-slate-100 px-2 py-1 rounded-lg">OTA editable solo en datos internos</span>
                       )}
                     </td>
                     </tr>
@@ -1049,11 +1110,21 @@ export const Bookings: React.FC = () => {
 
       {
         isModalOpen && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-start sm:items-center justify-center z-50 p-4 sm:p-6 overflow-y-auto">
+            <div className="bg-white rounded-[3rem] shadow-2xl w-full max-w-2xl overflow-hidden max-h-[calc(100vh-2rem)] sm:max-h-[90vh] flex flex-col my-auto">
               <div className="p-10 border-b flex justify-between items-center bg-slate-50/50">
                 <div>
                   <h3 className="text-2xl font-black text-slate-800">{editingBookingId ? 'Editar Reserva' : 'Nueva Reserva Manual'}</h3>
+                  {isEditingImportedOta && (
+                    <p className="mt-3 text-[11px] font-bold text-slate-500">
+                      OTA sincronizada: solo puedes editar comision/coste interno y notas operativas.
+                    </p>
+                  )}
+                  {editingBookingId && (
+                    <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      Origen visible: {getBookingOriginInfo(form as Booking).display}
+                    </p>
+                  )}
                   {(form.source === 'BOOKING' && (form as any).needs_details) && (
                     <button
                       type="button"
@@ -1089,18 +1160,18 @@ export const Bookings: React.FC = () => {
                   toast.success("Datos de Pulse aplicados al formulario");
                 }}
               />
-              <form onSubmit={handleSubmit} className="p-10 space-y-6">
+              <form onSubmit={handleSubmit} className="p-10 space-y-6 overflow-y-auto">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase">Propiedad</label>
-                    <select required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" value={form.property_id} onChange={e => setForm({ ...form, property_id: e.target.value })}>
+                    <select required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold disabled:opacity-60" value={form.property_id} onChange={e => setForm({ ...form, property_id: e.target.value })} disabled={isEditingImportedOta}>
                       <option value="">Seleccionar...</option>
                       {properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase">Apartamento</label>
-                    <select required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" value={form.apartment_id} onChange={e => setForm({ ...form, apartment_id: e.target.value })} disabled={!form.property_id}>
+                    <select required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold disabled:opacity-60" value={form.apartment_id} onChange={e => setForm({ ...form, apartment_id: e.target.value })} disabled={!form.property_id || isEditingImportedOta}>
                       <option value="">Seleccionar...</option>
                       {formApartments.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                     </select>
@@ -1109,7 +1180,7 @@ export const Bookings: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase">Vincular a Huésped Existente</label>
-                    <select className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" value={form.traveler_id} onChange={e => setForm({ ...form, traveler_id: e.target.value })}>
+                    <select className="w-full p-4 bg-slate-50 border rounded-2xl font-bold disabled:opacity-60" value={form.traveler_id} onChange={e => setForm({ ...form, traveler_id: e.target.value })} disabled={isEditingImportedOta}>
                       <option value="">(SIN VINCULAR - USAR NOMBRE MANUAL)</option>
                       {travelers.map(t => <option key={t.id} value={t.id}>{t.nombre} {t.apellidos}</option>)}
                     </select>
@@ -1118,16 +1189,17 @@ export const Bookings: React.FC = () => {
                     <label className="text-[10px] font-black text-slate-400 uppercase">Nombre del Huésped (Manual/iCal)</label>
                     <input
                       type="text"
-                      className="w-full p-4 bg-slate-50 border rounded-2xl font-bold"
+                      className="w-full p-4 bg-slate-50 border rounded-2xl font-bold disabled:opacity-60"
                       placeholder="Nombre completo..."
                       value={form.guest_name}
                       onChange={e => setForm({ ...form, guest_name: e.target.value })}
+                      disabled={isEditingImportedOta}
                     />
                   </div>
                 </div>
 
                 {/* DESGLOSE DE PAGOS (Multi-Payment Section) */}
-                <div className="p-6 bg-slate-50 rounded-[2.5rem] border border-slate-200 space-y-6">
+                <div className={`p-6 bg-slate-50 rounded-[2.5rem] border border-slate-200 space-y-6 ${isEditingImportedOta ? 'opacity-60' : ''}`}>
                   <div className="flex justify-between items-center">
                     <h4 className="text-sm font-black uppercase tracking-widest text-slate-800 flex items-center gap-2">
                       <CreditCard size={18} className="text-indigo-600" /> Desglose de Pagos
@@ -1135,6 +1207,7 @@ export const Bookings: React.FC = () => {
                     <button
                       type="button"
                       onClick={addPayment}
+                      disabled={isEditingImportedOta}
                       className="text-[10px] font-black uppercase tracking-widest bg-white border border-slate-200 px-4 py-2 rounded-xl text-slate-600 hover:text-indigo-600 hover:border-indigo-200 transition-all flex items-center gap-2"
                     >
                       <Plus size={14} /> Añadir Extra
@@ -1147,9 +1220,10 @@ export const Bookings: React.FC = () => {
                         <div className="col-span-3 space-y-1">
                           <label className="text-[9px] font-black text-slate-400 uppercase">Concepto</label>
                           <select
-                            className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold"
+                            className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold disabled:opacity-60"
                             value={p.type}
                             onChange={e => updatePayment(p.id, { type: e.target.value })}
+                            disabled={isEditingImportedOta}
                           >
                             <option value="confirmacion">Confirmación</option>
                             <option value="final">Pago Final</option>
@@ -1161,26 +1235,29 @@ export const Bookings: React.FC = () => {
                           <input
                             type="number"
                             step="0.01"
-                            className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold"
+                            className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold disabled:opacity-60"
                             value={p.amount}
                             onChange={e => updatePayment(p.id, { amount: Number(e.target.value) })}
+                            disabled={isEditingImportedOta}
                           />
                         </div>
                         <div className="col-span-2 space-y-1">
                           <label className="text-[9px] font-black text-slate-400 uppercase">Fecha</label>
                           <input
                             type="date"
-                            className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold"
+                            className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold disabled:opacity-60"
                             value={p.date}
                             onChange={e => updatePayment(p.id, { date: e.target.value })}
+                            disabled={isEditingImportedOta}
                           />
                         </div>
                         <div className="col-span-2 space-y-1">
                           <label className="text-[9px] font-black text-slate-400 uppercase">Método</label>
                           <select
-                            className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold"
+                            className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold disabled:opacity-60"
                             value={p.method}
                             onChange={e => updatePayment(p.id, { method: e.target.value })}
+                            disabled={isEditingImportedOta}
                           >
                             <option value="Transferencia">Transferencia</option>
                             <option value="Efectivo">Efectivo</option>
@@ -1194,6 +1271,7 @@ export const Bookings: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => updatePayment(p.id, { status: p.status === 'pagado' ? 'pendiente' : 'pagado' })}
+                            disabled={isEditingImportedOta}
                             className={`w-full p-2 rounded-xl text-[10px] font-black uppercase transition-all ${p.status === 'pagado' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-amber-50 text-amber-600 border border-amber-100'}`}
                           >
                             {p.status}
@@ -1204,6 +1282,7 @@ export const Bookings: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => removePayment(p.id)}
+                              disabled={isEditingImportedOta}
                               className="p-2 text-slate-300 hover:text-rose-500 transition-colors"
                             >
                               <Trash2 size={16} />
@@ -1227,17 +1306,17 @@ export const Bookings: React.FC = () => {
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Entrada</label><input type="date" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" value={form.check_in} onChange={e => setForm({ ...form, check_in: e.target.value })} /></div>
-                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Salida</label><input type="date" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" value={form.check_out} onChange={e => setForm({ ...form, check_out: e.target.value })} /></div>
+                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Entrada</label><input type="date" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold disabled:opacity-60" value={form.check_in} onChange={e => setForm({ ...form, check_in: e.target.value })} disabled={isEditingImportedOta} /></div>
+                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Salida</label><input type="date" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold disabled:opacity-60" value={form.check_out} onChange={e => setForm({ ...form, check_out: e.target.value })} disabled={isEditingImportedOta} /></div>
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase">Precio Total (0 = Bloqueo)</label>
-                    <input type="number" required className={`w-full p-4 bg-slate-50 border rounded-2xl font-bold ${form.total_price === 0 ? 'text-amber-600 border-amber-200' : ''}`} value={form.total_price} onChange={e => setForm({ ...form, total_price: Number(e.target.value) })} />
+                    <input type="number" required className={`w-full p-4 bg-slate-50 border rounded-2xl font-bold disabled:opacity-60 ${form.total_price === 0 ? 'text-amber-600 border-amber-200' : ''}`} value={form.total_price} onChange={e => setForm({ ...form, total_price: Number(e.target.value) })} disabled={isEditingImportedOta} />
                   </div>
-                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Nº Personas</label><input type="number" min="1" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" value={form.guests} onChange={e => setForm({ ...form, guests: Number(e.target.value) })} /></div>
+                  <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Nº Personas</label><input type="number" min="1" required className="w-full p-4 bg-slate-50 border rounded-2xl font-bold disabled:opacity-60" value={form.guests} onChange={e => setForm({ ...form, guests: Number(e.target.value) })} disabled={isEditingImportedOta} /></div>
                   <div className="space-y-1"><label className="text-[10px] font-black text-slate-400 uppercase">Estado</label>
-                    <select className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" value={form.status} onChange={e => setForm({ ...form, status: e.target.value as any })}>
+                    <select className="w-full p-4 bg-slate-50 border rounded-2xl font-bold disabled:opacity-60" value={form.status} onChange={e => setForm({ ...form, status: e.target.value as any })} disabled={isEditingImportedOta}>
                       <option value="pending">Pendiente</option>
                       <option value="confirmed">Confirmada</option>
                     </select>
@@ -1246,7 +1325,7 @@ export const Bookings: React.FC = () => {
 
                 {/* COMMISSION PANEL */}
                 {form.total_price! > 0 && (() => {
-                  const channelKey = (form.source || '').toUpperCase();
+                  const channelKey = getBookingCommissionChannelKey(form as Booking) || (form.source || '').toUpperCase();
                   const defaultComm = channelCommissions[channelKey];
                   const overrideVal = (form as any).commission_override;
                   const overrideType = (form as any).commission_type_override;
@@ -1297,7 +1376,7 @@ export const Bookings: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-[10px] font-black text-slate-400 uppercase">Origen / Canal</label>
-                    <select className="w-full p-4 bg-slate-50 border rounded-2xl font-bold" value={form.source} onChange={e => setForm({ ...form, source: e.target.value })}>
+                    <select className="w-full p-4 bg-slate-50 border rounded-2xl font-bold disabled:opacity-60" value={form.source} onChange={e => setForm({ ...form, source: e.target.value })} disabled={isEditingImportedOta}>
                       <option value="manual">Manual</option>
                       <option value="AIRBNB">Airbnb</option>
                       <option value="BOOKING">Booking.com</option>
@@ -1313,7 +1392,7 @@ export const Bookings: React.FC = () => {
                       className="w-full p-4 bg-slate-50 border rounded-2xl font-bold text-sm min-h-[100px]"
                       value={form.payment_notes}
                       onChange={e => setForm({ ...form, payment_notes: e.target.value })}
-                      placeholder="Notas internas, restricciones, etc..."
+                      placeholder={isEditingImportedOta ? 'Notas internas y observaciones operativas de la OTA...' : 'Notas internas, restricciones, etc...'}
                     />
                   </div>
                 </div>
@@ -1331,7 +1410,7 @@ export const Bookings: React.FC = () => {
                   disabled={isSaving}
                   className={`w-full py-5 rounded-[2rem] font-black shadow-xl transition-all ${isSaving ? 'bg-slate-400 cursor-not-allowed' : (isProvisionalBlock(form) ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-100' : 'bg-slate-900 hover:bg-slate-800 text-white')}`}
                 >
-                  {isSaving ? 'GUARDANDO...' : (isProvisionalBlock(form) ? 'GUARDAR COMO BLOQUEO' : 'GUARDAR RESERVA')}
+                  {isSaving ? 'GUARDANDO...' : isEditingImportedOta ? 'GUARDAR DATOS INTERNOS OTA' : (isProvisionalBlock(form) ? 'GUARDAR COMO BLOQUEO' : 'GUARDAR RESERVA')}
                 </button>
               </form>
             </div >

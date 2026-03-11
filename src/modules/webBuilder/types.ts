@@ -83,20 +83,42 @@ export interface ImageAsset {
     createdAt: number; // timestamp
 }
 
+export interface GlobalData {
+    brandName: string;
+    tagline?: string;
+    logoUrl?: string;
+    faviconUrl?: string;
+    theme?: any;
+    contactEmail?: string;
+    address?: string;
+    phone?: string;
+    contactPhone?: string;
+    socialLinks?: Record<string, string>;
+    [key: string]: any;
+}
+
+export interface PageMeta {
+    id?: string;
+    path?: string;
+    slug?: string;
+    label?: string;
+    title?: string;
+    description?: string;
+    __label?: string;
+    blocks: BlockInstance[];
+    [key: string]: any;
+}
+
 export interface SiteConfigV1 {
-    version: "1.0";
+    version: "1.0" | string;
     slug: string;
-    themeId: string;
-    globalData: {
-        brandName: string;
-        logoUrl?: string;
-        contactEmail?: string;
-        contactPhone?: string;
-        socialLinks?: Record<string, string>;
-    };
+    themeId?: string;
+    globalData: GlobalData;
     theme: DesignTokens;
-    pages: Record<string, PageConfig>; // key is path, e.g., '/'
-    assets: ImageAsset[]; // Project-level asset library
+    design?: DesignTokens;
+    pages: Record<string, PageMeta>; // key is slug, e.g., '/'
+    assets?: ImageAsset[]; // Project-level asset library
+    [key: string]: any;
 }
 
 // Temporary export of the old interface so other files don't immediately break

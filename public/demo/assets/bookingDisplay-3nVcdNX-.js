@@ -1,0 +1,1 @@
+const e=(m,r)=>{if(r){const t=`${r.nombre||""} ${r.apellidos||""}`.trim();if(t)return t}return m.guest_name&&m.guest_name.trim()?m.guest_name.trim():m.summary&&m.summary.trim()?m.summary.trim():"Sin nombre"};export{e as g};

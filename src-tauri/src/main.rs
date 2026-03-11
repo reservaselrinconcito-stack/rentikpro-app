@@ -109,6 +109,7 @@ const WORKSPACE_JSON_NAME: &str = "workspace.json";
 const WORKSPACE_DB_NAME: &str = "database.sqlite";
 const WORKSPACE_BACKUPS_DIR: &str = "backups";
 const WORKSPACE_MEDIA_DIR: &str = "media";
+const REMOTE_WORKSPACE_FORMAT: &str = "rentikpro.remote-workspace.v1";
 
 fn is_sqlite_bytes(bytes: &[u8]) -> bool {
   // "SQLite format 3\0"
@@ -126,6 +127,57 @@ fn workspace_paths(root: &std::path::Path) -> (std::path::PathBuf, std::path::Pa
     root.join(WORKSPACE_BACKUPS_DIR),
     root.join(WORKSPACE_MEDIA_DIR),
   )
+}
+
+#[derive(Clone)]
+struct LocalSyncContext {
+  root: std::path::PathBuf,
+  meta_path: std::path::PathBuf,
+  db_path: std::path::PathBuf,
+  sync_dir: std::path::PathBuf,
+  backups_dir: std::path::PathBuf,
+  conflicts_dir: std::path::PathBuf,
+  kind: String,
+  local_meta_file: String,
+  local_db_file: String,
+}
+
+fn project_paths(root: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
+  (root.join("project.json"), root.join("db.sqlite"))
+}
+
+fn detect_local_sync_context(root: &std::path::Path) -> Result<LocalSyncContext, String> {
+  let (workspace_meta, workspace_db, _workspace_backups, _workspace_media) = workspace_paths(root);
+  if workspace_meta.exists() || workspace_db.exists() {
+    return Ok(LocalSyncContext {
+      root: root.to_path_buf(),
+      meta_path: workspace_meta,
+      db_path: workspace_db,
+      sync_dir: root.join("sync"),
+      backups_dir: root.join("sync").join("backups"),
+      conflicts_dir: root.join("sync").join("conflicts"),
+      kind: "workspace".to_string(),
+      local_meta_file: WORKSPACE_JSON_NAME.to_string(),
+      local_db_file: WORKSPACE_DB_NAME.to_string(),
+    });
+  }
+
+  let (project_meta, project_db) = project_paths(root);
+  if project_meta.exists() || project_db.exists() {
+    return Ok(LocalSyncContext {
+      root: root.to_path_buf(),
+      meta_path: project_meta,
+      db_path: project_db,
+      sync_dir: root.join("sync"),
+      backups_dir: root.join("sync").join("backups"),
+      conflicts_dir: root.join("sync").join("conflicts"),
+      kind: "folder-project".to_string(),
+      local_meta_file: "project.json".to_string(),
+      local_db_file: "db.sqlite".to_string(),
+    });
+  }
+
+  Err("Missing workspace.json/database.sqlite or project.json/db.sqlite in local root".to_string())
 }
 
 fn atomic_write(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
@@ -504,23 +556,33 @@ struct WebDavSyncResponse {
   conflict_paths: Option<serde_json::Value>,
   db_base64: Option<String>,
   applied: Option<bool>,
+  workspace_kind: Option<String>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 struct SyncStateV1 {
   version: u32,
+  format: String,
   last_modified: i64,
   sha256: String,
   client_id: String,
+  workspace_kind: String,
+  db_file: String,
+  metadata_file: String,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 struct LockFileV1 {
   version: u32,
+  format: String,
   client_id: String,
+  workspace_kind: String,
   created_at: i64,
+  heartbeat_at: i64,
   expires_at: i64,
 }
 
@@ -546,6 +608,67 @@ fn write_json_file<T: serde::Serialize>(path: &std::path::Path, value: &T) -> Re
   }
   let txt = serde_json::to_string_pretty(value).map_err(|e| format!("JSON encode failed: {e}"))?;
   std::fs::write(path, txt.as_bytes()).map_err(|e| format!("Failed writing {}: {e}", path.display()))
+}
+
+fn read_local_metadata(ctx: &LocalSyncContext, slug: &str) -> serde_json::Value {
+  let fallback_name = ctx
+    .root
+    .file_name()
+    .and_then(|s| s.to_str())
+    .unwrap_or("RentikPro Workspace")
+    .to_string();
+
+  let mut meta = read_json_file::<serde_json::Value>(&ctx.meta_path)
+    .unwrap_or_else(|| serde_json::json!({}));
+
+  if !meta.is_object() {
+    meta = serde_json::json!({});
+  }
+
+  let now = chrono::Utc::now().timestamp_millis();
+  let obj = meta.as_object_mut().unwrap();
+  obj.entry("schema".to_string()).or_insert_with(|| serde_json::json!(1));
+  obj.entry("id".to_string()).or_insert_with(|| serde_json::json!(slug));
+  obj.entry("name".to_string()).or_insert_with(|| serde_json::json!(fallback_name));
+  obj.entry("createdAt".to_string()).or_insert_with(|| serde_json::json!(now));
+  obj.insert("updatedAt".to_string(), serde_json::json!(now));
+  obj.entry("appVersion".to_string()).or_insert_with(|| serde_json::json!("unknown"));
+  meta
+}
+
+fn build_remote_workspace_json(local_meta: &serde_json::Value, ctx: &LocalSyncContext) -> serde_json::Value {
+  let mut meta = local_meta.clone();
+  if !meta.is_object() {
+    meta = serde_json::json!({});
+  }
+
+  let now = chrono::Utc::now().timestamp_millis();
+  let obj = meta.as_object_mut().unwrap();
+  obj.insert("schema".to_string(), serde_json::json!(1));
+  obj.insert("kind".to_string(), serde_json::json!("workspace"));
+  obj.insert("dbFile".to_string(), serde_json::json!(WORKSPACE_DB_NAME));
+  obj.insert("updatedAt".to_string(), serde_json::json!(now));
+  obj.insert("remoteFormat".to_string(), serde_json::json!(REMOTE_WORKSPACE_FORMAT));
+  obj.insert("localMetaFile".to_string(), serde_json::json!(ctx.local_meta_file));
+  obj.insert("localDbFile".to_string(), serde_json::json!(ctx.local_db_file));
+  obj.insert("sync".to_string(), serde_json::json!({
+    "format": REMOTE_WORKSPACE_FORMAT,
+    "workspaceKind": ctx.kind.clone(),
+  }));
+  meta
+}
+
+fn adapt_remote_workspace_json_for_local(remote_meta: &serde_json::Value, ctx: &LocalSyncContext) -> serde_json::Value {
+  let mut meta = remote_meta.clone();
+  if !meta.is_object() {
+    meta = serde_json::json!({});
+  }
+
+  let obj = meta.as_object_mut().unwrap();
+  obj.insert("dbFile".to_string(), serde_json::json!(ctx.local_db_file));
+  obj.insert("updatedAt".to_string(), serde_json::json!(chrono::Utc::now().timestamp_millis()));
+  obj.insert("kind".to_string(), serde_json::json!(if ctx.kind == "workspace" { "workspace" } else { "project" }));
+  meta
 }
 
 fn join_base(base: &str, suffix: &str) -> String {
@@ -637,26 +760,82 @@ async fn dav_move(client: &reqwest::Client, from_url: &str, to_url: &str, auth: 
   Ok(())
 }
 
-async fn acquire_lock(client: &reqwest::Client, lock_url: &str, auth: &str, client_id: &str, ttl_ms: i64) -> Result<bool, String> {
+async fn read_remote_lock(client: &reqwest::Client, lock_url: &str, auth: &str) -> Result<Option<LockFileV1>, String> {
+  match dav_get_bytes(client, lock_url, auth).await {
+    Ok(bytes) => Ok(serde_json::from_slice::<LockFileV1>(&bytes).ok()),
+    Err(e) if e == "NOT_FOUND" => Ok(None),
+    Err(e) => Err(e),
+  }
+}
+
+async fn write_remote_lock(client: &reqwest::Client, lock_url: &str, auth: &str, lock: &LockFileV1) -> Result<(), String> {
+  let txt = serde_json::to_vec(lock).map_err(|e| format!("Lock encode failed: {e}"))?;
+  dav_put_bytes(client, lock_url, auth, txt, "application/json").await
+}
+
+async fn acquire_lock(client: &reqwest::Client, lock_url: &str, auth: &str, client_id: &str, workspace_kind: &str, ttl_ms: i64) -> Result<Option<LockFileV1>, String> {
   let now = chrono::Utc::now().timestamp_millis();
-  let existing = dav_get_bytes(client, lock_url, auth).await;
-  if let Ok(bytes) = existing {
-    if let Ok(lock) = serde_json::from_slice::<LockFileV1>(&bytes) {
-      if lock.client_id != client_id && now < lock.expires_at {
-        return Ok(false);
-      }
+  if let Some(lock) = read_remote_lock(client, lock_url, auth).await? {
+    if lock.client_id != client_id && now < lock.expires_at {
+      return Ok(None);
     }
   }
 
   let lock = LockFileV1 {
     version: 1,
+    format: REMOTE_WORKSPACE_FORMAT.to_string(),
     client_id: client_id.to_string(),
+    workspace_kind: workspace_kind.to_string(),
     created_at: now,
+    heartbeat_at: now,
     expires_at: now + ttl_ms,
   };
-  let txt = serde_json::to_vec(&lock).map_err(|e| format!("Lock encode failed: {e}"))?;
-  dav_put_bytes(client, lock_url, auth, txt, "application/json").await?;
-  Ok(true)
+  write_remote_lock(client, lock_url, auth, &lock).await?;
+  Ok(Some(lock))
+}
+
+async fn renew_lock(client: &reqwest::Client, lock_url: &str, auth: &str, lock: &mut LockFileV1, ttl_ms: i64) -> Result<(), String> {
+  let now = chrono::Utc::now().timestamp_millis();
+  lock.heartbeat_at = now;
+  lock.expires_at = now + ttl_ms;
+  write_remote_lock(client, lock_url, auth, lock).await
+}
+
+fn make_sync_state(now: i64, sha256: String, client_id: String, ctx: &LocalSyncContext) -> SyncStateV1 {
+  SyncStateV1 {
+    version: 1,
+    format: REMOTE_WORKSPACE_FORMAT.to_string(),
+    last_modified: now,
+    sha256,
+    client_id,
+    workspace_kind: ctx.kind.clone(),
+    db_file: WORKSPACE_DB_NAME.to_string(),
+    metadata_file: WORKSPACE_JSON_NAME.to_string(),
+  }
+}
+
+fn finish_sync_response(
+  success: bool,
+  error: Option<String>,
+  conflict: bool,
+  remote_state: Option<serde_json::Value>,
+  local_state: Option<serde_json::Value>,
+  conflict_paths: Option<serde_json::Value>,
+  db_base64: Option<String>,
+  applied: Option<bool>,
+  workspace_kind: Option<String>,
+) -> WebDavSyncResponse {
+  WebDavSyncResponse {
+    success,
+    error,
+    conflict,
+    remote_state,
+    local_state,
+    conflict_paths,
+    db_base64,
+    applied,
+    workspace_kind,
+  }
 }
 
 #[tauri::command]
@@ -669,64 +848,61 @@ async fn webdav_sync(args: WebDavSyncArgs) -> Result<WebDavSyncResponse, String>
 
   let slug = args.slug.trim().to_string();
   if slug.is_empty() {
-    return Ok(WebDavSyncResponse { success: false, error: Some("Missing slug".to_string()), conflict: false, remote_state: None, local_state: None, conflict_paths: None, db_base64: None, applied: None });
+    return Ok(finish_sync_response(false, Some("Missing slug".to_string()), false, None, None, None, None, None, None));
   }
 
   let base = args.url.trim().trim_end_matches('/').to_string();
   if base.is_empty() {
-    return Ok(WebDavSyncResponse { success: false, error: Some("Missing WebDAV url".to_string()), conflict: false, remote_state: None, local_state: None, conflict_paths: None, db_base64: None, applied: None });
+    return Ok(finish_sync_response(false, Some("Missing WebDAV url".to_string()), false, None, None, None, None, None, None));
   }
 
+  let project_root = std::path::PathBuf::from(&args.project_path);
+  let local_ctx = detect_local_sync_context(&project_root)?;
+  ensure_dir(&local_ctx.sync_dir)?;
+  ensure_dir(&local_ctx.backups_dir)?;
+  ensure_dir(&local_ctx.conflicts_dir)?;
+
   let remote_root = join_base(&base, &format!("RentikProSync/{slug}"));
-  let remote_sync = join_base(&remote_root, "sync");
-  let remote_state_url = join_base(&remote_sync, "state.json");
-  let remote_lock_url = join_base(&remote_sync, "lock.json");
-  let remote_db_url = join_base(&remote_root, "db.sqlite");
+  let remote_state_url = join_base(&remote_root, "state.json");
+  let remote_lock_url = join_base(&remote_root, "lock.json");
+  let remote_db_url = join_base(&remote_root, WORKSPACE_DB_NAME);
+  let remote_meta_url = join_base(&remote_root, WORKSPACE_JSON_NAME);
 
   // ensure dirs
   dav_mkcol(&client, &join_base(&base, "RentikProSync"), &auth).await.ok();
   dav_mkcol(&client, &remote_root, &auth).await.ok();
-  dav_mkcol(&client, &remote_sync, &auth).await.ok();
 
-  // local paths
-  let project_root = std::path::PathBuf::from(&args.project_path);
-  let sync_dir = project_root.join("sync");
-  let backups_dir = sync_dir.join("backups");
-  let conflicts_dir = sync_dir.join("conflicts");
-  ensure_dir(&backups_dir)?;
-  ensure_dir(&conflicts_dir)?;
-
-  let local_state_path = sync_dir.join("state.json");
+  let local_state_path = local_ctx.sync_dir.join("state.json");
+  let local_meta = read_local_metadata(&local_ctx, &slug);
+  let remote_workspace_meta = build_remote_workspace_json(&local_meta, &local_ctx);
 
   let local_state: Option<SyncStateV1> = read_json_file(&local_state_path);
 
   let remote_state: Option<SyncStateV1> = match dav_get_bytes(&client, &remote_state_url, &auth).await {
     Ok(b) => serde_json::from_slice(&b).ok(),
     Err(e) if e == "NOT_FOUND" => None,
-    Err(e) => return Ok(WebDavSyncResponse { success: false, error: Some(e), conflict: false, remote_state: None, local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }),
+    Err(e) => return Ok(finish_sync_response(false, Some(e), false, None, local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))),
+  };
+
+  let remote_meta_json: Option<serde_json::Value> = match dav_get_bytes(&client, &remote_meta_url, &auth).await {
+    Ok(bytes) => serde_json::from_slice::<serde_json::Value>(&bytes).ok(),
+    Err(e) if e == "NOT_FOUND" => None,
+    Err(e) => return Ok(finish_sync_response(false, Some(e), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))),
   };
 
   // Acquire lock
-  let lock_ok = acquire_lock(&client, &remote_lock_url, &auth, &args.client_id, 120_000).await?;
-  if !lock_ok {
-    return Ok(WebDavSyncResponse { success: false, error: Some("Remote locked by another client".to_string()), conflict: false, remote_state: remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None });
+  let lock = acquire_lock(&client, &remote_lock_url, &auth, &args.client_id, &local_ctx.kind, 120_000).await?;
+  if lock.is_none() {
+    return Ok(finish_sync_response(false, Some("Remote locked by another client".to_string()), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone())));
   }
+  let mut held_lock = lock.unwrap();
 
   let now = chrono::Utc::now().timestamp_millis();
   let local_db_bytes = match base64::engine::general_purpose::STANDARD.decode(args.local_db_base64.as_bytes()) {
     Ok(b) => b,
     Err(e) => {
       let _ = dav_delete(&client, &remote_lock_url, &auth).await;
-      return Ok(WebDavSyncResponse {
-        success: false,
-        error: Some(format!("Invalid local DB base64: {e}")),
-        conflict: false,
-        remote_state: remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()),
-        local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()),
-        conflict_paths: None,
-        db_base64: None,
-        applied: None,
-      });
+      return Ok(finish_sync_response(false, Some(format!("Invalid local DB base64: {e}")), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone())));
     }
   };
   let local_sha = sha256_hex(&local_db_bytes);
@@ -743,27 +919,18 @@ async fn webdav_sync(args: WebDavSyncArgs) -> Result<WebDavSyncResponse, String>
       match local_state.clone() {
         None => {
           if !args.force {
-            let local_copy = conflicts_dir.join(format!("local-{}-{}.sqlite", now, &local_sha[..8]));
+            let local_copy = local_ctx.conflicts_dir.join(format!("local-{}-{}.sqlite", now, &local_sha[..8]));
             if let Err(e) = std::fs::write(&local_copy, &local_db_bytes) {
-              return Ok(finish(WebDavSyncResponse { success: false, error: Some(format!("Failed writing local conflict copy: {e}")), conflict: false, remote_state: serde_json::to_value(rs).ok(), local_state: None, conflict_paths: None, db_base64: None, applied: None }).await);
+              return Ok(finish(finish_sync_response(false, Some(format!("Failed writing local conflict copy: {e}")), false, serde_json::to_value(rs).ok(), None, None, None, None, Some(local_ctx.kind.clone()))).await);
             }
-            let remote_copy_path = conflicts_dir.join(format!("remote-{}-{}.sqlite", now, &rs.sha256[..8]));
+            let remote_copy_path = local_ctx.conflicts_dir.join(format!("remote-{}-{}.sqlite", now, &rs.sha256[..8]));
             if let Ok(remote_db) = dav_get_bytes(&client, &remote_db_url, &auth).await {
               let _ = std::fs::write(&remote_copy_path, &remote_db);
             }
-            return Ok(finish(WebDavSyncResponse {
-              success: false,
-              error: Some("Conflict: remote has data but local has no sync state (use Download or Force Upload)".to_string()),
-              conflict: true,
-              remote_state: serde_json::to_value(rs).ok(),
-              local_state: None,
-              conflict_paths: serde_json::to_value(serde_json::json!({
-                "localCopy": local_copy.to_string_lossy().to_string(),
-                "remoteCopy": remote_copy_path.to_string_lossy().to_string()
-              })).ok(),
-              db_base64: None,
-              applied: None,
-            }).await);
+            return Ok(finish(finish_sync_response(false, Some("Conflict: remote has data but local has no sync state (use Download or Force Upload)".to_string()), true, serde_json::to_value(rs).ok(), None, serde_json::to_value(serde_json::json!({
+              "localCopy": local_copy.to_string_lossy().to_string(),
+              "remoteCopy": remote_copy_path.to_string_lossy().to_string()
+            })).ok(), None, None, Some(local_ctx.kind.clone()))).await);
           }
         }
         Some(ls) => {
@@ -773,46 +940,28 @@ async fn webdav_sync(args: WebDavSyncArgs) -> Result<WebDavSyncResponse, String>
           if !local_changed && !remote_changed {
             no_op = true;
           } else if remote_changed && !local_changed && !args.force {
-            let remote_copy_path = conflicts_dir.join(format!("remote-{}-{}.sqlite", now, &rs.sha256[..8]));
+            let remote_copy_path = local_ctx.conflicts_dir.join(format!("remote-{}-{}.sqlite", now, &rs.sha256[..8]));
             if let Ok(remote_db) = dav_get_bytes(&client, &remote_db_url, &auth).await {
               let _ = std::fs::write(&remote_copy_path, &remote_db);
             }
-            return Ok(finish(WebDavSyncResponse {
-              success: false,
-              error: Some("Conflict: remote changed since last sync (download first or Force Upload)".to_string()),
-              conflict: true,
-              remote_state: serde_json::to_value(rs).ok(),
-              local_state: serde_json::to_value(ls).ok(),
-              conflict_paths: serde_json::to_value(serde_json::json!({
-                "remoteCopy": remote_copy_path.to_string_lossy().to_string()
-              })).ok(),
-              db_base64: None,
-              applied: None,
-            }).await);
+            return Ok(finish(finish_sync_response(false, Some("Conflict: remote changed since last sync (download first or Force Upload)".to_string()), true, serde_json::to_value(rs).ok(), serde_json::to_value(ls).ok(), serde_json::to_value(serde_json::json!({
+              "remoteCopy": remote_copy_path.to_string_lossy().to_string()
+            })).ok(), None, None, Some(local_ctx.kind.clone()))).await);
           } else if local_changed && remote_changed && !args.force {
-            let local_copy = conflicts_dir.join(format!("local-{}-{}.sqlite", now, &local_sha[..8]));
+            let local_copy = local_ctx.conflicts_dir.join(format!("local-{}-{}.sqlite", now, &local_sha[..8]));
             if let Err(e) = std::fs::write(&local_copy, &local_db_bytes) {
-              return Ok(finish(WebDavSyncResponse { success: false, error: Some(format!("Failed writing local conflict copy: {e}")), conflict: false, remote_state: serde_json::to_value(rs).ok(), local_state: serde_json::to_value(ls).ok(), conflict_paths: None, db_base64: None, applied: None }).await);
+              return Ok(finish(finish_sync_response(false, Some(format!("Failed writing local conflict copy: {e}")), false, serde_json::to_value(rs).ok(), serde_json::to_value(ls).ok(), None, None, None, Some(local_ctx.kind.clone()))).await);
             }
 
-            let remote_copy_path = conflicts_dir.join(format!("remote-{}-{}.sqlite", now, &rs.sha256[..8]));
+            let remote_copy_path = local_ctx.conflicts_dir.join(format!("remote-{}-{}.sqlite", now, &rs.sha256[..8]));
             if let Ok(remote_db) = dav_get_bytes(&client, &remote_db_url, &auth).await {
               let _ = std::fs::write(&remote_copy_path, &remote_db);
             }
 
-            return Ok(finish(WebDavSyncResponse {
-              success: false,
-              error: Some("Conflict: both local and remote changed".to_string()),
-              conflict: true,
-              remote_state: serde_json::to_value(rs).ok(),
-              local_state: serde_json::to_value(ls).ok(),
-              conflict_paths: serde_json::to_value(serde_json::json!({
-                "localCopy": local_copy.to_string_lossy().to_string(),
-                "remoteCopy": remote_copy_path.to_string_lossy().to_string()
-              })).ok(),
-              db_base64: None,
-              applied: None,
-            }).await);
+            return Ok(finish(finish_sync_response(false, Some("Conflict: both local and remote changed".to_string()), true, serde_json::to_value(rs).ok(), serde_json::to_value(ls).ok(), serde_json::to_value(serde_json::json!({
+              "localCopy": local_copy.to_string_lossy().to_string(),
+              "remoteCopy": remote_copy_path.to_string_lossy().to_string()
+            })).ok(), None, None, Some(local_ctx.kind.clone()))).await);
           }
         }
       }
@@ -821,64 +970,64 @@ async fn webdav_sync(args: WebDavSyncArgs) -> Result<WebDavSyncResponse, String>
     if no_op {
       if let Some(rs) = remote_state.clone() {
         write_json_file(&local_state_path, &rs).ok();
-        return Ok(finish(WebDavSyncResponse {
-          success: true,
-          error: None,
-          conflict: false,
-          remote_state: serde_json::to_value(rs.clone()).ok(),
-          local_state: serde_json::to_value(rs).ok(),
-          conflict_paths: None,
-          db_base64: None,
-          applied: Some(false),
-        }).await);
+        let local_workspace_meta = adapt_remote_workspace_json_for_local(&remote_workspace_meta, &local_ctx);
+        write_json_file(&local_ctx.meta_path, &local_workspace_meta).ok();
+        return Ok(finish(finish_sync_response(true, None, false, serde_json::to_value(rs.clone()).ok(), serde_json::to_value(rs).ok(), None, None, Some(false), Some(local_ctx.kind.clone()))).await);
       }
     }
 
-    // Write local db.sqlite (so local folder matches pushed version)
-    let db_path = project_root.join("db.sqlite");
-    if let Err(e) = std::fs::write(&db_path, &local_db_bytes) {
-      return Ok(finish(WebDavSyncResponse { success: false, error: Some(format!("Failed writing local db.sqlite: {e}")), conflict: false, remote_state: remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }).await);
+    if let Err(e) = atomic_write(&local_ctx.db_path, &local_db_bytes) {
+      return Ok(finish(finish_sync_response(false, Some(format!("Failed writing local {}: {e}", local_ctx.local_db_file)), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
     }
+    let local_workspace_meta = adapt_remote_workspace_json_for_local(&remote_workspace_meta, &local_ctx);
+    if let Err(e) = write_json_file(&local_ctx.meta_path, &local_workspace_meta) {
+      return Ok(finish(finish_sync_response(false, Some(format!("Failed writing local metadata: {e}")), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
+    }
+
+    renew_lock(&client, &remote_lock_url, &auth, &mut held_lock, 120_000).await.ok();
 
     // upload temp then move
-    let tmp_name = format!("db.sqlite.uploading.{}.{}", args.client_id, now);
+    let tmp_name = format!("{}.uploading.{}.{}", WORKSPACE_DB_NAME, args.client_id, now);
     let tmp_url = join_base(&remote_root, &tmp_name);
     if let Err(e) = dav_put_bytes(&client, &tmp_url, &auth, local_db_bytes.clone(), "application/octet-stream").await {
-      return Ok(finish(WebDavSyncResponse { success: false, error: Some(e), conflict: false, remote_state: remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }).await);
+      return Ok(finish(finish_sync_response(false, Some(e), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
     }
     if let Err(e) = dav_move(&client, &tmp_url, &remote_db_url, &auth).await {
-      return Ok(finish(WebDavSyncResponse { success: false, error: Some(e), conflict: false, remote_state: remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }).await);
+      return Ok(finish(finish_sync_response(false, Some(e), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
     }
 
-    let new_state = SyncStateV1 {
-      version: 1,
-      last_modified: now,
-      sha256: local_sha.clone(),
-      client_id: args.client_id.clone(),
+    let meta_tmp_name = format!("{}.uploading.{}.{}", WORKSPACE_JSON_NAME, args.client_id, now);
+    let meta_tmp_url = join_base(&remote_root, &meta_tmp_name);
+    let meta_bytes = match serde_json::to_vec_pretty(&remote_workspace_meta) {
+      Ok(bytes) => bytes,
+      Err(e) => {
+        return Ok(finish(finish_sync_response(false, Some(format!("Workspace metadata encode failed: {e}")), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
+      }
     };
+    if let Err(e) = dav_put_bytes(&client, &meta_tmp_url, &auth, meta_bytes, "application/json").await {
+      return Ok(finish(finish_sync_response(false, Some(e), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
+    }
+    if let Err(e) = dav_move(&client, &meta_tmp_url, &remote_meta_url, &auth).await {
+      return Ok(finish(finish_sync_response(false, Some(e), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
+    }
+
+    renew_lock(&client, &remote_lock_url, &auth, &mut held_lock, 120_000).await.ok();
+
+    let new_state = make_sync_state(now, local_sha.clone(), args.client_id.clone(), &local_ctx);
     let state_bytes = serde_json::to_vec(&new_state).map_err(|e| format!("State encode failed: {e}"))?;
     if let Err(e) = dav_put_bytes(&client, &remote_state_url, &auth, state_bytes, "application/json").await {
-      return Ok(finish(WebDavSyncResponse { success: false, error: Some(e), conflict: false, remote_state: remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }).await);
+      return Ok(finish(finish_sync_response(false, Some(e), false, remote_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
     }
     if let Err(e) = write_json_file(&local_state_path, &new_state) {
-      return Ok(finish(WebDavSyncResponse { success: false, error: Some(e), conflict: false, remote_state: serde_json::to_value(new_state.clone()).ok(), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }).await);
+      return Ok(finish(finish_sync_response(false, Some(e), false, serde_json::to_value(new_state.clone()).ok(), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
     }
 
-    return Ok(finish(WebDavSyncResponse {
-      success: true,
-      error: None,
-      conflict: false,
-      remote_state: serde_json::to_value(new_state.clone()).ok(),
-      local_state: serde_json::to_value(new_state).ok(),
-      conflict_paths: None,
-      db_base64: None,
-      applied: Some(true),
-    }).await);
+    return Ok(finish(finish_sync_response(true, None, false, serde_json::to_value(new_state.clone()).ok(), serde_json::to_value(new_state).ok(), None, None, Some(true), Some(local_ctx.kind.clone()))).await);
   }
 
   // mode down
   if remote_state.is_none() {
-    return Ok(finish(WebDavSyncResponse { success: true, error: None, conflict: false, remote_state: None, local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: Some(false) }).await);
+    return Ok(finish(finish_sync_response(true, None, false, None, local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, Some(false), Some(local_ctx.kind.clone()))).await);
   }
 
   let rs = remote_state.clone().unwrap();
@@ -889,46 +1038,28 @@ async fn webdav_sync(args: WebDavSyncArgs) -> Result<WebDavSyncResponse, String>
 
       if local_changed && !remote_changed {
         // local is ahead; downloading would discard changes
-        let local_copy = conflicts_dir.join(format!("local-{}-{}.sqlite", now, &local_sha[..8]));
+        let local_copy = local_ctx.conflicts_dir.join(format!("local-{}-{}.sqlite", now, &local_sha[..8]));
         if let Err(e) = std::fs::write(&local_copy, &local_db_bytes) {
-          return Ok(finish(WebDavSyncResponse { success: false, error: Some(format!("Failed writing local conflict copy: {e}")), conflict: false, remote_state: serde_json::to_value(rs).ok(), local_state: serde_json::to_value(ls).ok(), conflict_paths: None, db_base64: None, applied: None }).await);
+          return Ok(finish(finish_sync_response(false, Some(format!("Failed writing local conflict copy: {e}")), false, serde_json::to_value(rs).ok(), serde_json::to_value(ls).ok(), None, None, None, Some(local_ctx.kind.clone()))).await);
         }
-        return Ok(finish(WebDavSyncResponse {
-          success: false,
-          error: Some("Conflict: local changed since last sync (upload first or Force Download)".to_string()),
-          conflict: true,
-          remote_state: serde_json::to_value(rs).ok(),
-          local_state: serde_json::to_value(ls).ok(),
-          conflict_paths: serde_json::to_value(serde_json::json!({
-            "localCopy": local_copy.to_string_lossy().to_string()
-          })).ok(),
-          db_base64: None,
-          applied: None,
-        }).await);
+        return Ok(finish(finish_sync_response(false, Some("Conflict: local changed since last sync (upload first or Force Download)".to_string()), true, serde_json::to_value(rs).ok(), serde_json::to_value(ls).ok(), serde_json::to_value(serde_json::json!({
+          "localCopy": local_copy.to_string_lossy().to_string()
+        })).ok(), None, None, Some(local_ctx.kind.clone()))).await);
       }
 
       if local_changed && remote_changed {
-        let local_copy = conflicts_dir.join(format!("local-{}-{}.sqlite", now, &local_sha[..8]));
+        let local_copy = local_ctx.conflicts_dir.join(format!("local-{}-{}.sqlite", now, &local_sha[..8]));
         if let Err(e) = std::fs::write(&local_copy, &local_db_bytes) {
-          return Ok(finish(WebDavSyncResponse { success: false, error: Some(format!("Failed writing local conflict copy: {e}")), conflict: false, remote_state: serde_json::to_value(rs).ok(), local_state: serde_json::to_value(ls).ok(), conflict_paths: None, db_base64: None, applied: None }).await);
+          return Ok(finish(finish_sync_response(false, Some(format!("Failed writing local conflict copy: {e}")), false, serde_json::to_value(rs).ok(), serde_json::to_value(ls).ok(), None, None, None, Some(local_ctx.kind.clone()))).await);
         }
-        let remote_copy_path = conflicts_dir.join(format!("remote-{}-{}.sqlite", now, &rs.sha256[..8]));
+        let remote_copy_path = local_ctx.conflicts_dir.join(format!("remote-{}-{}.sqlite", now, &rs.sha256[..8]));
         if let Ok(remote_db) = dav_get_bytes(&client, &remote_db_url, &auth).await {
           let _ = std::fs::write(&remote_copy_path, &remote_db);
         }
-        return Ok(finish(WebDavSyncResponse {
-          success: false,
-          error: Some("Conflict: both local and remote changed".to_string()),
-          conflict: true,
-          remote_state: serde_json::to_value(rs).ok(),
-          local_state: serde_json::to_value(ls).ok(),
-          conflict_paths: serde_json::to_value(serde_json::json!({
-            "localCopy": local_copy.to_string_lossy().to_string(),
-            "remoteCopy": remote_copy_path.to_string_lossy().to_string()
-          })).ok(),
-          db_base64: None,
-          applied: None,
-        }).await);
+        return Ok(finish(finish_sync_response(false, Some("Conflict: both local and remote changed".to_string()), true, serde_json::to_value(rs).ok(), serde_json::to_value(ls).ok(), serde_json::to_value(serde_json::json!({
+          "localCopy": local_copy.to_string_lossy().to_string(),
+          "remoteCopy": remote_copy_path.to_string_lossy().to_string()
+        })).ok(), None, None, Some(local_ctx.kind.clone()))).await);
       }
     }
   }
@@ -936,44 +1067,45 @@ async fn webdav_sync(args: WebDavSyncArgs) -> Result<WebDavSyncResponse, String>
   // If remote sha equals local sha, nothing to do.
   if rs.sha256 == local_sha {
     write_json_file(&local_state_path, &rs).ok();
-    return Ok(finish(WebDavSyncResponse { success: true, error: None, conflict: false, remote_state: serde_json::to_value(rs.clone()).ok(), local_state: serde_json::to_value(rs).ok(), conflict_paths: None, db_base64: None, applied: Some(false) }).await);
+    if let Some(remote_meta) = remote_meta_json.as_ref() {
+      let local_meta_json = adapt_remote_workspace_json_for_local(remote_meta, &local_ctx);
+      write_json_file(&local_ctx.meta_path, &local_meta_json).ok();
+    }
+    return Ok(finish(finish_sync_response(true, None, false, serde_json::to_value(rs.clone()).ok(), serde_json::to_value(rs).ok(), None, None, Some(false), Some(local_ctx.kind.clone()))).await);
   }
 
   // Download, verify, backup, replace
+  renew_lock(&client, &remote_lock_url, &auth, &mut held_lock, 120_000).await.ok();
   let remote_db = match dav_get_bytes(&client, &remote_db_url, &auth).await {
     Ok(b) => b,
     Err(e) => {
-      return Ok(finish(WebDavSyncResponse { success: false, error: Some(e), conflict: false, remote_state: serde_json::to_value(rs).ok(), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }).await);
+      return Ok(finish(finish_sync_response(false, Some(e), false, serde_json::to_value(rs).ok(), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
     }
   };
   let downloaded_sha = sha256_hex(&remote_db);
   if downloaded_sha != rs.sha256 {
-    return Ok(finish(WebDavSyncResponse { success: false, error: Some("Downloaded sha256 mismatch".to_string()), conflict: false, remote_state: serde_json::to_value(rs).ok(), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }).await);
+    return Ok(finish(finish_sync_response(false, Some("Downloaded sha256 mismatch".to_string()), false, serde_json::to_value(rs).ok(), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
   }
 
-  let backup_path = backups_dir.join(format!("local-{}-{}.sqlite", now, &local_sha[..8]));
+  let backup_path = local_ctx.backups_dir.join(format!("local-{}-{}.sqlite", now, &local_sha[..8]));
   if let Err(e) = std::fs::write(&backup_path, &local_db_bytes) {
-    return Ok(finish(WebDavSyncResponse { success: false, error: Some(format!("Failed writing backup: {e}")), conflict: false, remote_state: serde_json::to_value(rs).ok(), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }).await);
+    return Ok(finish(finish_sync_response(false, Some(format!("Failed writing backup: {e}")), false, serde_json::to_value(rs).ok(), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
   }
 
-  let db_path = project_root.join("db.sqlite");
-  if let Err(e) = std::fs::write(&db_path, &remote_db) {
-    return Ok(finish(WebDavSyncResponse { success: false, error: Some(format!("Failed writing local db.sqlite: {e}")), conflict: false, remote_state: serde_json::to_value(rs).ok(), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }).await);
+  if let Err(e) = atomic_write(&local_ctx.db_path, &remote_db) {
+    return Ok(finish(finish_sync_response(false, Some(format!("Failed writing local {}: {e}", local_ctx.local_db_file)), false, serde_json::to_value(rs).ok(), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
+  }
+  if let Some(remote_meta) = remote_meta_json.as_ref() {
+    let local_meta_json = adapt_remote_workspace_json_for_local(remote_meta, &local_ctx);
+    if let Err(e) = write_json_file(&local_ctx.meta_path, &local_meta_json) {
+      return Ok(finish(finish_sync_response(false, Some(format!("Failed writing local metadata: {e}")), false, serde_json::to_value(rs).ok(), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
+    }
   }
   if let Err(e) = write_json_file(&local_state_path, &rs) {
-    return Ok(finish(WebDavSyncResponse { success: false, error: Some(e), conflict: false, remote_state: serde_json::to_value(rs).ok(), local_state: local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), conflict_paths: None, db_base64: None, applied: None }).await);
+    return Ok(finish(finish_sync_response(false, Some(e), false, serde_json::to_value(rs).ok(), local_state.as_ref().and_then(|s| serde_json::to_value(s).ok()), None, None, None, Some(local_ctx.kind.clone()))).await);
   }
 
-  return Ok(finish(WebDavSyncResponse {
-    success: true,
-    error: None,
-    conflict: false,
-    remote_state: serde_json::to_value(rs.clone()).ok(),
-    local_state: serde_json::to_value(rs.clone()).ok(),
-    conflict_paths: None,
-    db_base64: Some(base64::engine::general_purpose::STANDARD.encode(remote_db)),
-    applied: Some(true),
-  }).await);
+  return Ok(finish(finish_sync_response(true, None, false, serde_json::to_value(rs.clone()).ok(), serde_json::to_value(rs.clone()).ok(), None, Some(base64::engine::general_purpose::STANDARD.encode(remote_db)), Some(true), Some(local_ctx.kind.clone()))).await);
 }
 
 #[derive(serde::Serialize)]
@@ -990,10 +1122,6 @@ struct OpenProjectResult {
   db_base64: String,
   project_json_path: String,
   db_path: String,
-}
-
-fn project_paths(root: &std::path::Path) -> (std::path::PathBuf, std::path::PathBuf) {
-  (root.join("project.json"), root.join("db.sqlite"))
 }
 
 #[tauri::command]

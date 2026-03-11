@@ -76,7 +76,7 @@ export const AvailabilityCalendar: React.FC<{
                                         isBlocked ? 'bg-red-50 text-red-300 line-through cursor-not-allowed' : 'cursor-pointer hover:opacity-90',
                                         isToday ? 'ring-2 ring-offset-1' : '',
                                     ].join(' ')}
-                                    style={!isBlocked ? { backgroundColor: isToday ? primary + '22' : undefined, color: isToday ? primary : undefined, ringColor: isToday ? primary : undefined } : undefined}
+                                    style={!isBlocked ? { backgroundColor: isToday ? primary + '22' : undefined, color: isToday ? primary : undefined, '--tw-ring-color': isToday ? primary : undefined } as any : undefined}
                                 >
                                     {day}
                                 </div>

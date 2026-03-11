@@ -31,12 +31,12 @@ export const Features: React.FC<{ data: any; styles?: any; variant?: string; the
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-6xl mx-auto">
-                        {features.map((feature: string, idx: number) => (
+                        {features.map((feature: any, idx: number) => (
                             <div key={idx} className="bg-slate-800 border border-slate-700 p-8 rounded-3xl hover:-translate-y-2 transition-transform shadow-xl flex items-start gap-4">
                                 <div className="bg-emerald-500/10 w-12 h-12 rounded-xl flex items-center justify-center text-emerald-400 flex-shrink-0">
                                     <CheckSquare size={24} />
                                 </div>
-                                <p className="text-lg font-bold leading-relaxed">{(feature?.description ?? feature?.title ?? "") as any}</p>
+                                <p className="text-lg font-bold leading-relaxed">{(feature?.description ?? feature?.title ?? feature ?? "")}</p>
                             </div>
                         ))}
                     </div>
@@ -66,12 +66,12 @@ export const Features: React.FC<{ data: any; styles?: any; variant?: string; the
                         <h2 className="text-4xl md:text-5xl font-black text-slate-900 mb-8 leading-tight">{title}</h2>
 
                         <div className="space-y-6">
-                            {features.map((feature: string, idx: number) => (
+                            {features.map((feature: any, idx: number) => (
                                 <div key={idx} className="flex items-start gap-4 p-4 rounded-2xl hover:bg-slate-50 transition-colors">
                                     <div className="mt-1 bg-indigo-100 text-indigo-600 rounded-full p-1 flex-shrink-0">
                                         <CheckCircle2 size={20} className="fill-indigo-50" />
                                     </div>
-                                    <p className="text-lg text-slate-700 font-medium leading-relaxed">{(feature?.description ?? feature?.title ?? "") as any}</p>
+                                    <p className="text-lg text-slate-700 font-medium leading-relaxed">{(feature?.description ?? feature?.title ?? feature ?? "")}</p>
                                 </div>
                             ))}
                         </div>

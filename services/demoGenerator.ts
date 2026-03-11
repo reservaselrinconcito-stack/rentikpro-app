@@ -57,8 +57,8 @@ export class DemoGenerator {
             report("Insertando viajeros...");
             const numTravelers = randomInt(80, 200);
             const travelerIds: string[] = [];
-            const names = ['Juan', 'Ana', 'Carlos', 'Lucía', 'Pedro', 'María', 'Luis', 'Sofia', 'Miguel', 'Elena', 'David', 'Carmen'];
-            const surnames = ['García', 'Pérez', 'López', 'Ruiz', 'Sánchez', 'Fernández', 'Gómez', 'Díaz', 'Moreno', 'Álvarez'];
+            const names = ['Juan', 'Ana', 'Carlos', 'Lucía', 'Pedro', 'María', 'Luis', 'Sofia', 'Miguel', 'Elena', 'David', 'Carmen', 'Noelia', 'Arancha', 'Raquel', 'Juanjo', 'Mercedes'];
+            const surnames = ['García', 'Pérez', 'López', 'Ruiz', 'Sánchez', 'Fernández', 'Gómez', 'Díaz', 'Moreno', 'Álvarez', 'Gómez Moreno', 'Pérez Ruiz', 'Audit'];
             const countries = ['ES', 'ES', 'ES', 'ES', 'FR', 'DE', 'UK', 'US', 'IT'];
             const provinces = [
                 { p: 'Madrid', l: 'Madrid', cp: '28001' },
@@ -109,7 +109,9 @@ export class DemoGenerator {
             for (let i = 0; i < numBookings; i++) {
                 const bId = `bk_demo_${i}`;
                 const apt = randomItem(apts);
-                const travId = randomItem(travelerIds);
+                const travelers = await store.getTravelers();
+                const trav = randomItem(travelers);
+                const travId = trav.id;
 
                 // Ensure ~5 bookings are in the next 14 days (Upcoming Arrivals)
                 let checkInOffset;
@@ -132,6 +134,7 @@ export class DemoGenerator {
                     property_id: apt.property_id,
                     apartment_id: apt.id,
                     traveler_id: travId,
+                    guest_name: `${trav.nombre} ${trav.apellidos}`,
                     check_in: dateStr(checkInOffset),
                     check_out: dateStr(checkInOffset + nights),
                     status: status,
@@ -185,13 +188,13 @@ export class DemoGenerator {
             ];
 
             for (let i = 0; i < numConversations; i++) {
-                const traveler = randomItem(travelerIds);
+                const travelersList = await store.getTravelers();
+                const traveler = randomItem(travelersList);
                 const convId = `conv_demo_${i}`;
-                const booking = bookings.find(b => b.traveler_id === traveler);
-
+                const booking = bookings.find(b => b.traveler_id === traveler.id);
                 await store.saveConversation({
                     id: convId,
-                    traveler_id: traveler,
+                    traveler_id: traveler.id,
                     booking_id: booking?.id,
                     property_id: booking?.property_id,
                     subject: booking ? `Reserva ${booking.id}` : "Consulta general",

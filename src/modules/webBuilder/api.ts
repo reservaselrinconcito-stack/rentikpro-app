@@ -5,6 +5,22 @@ import { projectManager } from '@/services/projectManager';
 export const saveSiteConfig = async (website: any, config: SiteConfigV1): Promise<void> => {
     if (!website || !website.id) throw new Error("Sitio web inválido");
 
+    // VALIDACIÓN DE SEGURIDAD MÍNIMA
+    if (!config || !config.pages || !config.pages['/'] || !Array.isArray(config.pages['/'].blocks)) {
+        throw new Error("Estructura de SiteConfigV1 inválida. Guardado canónico abortado por seguridad.");
+    }
+
+    // BACKUP LIGERO PREVIO AL GUARDADO CANÓNICO
+    if (website.sections_json) {
+        try {
+            const backupKey = `rentikpro.webbuilder.backup.${website.id}`;
+            localStorage.setItem(backupKey, website.sections_json);
+            console.log(`[WEBBUILDER] Backup guardado en localStorage: ${backupKey}`);
+        } catch (e) {
+            console.warn("[WEBBUILDER] No se pudo crear backup de seguridad en localStorage:", e);
+        }
+    }
+
     const updatedSite = {
         ...website,
         sections_json: JSON.stringify(config),

@@ -30,7 +30,7 @@ npx tauri signer generate -w ./updater-keys.key
 
 ## 3. Preparar Compilación
 
-Asegúrate de que la versión en `src-tauri/tauri.conf.json` es la correcta.
+La versión canónica vive en `package.json`. Usa siempre los scripts de npm para que `src-tauri/tauri.conf.json` y `src-tauri/Cargo.toml` se sincronicen solos antes del build.
 
 ```bash
 npm ci
@@ -47,7 +47,7 @@ export TAURI_SIGNING_PRIVATE_KEY="tu_clave_privada_aqui"
 # (O usa la contraseña si cifraste la clave)
 # export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="tu_password"
 
-npx tauri build
+npm run tauri:build
 ```
 
 ## 5. Publicar Actualización
@@ -58,12 +58,12 @@ Tras el build, Tauri generará:
 - Archivos de firma (`.sig`)
 
 ### Pasos finales:
-1. Sube los artefactos (`.tar.gz`, `.msi.zip`, etc.) a tu servidor/CDN.
-2. Abre `tauri-updater-template.json`.
-3. Para cada plataforma:
-   - Copia el contenido del archivo `.sig` correspondiente en el campo `"signature"`.
-   - Pon la URL pública del artefacto en el campo `"url"`.
-4. Sube este JSON como `latest.json` a la URL configurada en `tauri.conf.json` (`https://TU_DOMINIO/latest.json`).
+1. Crea una GitHub Release con el tag `vX.Y.Z`.
+2. Sube a esa release los instaladores reales (`.dmg`, `setup.exe`, etc.) y los artefactos del updater (`.app.tar.gz`, `.sig`, etc.).
+3. El worker `worker-updater/` publica automaticamente:
+   - `latest.json` para Tauri updater
+   - `release.json` para el landing y la pagina `/download/`
+4. El landing no debe apuntar nunca a nombres hardcodeados como `RentikPro-mac-arm64.dmg`; debe resolver siempre la release estable actual.
 
 ---
 > [!IMPORTANT]

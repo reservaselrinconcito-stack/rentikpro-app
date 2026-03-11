@@ -7,6 +7,23 @@ export class CleaningService {
         this.store = store;
     }
 
+    private toDateOnly(date: Date): string {
+        return date.toISOString().split('T')[0];
+    }
+
+    async generateTasksForRange(startDate: string, endDate: string): Promise<number> {
+        let created = 0;
+        const cursor = new Date(`${startDate}T12:00:00`);
+        const end = new Date(`${endDate}T12:00:00`);
+
+        while (cursor <= end) {
+            created += await this.generateDailyTasks(this.toDateOnly(cursor));
+            cursor.setDate(cursor.getDate() + 1);
+        }
+
+        return created;
+    }
+
     /**
      * Generates cleaning tasks for a given date based on checkouts.
      * Idempotent: specific task is identified by apartment_id + due_date.
@@ -51,7 +68,7 @@ export class CleaningService {
         // Let's fetch all "active" or recent bookings.
         // Assuming getBookings() returns all.
 
-        const allBookings = await (this.store as any).query("SELECT * FROM bookings WHERE check_out = ?", [dateStr]);
+        const allBookings = await (this.store as any).query("SELECT * FROM bookings WHERE check_out = ? AND status != 'cancelled'", [dateStr]);
         const allStays = await (this.store as any).query("SELECT * FROM stays WHERE check_out = ?", [dateStr]);
 
         const checkoutApartmentIds = new Set<string>();
@@ -67,15 +84,18 @@ export class CleaningService {
 
             // Check if task exists
             const existing = await this.store.getCleaningTasks(dateStr, dateStr, aptId);
-            if (existing.length > 0) continue; // Already exists
+            const activeExisting = existing.find((task) => task.status !== 'DONE');
+            if (activeExisting) continue; // Already exists
 
             // Check for Check-in same day (Urgent)
-            const checkins = await (this.store as any).query("SELECT * FROM bookings WHERE check_in = ? AND apartment_id = ?", [dateStr, aptId]);
+            const checkins = await (this.store as any).query("SELECT * FROM bookings WHERE check_in = ? AND apartment_id = ? AND status != 'cancelled'", [dateStr, aptId]);
             const isUrgent = checkins.length > 0;
+            const relatedBooking = allBookings.find((b: any) => b.apartment_id === aptId) || null;
 
             const newTask: CleaningTask = {
                 id: crypto.randomUUID(),
                 apartment_id: aptId,
+                booking_id: relatedBooking?.id,
                 due_date: dateStr,
                 status: 'PENDING',
                 notes: isUrgent ? 'URGENTE: Entrada hoy mismo' : '',

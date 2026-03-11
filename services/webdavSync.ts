@@ -21,6 +21,7 @@ export type WebDavSyncResult = {
   localState?: any;
   conflictPaths?: { localCopy?: string; remoteCopy?: string };
   applied?: boolean;
+  workspaceKind?: 'workspace' | 'folder-project';
 };
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -60,8 +61,9 @@ export async function webdavSync(mode: WebDavSyncMode, cfg: Omit<WebDavSyncConfi
     return { success: false, error: 'WebDAV sync requires Tauri runtime' };
   }
 
-  const projectPath = getLastOpenedProjectPath();
-  if (!projectPath) return { success: false, error: 'No project folder path set' };
+  const projectPath = projectManager.getActiveSyncRootPath() || getLastOpenedProjectPath();
+  const workspaceKind = projectManager.getActiveSyncSourceKind() || undefined;
+  if (!projectPath) return { success: false, error: 'No workspace or project folder path set' };
 
   const store = projectManager.getStore();
   const dbBytes = store.export();
@@ -89,5 +91,8 @@ export async function webdavSync(mode: WebDavSyncMode, cfg: Omit<WebDavSyncConfi
     notifyDataChanged('all');
   }
 
-  return res as WebDavSyncResult;
+  return {
+    ...(res as WebDavSyncResult),
+    workspaceKind,
+  };
 }

@@ -34,6 +34,7 @@ type OpenProjectResult = {
 
 const LAST_PROJECT_PATH_KEY = 'rp_last_project_path';
 const LAST_PROJECT_JSON_KEY = 'rp_last_project_json';
+const LAST_PROJECT_ID_KEY = 'rp_last_project_id';
 
 function isTauriRuntime(): boolean {
   return isTauri();
@@ -130,6 +131,8 @@ export async function openProject(path: string): Promise<ProjectContext> {
     localStorage.setItem(LAST_PROJECT_JSON_KEY, updatedJson);
   }
 
+  localStorage.setItem(LAST_PROJECT_ID_KEY, projectId);
+
   // Load DB into the app's store (do NOT set active_project_id; path is the desktop source-of-truth).
   await projectManager.loadProjectFromSqliteBytes(dbBytes, {
     projectId,
@@ -144,6 +147,7 @@ export async function openProject(path: string): Promise<ProjectContext> {
     const { syncCoordinator } = await import('./syncCoordinator');
     // Never block UI on network.
     syncCoordinator.syncDown().catch(() => null);
+    syncCoordinator.refreshStatus().catch(() => null);
   } catch {
     // ignore
   }

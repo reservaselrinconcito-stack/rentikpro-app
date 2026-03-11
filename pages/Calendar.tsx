@@ -14,6 +14,7 @@ import {
 import { formatDateES, formatDateRangeES } from '../utils/dateFormat';
 import { isConfirmedBooking, isImportedOtaRecord, isOtaBlockBooking, isRealConflictBooking, isCovered } from '../utils/bookingClassification';
 import { getBookingDisplayName } from '../utils/bookingDisplay';
+import { getBookingOriginInfo } from '../utils/bookingSource';
 import { DayIndex, formatDay } from '../utils/day';
 import { assignLanes, LaneAssigned } from '../utils/assignLanes';
 import { ReservationLike } from '../utils/reservationIntervals';
@@ -580,7 +581,8 @@ const CalendarContent: React.FC = () => {
                                                 color: textColor,
                                               };
 
-                                            const baseName = isConflict ? `Conflicto OTA · ${getBookingDisplayName(b, traveler)}` : (b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO OTA' : getBookingDisplayName(b, traveler)));
+                                            const originInfo = getBookingOriginInfo(b);
+                                            const baseName = isConflict ? `Conflicto OTA · ${getBookingDisplayName(b, traveler)}` : (b.event_kind === 'BLOCK' ? `${originInfo.label} · Bloqueo OTA` : (isBlock ? `${originInfo.label} · BLOQUEO OTA` : getBookingDisplayName(b, traveler)));
                                             const pax = (b as any).pax_total || b.guests || 0;
                                             const displayName = (pax > 0 && !isBlock && b.event_kind !== 'BLOCK') ? `${baseName} · ${pax}pax` : baseName;
                                             const conflictSources = (b as any).conflict_sources as string[] | undefined;
@@ -767,7 +769,8 @@ const CalendarContent: React.FC = () => {
                             color: textColor,
                           };
 
-                        const baseName = isConflict ? `Conflicto OTA · ${getBookingDisplayName(b, traveler)}` : (b.event_kind === 'BLOCK' ? 'Bloqueo OTA' : (isBlock ? 'BLOQUEO OTA' : getBookingDisplayName(b, traveler)));
+                        const originInfo = getBookingOriginInfo(b);
+                        const baseName = isConflict ? `Conflicto OTA · ${getBookingDisplayName(b, traveler)}` : (b.event_kind === 'BLOCK' ? `${originInfo.label} · Bloqueo OTA` : (isBlock ? `${originInfo.label} · BLOQUEO OTA` : getBookingDisplayName(b, traveler)));
                         const pax = (b as any).pax_total || b.guests || 0;
                         const displayName = (pax > 0 && !isBlock && b.event_kind !== 'BLOCK') ? `${baseName} · ${pax}pax` : baseName;
                         const conflictSources = (b as any).conflict_sources as string[] | undefined;
@@ -893,6 +896,7 @@ const CalendarContent: React.FC = () => {
             const apt = apartments.find(a => a.id === b.apartment_id);
             const trav = travelers.find(t => t.id === b.traveler_id);
             const guestName = getBookingDisplayName(b, trav);
+            const originInfo = getBookingOriginInfo(b);
 
             const handleClick = () => {
               if (b.linked_event_id) {
@@ -912,6 +916,7 @@ const CalendarContent: React.FC = () => {
                 <div className="flex-1">
                   <p className="font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{guestName}</p>
                   <p className="text-xs text-slate-500 font-bold">{formatDateRangeES(b.check_in, b.check_out)}</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">{originInfo.display}</p>
                 </div>
                 <div className="text-right">
                   <span className="text-lg font-black text-indigo-900">{b.guests || 1}</span>
@@ -926,8 +931,8 @@ const CalendarContent: React.FC = () => {
 
       {/* Modal Detalle */}
       {isViewModalOpen && viewingBooking && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in">
-          <div className="bg-white rounded-[3rem] p-10 w-full max-w-md shadow-2xl relative">
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-start sm:items-center justify-center z-50 p-4 sm:p-6 overflow-y-auto animate-in fade-in">
+          <div className="bg-white rounded-[3rem] p-10 w-full max-w-md shadow-2xl relative max-h-[calc(100vh-2rem)] sm:max-h-[90vh] overflow-y-auto my-auto">
             <button onClick={() => setIsViewModalOpen(false)} className="absolute top-8 right-8 text-slate-400 hover:text-slate-800"><X size={24} /></button>
 
             {viewingBooking.conflict_detected && (
@@ -966,6 +971,16 @@ const CalendarContent: React.FC = () => {
                     </span>
                   ) : (
                     <span className="text-lg font-black text-indigo-600 bg-white px-3 py-1 rounded-xl shadow-sm">{viewingBooking.guests || 1} PAX</span>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 bg-white/80 px-3 py-1 rounded-xl border border-white">
+                    {getBookingOriginInfo(viewingBooking).label}
+                  </span>
+                  {getBookingOriginInfo(viewingBooking).detail && (
+                    <span className="text-[10px] font-bold text-slate-500 bg-white/70 px-3 py-1 rounded-xl border border-white">
+                      {getBookingOriginInfo(viewingBooking).detail}
+                    </span>
                   )}
                 </div>
               </div>
@@ -1048,9 +1063,9 @@ const CalendarContent: React.FC = () => {
 
       {/* Modal Nueva Reserva */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-300">
-            <div className="p-10">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[100] flex items-start sm:items-center justify-center p-4 sm:p-6 overflow-y-auto animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-300 max-h-[calc(100vh-2rem)] sm:max-h-[90vh] flex flex-col my-auto">
+            <div className="p-10 overflow-y-auto">
               <div className="flex justify-between items-center mb-10">
                 <div className="flex items-center gap-4">
                   <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reservar - RentikPro</title>
+    <link rel="stylesheet" href="site.css">
+    <link id="font-link" rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap">
+</head>
+
+<body>
+
+    <nav style="padding: 1rem; background: white; border-bottom: 1px solid #eee;">
+        <div class="container" style="display:flex; justify-content:space-between; align-items:center;">
+            <a href="index.html" style="text-decoration:none; font-weight:bold; color:var(--text-color);">← Volver al
+                Inicio</a>
+            <span style="font-weight:900;">Reservar</span>
+        </div>
+    </nav>
+
+    <div class="section">
+        <div class="container">
+            <div class="booking-widget" id="booking-widget">
+                <h2 style="text-align:center;">Completa tu Reserva</h2>
+
+                <form id="booking-form"
+                    onsubmit="event.preventDefault(); alert('Funcionalidad de pago no conectada en demo estática.');">
+                    <div class="form-group">
+                        <label class="form-label">Alojamiento</label>
+                        <select class="form-select" id="apt-select">
+                            <option>Cargando disponibilidad...</option>
+                        </select>
+                    </div>
+
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label class="form-label">Llegada</label>
+                            <input type="date" class="form-input" id="check-in" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Salida</label>
+                            <input type="date" class="form-input" id="check-out" required>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Huéspedes</label>
+                        <select class="form-select" id="guests">
+                            <option value="1">1 Adulto</option>
+                            <option value="2" selected>2 Adultos</option>
+                            <option value="3">3 Adultos</option>
+                            <option value="4">4 Adultos</option>
+                        </select>
+                    </div>
+
+                    <div class="summary-box" id="price-summary" style="display:none;">
+                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+                            <span>Noches</span>
+                            <span id="night-count">0</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-bottom:0.5rem;">
+                            <span>Precio / noche (est.)</span>
+                            <span id="price-per-night">100€</span>
+                        </div>
+                        <hr style="border:0; border-top:1px dashed #ccc; margin:1rem 0;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-weight:bold;">Total</span>
+                            <span class="total-price" id="total-price">0€</span>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-primary" style="width:100%; margin-top:2rem;">Continuar al
+                        Pago</button>
+
+                    <p style="text-align:center; font-size:0.75rem; margin-top:1rem; color:#888;">
+                        Pago seguro gestionado directamente por la propiedad.
+                    </p>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="reservar.js"></script>
+    <script src="site.js"></script> <!-- Re-use for theme application -->
+</body>
+
+</html>

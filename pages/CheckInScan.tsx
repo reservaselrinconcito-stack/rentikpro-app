@@ -2,17 +2,64 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { projectManager } from '../services/projectManager';
-import { Property, Apartment, Traveler, Stay, CheckInRequest, Booking } from '../types';
+import { Property, Apartment, Traveler, Stay, CheckInRequest, Booking, SesHospedajesForm } from '../types';
 import { processImage, ScannedData } from '../services/ocrParser';
 import { checkinService } from '../services/checkinService';
 import {
   Camera, Upload, Save, UserPlus, FileText, CheckCircle2,
   AlertCircle, ArrowLeft, RefreshCw, ScanLine, Link2,
   Send, Mail, MessageCircle, Copy, Search, Calendar, User, Users,
-  Globe, Check
+  Globe, Check, Phone, Home, CreditCard, FileSignature
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { copyToClipboard } from '../utils/clipboard';
+
+const emptySesForm = (): SesHospedajesForm => ({
+  guest: {
+    nombre: '',
+    primer_apellido: '',
+    segundo_apellido: '',
+    sexo: '',
+    numero_documento: '',
+    numero_soporte: '',
+    tipo_documento: 'DNI',
+    nacionalidad: 'ESP',
+    fecha_nacimiento: '',
+    direccion_completa: '',
+    localidad: '',
+    pais: 'ESPANA',
+    telefono_fijo: '',
+    telefono_movil: '',
+    email: '',
+  },
+  contract: {
+    numero_viajeros: 1,
+    parentesco_menores: '',
+    numero_referencia: '',
+    fecha_contrato: '',
+    firma_huesped: '',
+    firma_alojamiento: '',
+  },
+  execution: {
+    fecha_hora_entrada: '',
+    fecha_hora_salida: '',
+  },
+  property: {
+    direccion_completa: '',
+    numero_habitaciones: null,
+    conexion_internet: '',
+  },
+  payment: {
+    tipo_pago: '',
+    medio_pago_identificacion: '',
+    titular_pago: '',
+    tarjeta_caducidad: '',
+    fecha_pago: '',
+  },
+});
+
+const toDateOnly = (value?: string) => value ? value.split('T')[0] : '';
+const toDateTimeLocal = (value?: string) => value ? value.slice(0, 16) : '';
 
 export const CheckInScan: React.FC = () => {
   const navigate = useNavigate();
@@ -30,6 +77,7 @@ export const CheckInScan: React.FC = () => {
   // Selection State
   const [selectedProp, setSelectedProp] = useState<string>('');
   const [selectedApt, setSelectedApt] = useState<string>('');
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
 
   // Scan State
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -44,13 +92,22 @@ export const CheckInScan: React.FC = () => {
   const [formData, setFormData] = useState<Partial<Traveler>>({
     nombre: '',
     apellidos: '',
+    segundo_apellido: '',
+    sexo: '',
     documento: '',
+    numero_soporte: '',
     tipo_documento: 'DNI',
     fecha_nacimiento: '',
     nacionalidad: 'ESP',
     email: '',
-    telefono: ''
+    telefono: '',
+    telefono_fijo: '',
+    telefono_movil: '',
+    direccion: '',
+    localidad: '',
+    pais_residencia: 'ESPANA',
   });
+  const [sesForm, setSesForm] = useState<SesHospedajesForm>(emptySesForm());
 
   const [existingTravelerId, setExistingTravelerId] = useState<string | null>(null);
 
@@ -74,9 +131,21 @@ export const CheckInScan: React.FC = () => {
       if (bookingId) {
         const target = b.find(x => x.id === bookingId);
         if (target) {
+          setSelectedBooking(target);
           setTargetBookingName(target.guest_name || target.external_ref || 'Reserva');
           if (target.property_id) setSelectedProp(target.property_id);
           if (target.apartment_id) setSelectedApt(target.apartment_id);
+
+          const req = reqs.find(r => r.booking_id === target.id);
+          if (req?.guest_form_json) {
+            try {
+              setSesForm(JSON.parse(req.guest_form_json));
+            } catch {
+              setSesForm(emptySesForm());
+            }
+          } else {
+            setSesForm(emptySesForm());
+          }
         }
       } else {
         const activeId = projectManager.getActivePropertyId();
@@ -105,36 +174,106 @@ export const CheckInScan: React.FC = () => {
     }
   }, [selectedProp, bookingId]);
 
+  useEffect(() => {
+    const apartment = apartments.find(a => a.id === selectedApt) || null;
+    const property = properties.find(p => p.id === selectedProp) || null;
+    setSesForm(prev => ({
+      ...prev,
+      guest: {
+        ...prev.guest,
+        nombre: formData.nombre || prev.guest.nombre,
+        primer_apellido: formData.apellidos || prev.guest.primer_apellido,
+        segundo_apellido: formData.segundo_apellido || prev.guest.segundo_apellido,
+        sexo: formData.sexo || prev.guest.sexo,
+        numero_documento: formData.documento || prev.guest.numero_documento,
+        numero_soporte: formData.numero_soporte || prev.guest.numero_soporte,
+        tipo_documento: formData.tipo_documento || prev.guest.tipo_documento,
+        nacionalidad: formData.nacionalidad || prev.guest.nacionalidad,
+        fecha_nacimiento: formData.fecha_nacimiento || prev.guest.fecha_nacimiento,
+        direccion_completa: formData.direccion || prev.guest.direccion_completa,
+        localidad: formData.localidad || prev.guest.localidad,
+        pais: formData.pais_residencia || prev.guest.pais,
+        telefono_fijo: formData.telefono_fijo || prev.guest.telefono_fijo,
+        telefono_movil: formData.telefono_movil || formData.telefono || prev.guest.telefono_movil,
+        email: formData.email || prev.guest.email,
+      },
+      contract: {
+        ...prev.contract,
+        numero_viajeros: selectedBooking?.guests || prev.contract.numero_viajeros,
+        numero_referencia: selectedBooking?.locator || selectedBooking?.external_ref || prev.contract.numero_referencia,
+        fecha_contrato: toDateOnly(selectedBooking?.created_at ? new Date(selectedBooking.created_at).toISOString() : prev.contract.fecha_contrato),
+      },
+      execution: {
+        fecha_hora_entrada: prev.execution.fecha_hora_entrada || toDateTimeLocal(`${selectedBooking?.check_in || toDateOnly(new Date().toISOString())}T16:00`),
+        fecha_hora_salida: prev.execution.fecha_hora_salida || (selectedBooking?.check_out ? toDateTimeLocal(`${selectedBooking.check_out}T11:00`) : ''),
+      },
+      property: {
+        ...prev.property,
+        direccion_completa: prev.property.direccion_completa || property?.location || '',
+        numero_habitaciones: prev.property.numero_habitaciones ?? null,
+        conexion_internet: prev.property.conexion_internet || '',
+      },
+      payment: {
+        ...prev.payment,
+        fecha_pago: prev.payment.fecha_pago || toDateOnly(new Date().toISOString()),
+      }
+    }));
+  }, [formData, selectedBooking, selectedApt, selectedProp, apartments, properties]);
+
   const handleSendEmail = async (req: CheckInRequest) => {
     const store = projectManager.getStore();
     const settings = await store.getSettings();
+    const booking = bookings.find(b => b.id === req.booking_id);
+    const traveler = booking?.traveler_id ? await store.getTravelerById(booking.traveler_id) : null;
+    const recipientEmail = traveler?.email || booking?.guest_name || '';
 
     if (!settings.smtp_host) {
-      toast.error("Configura el SMTP en Ajustes para enviar emails");
+      toast.error("Configura el SMTP en Ajustes o usa el marcado manual del envio");
       return;
     }
 
-    const loader = toast.loading("Enviando email...");
+    if (!traveler?.email) {
+      toast.error("Falta un correo electronico real del huesped para marcar envio por email");
+      return;
+    }
+
+    const loader = toast.loading("Preparando email...");
     try {
       const link = checkinService.getPublicLink(req.token || '');
-      // Note: Real SMTP sending would happen via a background task or worker.
-      // For now we simulate and mark as sent.
-      await checkinService.markAsSent(req.id);
-      toast.success("Solicitud enviada por email", { id: loader });
+      const subject = encodeURIComponent(`Check-in online ${req.locator || booking?.external_ref || ''}`.trim());
+      const body = encodeURIComponent(`Hola, por favor completa el registro de viajeros desde este enlace:\n\n${link}`);
+      window.location.href = `mailto:${encodeURIComponent(traveler.email)}?subject=${subject}&body=${body}`;
+      await checkinService.prepareDelivery(req.id, 'EMAIL', traveler.email, 'Email preparado desde RentikPro');
+      if (window.confirm(`Se abrira tu cliente de correo para ${traveler.email}. Marca como enviado solo si lo acabas de mandar realmente.`)) {
+        await checkinService.markAsSent(req.id, 'EMAIL', traveler.email, 'Confirmado manualmente tras abrir correo');
+      }
+      toast.success(`Email preparado para ${recipientEmail}`, { id: loader });
       loadAll();
     } catch (e) {
-      toast.error("Error al enviar email", { id: loader });
+      toast.error("Error al preparar el email", { id: loader });
     }
   };
 
-  const handleCopyWhatsApp = (req: CheckInRequest) => {
+  const handleCopyWhatsApp = async (req: CheckInRequest) => {
+    const store = projectManager.getStore();
+    const booking = bookings.find(b => b.id === req.booking_id);
+    const traveler = booking?.traveler_id ? await store.getTravelerById(booking.traveler_id) : null;
+    const recipientPhone = traveler?.telefono_movil || traveler?.telefono || '';
+    if (!recipientPhone) {
+      toast.error('Falta telefono movil real del huesped para registrar envio por WhatsApp');
+      return;
+    }
     const link = checkinService.getPublicLink(req.token || '');
     const message = `Hola! Por favor, completa el registro de viajeros para tu estancia usando este enlace: ${link}`;
     void copyToClipboard(message).then((ok) => {
       if (ok) toast.success('Mensaje copiado al portapapeles para WhatsApp');
       else toast.error('No se pudo copiar el mensaje (permiso denegado)');
     });
-    checkinService.markAsSent(req.id).then(() => loadAll());
+    await checkinService.prepareDelivery(req.id, 'WHATSAPP', recipientPhone, 'Mensaje copiado para envio manual por WhatsApp');
+    if (window.confirm(`Has compartido el mensaje por WhatsApp al ${recipientPhone}?`)) {
+      await checkinService.markAsSent(req.id, 'WHATSAPP', recipientPhone, 'Confirmado manualmente tras compartir por WhatsApp');
+    }
+    loadAll();
   };
 
   const resizeImage = (file: File, maxSide: number = 1600): Promise<string> => {
@@ -180,8 +319,16 @@ export const CheckInScan: React.FC = () => {
         ...prev,
         nombre: existing.nombre || prev.nombre,
         apellidos: existing.apellidos || prev.apellidos,
+        segundo_apellido: existing.segundo_apellido || prev.segundo_apellido,
+        sexo: existing.sexo || prev.sexo,
+        numero_soporte: existing.numero_soporte || prev.numero_soporte,
         email: existing.email || prev.email,
         telefono: existing.telefono || prev.telefono,
+        telefono_fijo: existing.telefono_fijo || prev.telefono_fijo,
+        telefono_movil: existing.telefono_movil || prev.telefono_movil,
+        direccion: existing.direccion || prev.direccion,
+        localidad: existing.localidad || prev.localidad,
+        pais_residencia: existing.pais_residencia || prev.pais_residencia,
       }));
       setScanError("Viajero ya registrado. Datos actualizados.");
     } else {
@@ -226,8 +373,13 @@ export const CheckInScan: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!formData.nombre || !formData.documento) {
-      toast.error("Nombre y Documento son obligatorios");
+    if (!formData.nombre || !formData.apellidos || !formData.documento) {
+      toast.error("Nombre, primer apellido y documento son obligatorios");
+      return;
+    }
+
+    if (!sesForm.contract.numero_referencia || !sesForm.execution.fecha_hora_entrada) {
+      toast.error("Completa referencia de contrato y fecha/hora de entrada para SES Hospedajes");
       return;
     }
 
@@ -241,12 +393,20 @@ export const CheckInScan: React.FC = () => {
         id: travelerId,
         nombre: formData.nombre || '',
         apellidos: formData.apellidos || '',
+        segundo_apellido: formData.segundo_apellido || '',
+        sexo: formData.sexo || '',
         tipo_documento: formData.tipo_documento || 'DNI',
         documento: formData.documento || '',
+        numero_soporte: formData.numero_soporte || '',
         fecha_nacimiento: formData.fecha_nacimiento || '',
         telefono: formData.telefono || '',
+        telefono_fijo: formData.telefono_fijo || '',
+        telefono_movil: formData.telefono_movil || formData.telefono || '',
         email: formData.email || '',
         nacionalidad: formData.nacionalidad || '',
+        direccion: formData.direccion || '',
+        localidad: formData.localidad || '',
+        pais_residencia: formData.pais_residencia || '',
         created_at: existingTravelerId ? (await store.getTravelerById(travelerId))?.created_at || Date.now() : Date.now(),
         updated_at: Date.now()
       };
@@ -255,6 +415,10 @@ export const CheckInScan: React.FC = () => {
 
       if (bookingId) {
         await store.updateReservation(bookingId, { traveler_id: travelerId }, 'CHECKIN_SCAN');
+        const req = requests.find(r => r.booking_id === bookingId);
+        if (req) {
+          await checkinService.markAsCompleted(req.id, JSON.stringify(sesForm));
+        }
         toast.success(`Viajero vinculado a la reserva: ${targetBookingName}`, { id: loader });
       } else {
         const stay: Stay = {
@@ -278,7 +442,7 @@ export const CheckInScan: React.FC = () => {
   };
 
   const handleExportJSON = () => {
-    const dataStr = JSON.stringify(formData, null, 2);
+    const dataStr = JSON.stringify({ traveler: formData, ses_hospedajes: sesForm }, null, 2);
     const blob = new Blob([dataStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -346,6 +510,7 @@ export const CheckInScan: React.FC = () => {
               {requests.length > 0 ? requests.map(req => {
                 const booking = bookings.find(b => b.id === req.booking_id);
                 if (!booking) return null;
+                const deliveryMeta = req.sent_via ? `${req.sent_via}${req.delivery_recipient ? ` · ${req.delivery_recipient}` : ''}` : 'Sin envio confirmado';
                 return (
                   <div key={req.id} className="p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 hover:bg-slate-50 transition-colors">
                     <div className="flex items-center gap-4">
@@ -355,6 +520,7 @@ export const CheckInScan: React.FC = () => {
                       <div>
                         <h4 className="font-black text-slate-700">{booking.guest_name || 'Huésped desconocido'}</h4>
                         <p className="text-xs text-slate-400 font-medium">Ref: {req.locator || booking.external_ref || 'N/A'}</p>
+                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wide mt-1">{deliveryMeta}</p>
                       </div>
                     </div>
 
@@ -386,10 +552,17 @@ export const CheckInScan: React.FC = () => {
                             >
                               <MessageCircle size={18} />
                             </button>
+                            <button
+                              onClick={() => checkinService.markAsSent(req.id, 'MANUAL', req.delivery_recipient, 'Marcado manualmente desde operativa').then(() => loadAll())}
+                              className="px-3 py-2 bg-slate-50 text-slate-500 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all"
+                              title="Marcar como enviado tras llamada/SMS/manual"
+                            >
+                              Marcar enviado
+                            </button>
                           </>
                         ) : (
                           <button
-                            onClick={() => setView('SCAN')}
+                            onClick={() => navigate(`/checkin-scan?bookingId=${booking.id}`)}
                             className="px-4 py-2 bg-slate-50 text-slate-400 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-100 transition-all"
                           >
                             Registrar Manual
@@ -516,6 +689,9 @@ export const CheckInScan: React.FC = () => {
             </div>
 
             <div className="space-y-4">
+              <div className="p-4 bg-indigo-50 rounded-2xl border border-indigo-100 text-xs text-indigo-700 font-bold">
+                Huesped: identidad, residencia y contacto. Alojamiento: inmueble, firmas y ejecucion. Reserva: referencia y pago.
+              </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase">Nombre</label>
@@ -526,12 +702,36 @@ export const CheckInScan: React.FC = () => {
                   />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[10px] font-black text-slate-400 uppercase">Apellidos</label>
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Primer Apellido</label>
                   <input
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
                     value={formData.apellidos}
                     onChange={e => setFormData({ ...formData, apellidos: e.target.value })}
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Segundo Apellido</label>
+                  <input
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
+                    value={formData.segundo_apellido}
+                    onChange={e => setFormData({ ...formData, segundo_apellido: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Sexo</label>
+                  <select
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold"
+                    value={formData.sexo}
+                    onChange={e => setFormData({ ...formData, sexo: e.target.value as any })}
+                  >
+                    <option value="">Seleccionar...</option>
+                    <option value="M">Masculino</option>
+                    <option value="F">Femenino</option>
+                    <option value="X">Otro / No especificado</option>
+                  </select>
                 </div>
               </div>
 
@@ -558,6 +758,16 @@ export const CheckInScan: React.FC = () => {
                 </div>
               </div>
 
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase">Numero de soporte</label>
+                <input
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-bold font-mono"
+                  value={formData.numero_soporte}
+                  onChange={e => setFormData({ ...formData, numero_soporte: e.target.value })}
+                  placeholder="Si aplica al documento"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-black text-slate-400 uppercase">Nacimiento</label>
@@ -579,8 +789,29 @@ export const CheckInScan: React.FC = () => {
                 </div>
               </div>
 
-              <div className="space-y-1 pt-4 border-t border-slate-100">
-                <label className="text-[10px] font-black text-slate-400 uppercase">Email (Opcional)</label>
+              <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Telefono fijo</label>
+                  <input
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium"
+                    value={formData.telefono_fijo}
+                    onChange={e => setFormData({ ...formData, telefono_fijo: e.target.value })}
+                    placeholder="Opcional"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Telefono movil</label>
+                  <input
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium"
+                    value={formData.telefono_movil || formData.telefono}
+                    onChange={e => setFormData({ ...formData, telefono_movil: e.target.value, telefono: e.target.value })}
+                    placeholder="Obligatorio para envios manuales"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase">Email</label>
                 <input
                   type="email"
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium"
@@ -588,6 +819,128 @@ export const CheckInScan: React.FC = () => {
                   onChange={e => setFormData({ ...formData, email: e.target.value })}
                   placeholder="correo@ejemplo.com"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Direccion habitual</label>
+                  <input
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium"
+                    value={formData.direccion}
+                    onChange={e => setFormData({ ...formData, direccion: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Localidad</label>
+                  <input
+                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium"
+                    value={formData.localidad}
+                    onChange={e => setFormData({ ...formData, localidad: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase">Pais de residencia</label>
+                <input
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium uppercase"
+                  value={formData.pais_residencia}
+                  onChange={e => setFormData({ ...formData, pais_residencia: e.target.value })}
+                />
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 space-y-4">
+                <div className="flex items-center gap-2 text-slate-700 font-black text-sm"><FileSignature size={16} className="text-indigo-600" /> Contrato y viajeros</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Numero referencia</label>
+                    <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.contract.numero_referencia || ''} onChange={e => setSesForm(prev => ({ ...prev, contract: { ...prev.contract, numero_referencia: e.target.value } }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Fecha contrato</label>
+                    <input type="date" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.contract.fecha_contrato || ''} onChange={e => setSesForm(prev => ({ ...prev, contract: { ...prev.contract, fecha_contrato: e.target.value } }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Numero viajeros</label>
+                    <input type="number" min="1" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.contract.numero_viajeros || 1} onChange={e => setSesForm(prev => ({ ...prev, contract: { ...prev.contract, numero_viajeros: Number(e.target.value) || 1 } }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Parentesco menores</label>
+                    <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.contract.parentesco_menores || ''} onChange={e => setSesForm(prev => ({ ...prev, contract: { ...prev.contract, parentesco_menores: e.target.value } }))} placeholder="Si viajan menores" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Firma huesped</label>
+                    <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.contract.firma_huesped || ''} onChange={e => setSesForm(prev => ({ ...prev, contract: { ...prev.contract, firma_huesped: e.target.value } }))} placeholder="Pendiente / nombre firmado" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Firma alojamiento</label>
+                    <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.contract.firma_alojamiento || ''} onChange={e => setSesForm(prev => ({ ...prev, contract: { ...prev.contract, firma_alojamiento: e.target.value } }))} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 space-y-4">
+                <div className="flex items-center gap-2 text-slate-700 font-black text-sm"><Home size={16} className="text-indigo-600" /> Ejecucion e inmueble</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Entrada fecha y hora</label>
+                    <input type="datetime-local" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.execution.fecha_hora_entrada || ''} onChange={e => setSesForm(prev => ({ ...prev, execution: { ...prev.execution, fecha_hora_entrada: e.target.value } }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Salida fecha y hora</label>
+                    <input type="datetime-local" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.execution.fecha_hora_salida || ''} onChange={e => setSesForm(prev => ({ ...prev, execution: { ...prev.execution, fecha_hora_salida: e.target.value } }))} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Direccion inmueble</label>
+                    <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.property.direccion_completa || ''} onChange={e => setSesForm(prev => ({ ...prev, property: { ...prev.property, direccion_completa: e.target.value } }))} placeholder="La completa el alojamiento" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Numero habitaciones</label>
+                    <input type="number" min="1" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.property.numero_habitaciones ?? ''} onChange={e => setSesForm(prev => ({ ...prev, property: { ...prev.property, numero_habitaciones: e.target.value ? Number(e.target.value) : null } }))} />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Conexion a Internet</label>
+                  <select className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.property.conexion_internet || ''} onChange={e => setSesForm(prev => ({ ...prev, property: { ...prev.property, conexion_internet: e.target.value as any } }))}>
+                    <option value="">Seleccionar...</option>
+                    <option value="SI">Si</option>
+                    <option value="NO">No</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-100 space-y-4">
+                <div className="flex items-center gap-2 text-slate-700 font-black text-sm"><CreditCard size={16} className="text-indigo-600" /> Pago</div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Tipo de pago</label>
+                    <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.payment.tipo_pago || ''} onChange={e => setSesForm(prev => ({ ...prev, payment: { ...prev.payment, tipo_pago: e.target.value } }))} placeholder="Tarjeta, transferencia, efectivo..." />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Identificacion medio pago</label>
+                    <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.payment.medio_pago_identificacion || ''} onChange={e => setSesForm(prev => ({ ...prev, payment: { ...prev.payment, medio_pago_identificacion: e.target.value } }))} placeholder="Ultimos digitos / referencia" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Titular del pago</label>
+                    <input className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.payment.titular_pago || ''} onChange={e => setSesForm(prev => ({ ...prev, payment: { ...prev.payment, titular_pago: e.target.value } }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black text-slate-400 uppercase">Caducidad tarjeta</label>
+                    <input type="month" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.payment.tarjeta_caducidad || ''} onChange={e => setSesForm(prev => ({ ...prev, payment: { ...prev.payment, tarjeta_caducidad: e.target.value } }))} />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase">Fecha del pago</label>
+                  <input type="date" className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl font-medium" value={sesForm.payment.fecha_pago || ''} onChange={e => setSesForm(prev => ({ ...prev, payment: { ...prev.payment, fecha_pago: e.target.value } }))} />
+                </div>
               </div>
             </div>
 

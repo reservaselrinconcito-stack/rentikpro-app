@@ -1,5 +1,5 @@
 import React from 'react';
-import { BUILDER_TEMPLATES } from '../templates';
+import { WEBPRO_TEMPLATES } from '../templates';
 import { CheckCircle2 } from 'lucide-react';
 
 interface TemplateSelectorProps {
@@ -10,7 +10,7 @@ interface TemplateSelectorProps {
 export const TemplateSelector: React.FC<TemplateSelectorProps> = ({ selectedId, onSelect }) => {
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-1">
-            {BUILDER_TEMPLATES.map((tmpl) => (
+            {WEBPRO_TEMPLATES.map((tmpl) => (
                 <div
                     key={tmpl.id}
                     onClick={() => onSelect(tmpl.id)}

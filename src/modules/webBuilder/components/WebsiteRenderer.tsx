@@ -1,5 +1,5 @@
 import React from 'react';
-import { SiteConfigV1, BlockInstance, PageConfig } from '../types';
+import { SiteConfigV1, BlockInstance, PageMeta } from '../types';
 
 import { getBlockComponent } from './blocks';
 
@@ -15,7 +15,7 @@ interface WebsiteRendererProps {
 export const WebsiteRenderer: React.FC<WebsiteRendererProps> = ({ config, currentPath = '/', device = 'desktop' }) => {
 
     // 1. Resolve Page
-    const page: PageConfig | undefined = config.pages[currentPath];
+    const page: PageMeta | undefined = config.pages[currentPath];
     if (!page) {
         return (
             <div className="p-20 text-center text-slate-500 font-mono">

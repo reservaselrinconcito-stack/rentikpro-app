@@ -1,59 +1,46 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 
-export function useHistory<T>(initialState: T, maxHistory = 30) {
-    const [state, setState] = useState({
-        history: [initialState],
-        currentIndex: 0
-    });
+export function useHistory<T>(initialState: T) {
+    const [history, setHistory] = useState<T[]>([initialState]);
+    const [currentIndex, setCurrentIndex] = useState(0);
 
-    const set = useCallback((newState: T | ((prev: T) => T)) => {
-        setState(curr => {
-            const prevState = curr.history[curr.currentIndex];
-            const resolvedState = typeof newState === 'function' ? (newState as Function)(prevState) : newState;
+    const state = useMemo(() => history[currentIndex], [history, currentIndex]);
 
-            // Simple reference check
-            if (prevState === resolvedState) return curr;
-
-            // Remove all future states if we've undone and are now diverging
-            const newHistory = curr.history.slice(0, curr.currentIndex + 1);
-            newHistory.push(resolvedState);
-
-            if (newHistory.length > maxHistory) {
-                newHistory.shift(); // Remove oldest
-                return { history: newHistory, currentIndex: newHistory.length - 1 };
-            }
-            return { history: newHistory, currentIndex: newHistory.length - 1 };
+    const set = useCallback((newState: T) => {
+        setHistory((prevHistory) => {
+            const current = prevHistory[currentIndex];
+            if (newState === current) return prevHistory;
+            const nextHistory = prevHistory.slice(0, currentIndex + 1);
+            nextHistory.push(newState);
+            setCurrentIndex(nextHistory.length - 1);
+            return nextHistory;
         });
-    }, [maxHistory]);
+    }, [currentIndex]);
 
     const undo = useCallback(() => {
-        setState(curr => ({
-            ...curr,
-            currentIndex: Math.max(0, curr.currentIndex - 1)
-        }));
-    }, []);
+        if (currentIndex > 0) {
+            setCurrentIndex(currentIndex - 1);
+        }
+    }, [currentIndex]);
 
     const redo = useCallback(() => {
-        setState(curr => ({
-            ...curr,
-            currentIndex: Math.min(curr.history.length - 1, curr.currentIndex + 1)
-        }));
-    }, []);
+        if (currentIndex < history.length - 1) {
+            setCurrentIndex(currentIndex + 1);
+        }
+    }, [currentIndex, history.length]);
 
     const reset = useCallback((newState: T) => {
-        setState({
-            history: [newState],
-            currentIndex: 0
-        });
+        setHistory([newState]);
+        setCurrentIndex(0);
     }, []);
 
     return {
-        state: state.history[state.currentIndex] || initialState,
+        state,
         set,
         undo,
         redo,
+        canUndo: currentIndex > 0,
+        canRedo: currentIndex < history.length - 1,
         reset,
-        canUndo: state.currentIndex > 0,
-        canRedo: state.currentIndex < state.history.length - 1,
     };
 }
