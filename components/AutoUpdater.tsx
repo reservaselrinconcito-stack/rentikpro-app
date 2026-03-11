@@ -13,7 +13,7 @@ export const AutoUpdater: React.FC = () => {
         if (!isTauri()) return;
 
         const timer = setTimeout(async () => {
-            await updateService.checkForUpdates();
+            await updateService.checkForUpdates({ background: true });
             const { state, availableVersion } = updateService.getStatus();
             if (state === 'available' && availableVersion) {
                 toast.message('¡Nueva versión disponible!', {
