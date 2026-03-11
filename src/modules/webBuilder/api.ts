@@ -1,8 +1,9 @@
 import { SiteConfigV1 } from './types';
+import { WebSite } from '@/types';
 import { projectManager } from '@/services/projectManager';
 
 // Allow for strict typing if WebSite interface is available, otherwise any
-export const saveSiteConfig = async (website: any, config: SiteConfigV1): Promise<void> => {
+export const saveSiteConfig = async (website: any, config: SiteConfigV1): Promise<WebSite> => {
     if (!website || !website.id) throw new Error("Sitio web inválido");
 
     // VALIDACIÓN DE SEGURIDAD MÍNIMA
@@ -24,10 +25,14 @@ export const saveSiteConfig = async (website: any, config: SiteConfigV1): Promis
     const updatedSite = {
         ...website,
         sections_json: JSON.stringify(config),
+        slug: config.slug || website.slug || website.subdomain || '',
+        subdomain: config.slug || website.subdomain || website.slug || '',
+        template_slug: config.themeId || website.template_slug || 'builder-standard',
         updated_at: Date.now()
-    };
+    } as WebSite;
 
     await projectManager.getStore().saveWebsite(updatedSite);
+    return updatedSite;
 };
 
 export const checkSlugCollision = async (slug: string): Promise<boolean> => {

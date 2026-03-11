@@ -4,6 +4,11 @@ import { logger } from './logger';
 import { toast } from 'sonner';
 
 export class PublicPublisher {
+    private getPublicMediaUrl(media: any): string | null {
+        if (!media) return null;
+        const value = media.url || media.data_base64 || null;
+        return typeof value === 'string' && value.trim() ? value : null;
+    }
 
     /**
      * Builds a safe, PII-free public snapshot of the property.
@@ -47,7 +52,11 @@ export class PublicPublisher {
                 amenities: [],
                 photos: full.media
                     .filter(m => m.site_id === a.id)
-                    .map(m => ({ id: m.id, url: m.url, title: m.filename }))
+                    .map(m => {
+                        const url = this.getPublicMediaUrl(m);
+                        return url ? { id: m.id, url, title: m.filename } : null;
+                    })
+                    .filter(Boolean)
             }));
 
         // 3. Build Policies

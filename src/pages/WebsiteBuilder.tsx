@@ -15,6 +15,7 @@ import { migrateToV1, hydrateConfig } from '../modules/webBuilder/adapters';
 import { generateSlug } from '../modules/webBuilder/slug';
 import { DEFAULT_SITE_CONFIG_V1 } from '../modules/webBuilder/defaults';
 import { SiteConfigV1 } from '../modules/webBuilder/types';
+import { openPreviewWindow, type PreviewHandle } from '../modules/webBuilder/preview';
 
 // Builder Components
 import { useBuilder } from './builder/hooks/useBuilder';
@@ -24,7 +25,7 @@ import { Canvas } from './builder/components/Canvas';
 
 // Templates
 import { BUILDER_TEMPLATES } from './builder/templates';
-import { publishAdapter } from '@/services/publishAdapter';
+import { publishAdapter } from '../../services/publishAdapter';
 import { toast } from 'sonner';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,6 +190,7 @@ export const WebsiteBuilder: React.FC = () => {
     const [showNewSiteModal, setShowNewSiteModal] = useState(false);
     const [showAutoGenerateModal, setShowAutoGenerateModal] = useState(false);
     const [isPublishing, setIsPublishing] = useState(false);
+    const [pendingThemeId, setPendingThemeId] = useState('builder-standard');
 
     // Core Builder Hook
     const {
@@ -200,6 +202,15 @@ export const WebsiteBuilder: React.FC = () => {
     const [isDirty, setIsDirty] = useState(false);
     const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
     const lastConfigSnapshot = useRef<string>('');
+    const previewHandleRef = useRef<PreviewHandle | null>(null);
+
+    const upsertWebsite = useCallback((site: WebSite) => {
+        setWebsites(prev => {
+            const exists = prev.some(w => w.id === site.id);
+            if (!exists) return [site, ...prev];
+            return prev.map(w => w.id === site.id ? site : w);
+        });
+    }, []);
 
     const selectedBlock = selectedBlockId
         ? config.pages['/']?.blocks.find(b => b.id === selectedBlockId) || null
@@ -221,7 +232,7 @@ export const WebsiteBuilder: React.FC = () => {
             setProperties(propList || []);
 
             // Auto-create a starter site if none exist, so the builder never opens empty
-            if (sites.length === 0) {
+            if (sites.length === 0 && (propList?.length || 0) > 0) {
                 const starterSite: WebSite = {
                     id: 'ws_starter',
                     name: 'Mi Sitio Web',
@@ -251,6 +262,24 @@ export const WebsiteBuilder: React.FC = () => {
 
     useEffect(() => { loadData(); }, [loadData]);
     useDataRefresh(loadData);
+
+    useEffect(() => () => {
+        previewHandleRef.current?.close();
+        previewHandleRef.current = null;
+    }, []);
+
+    useEffect(() => {
+        if (previewHandleRef.current?.isAlive()) {
+            previewHandleRef.current.update(config);
+        }
+    }, [config]);
+
+    useEffect(() => {
+        if (!selectedSite && previewHandleRef.current) {
+            previewHandleRef.current.close();
+            previewHandleRef.current = null;
+        }
+    }, [selectedSite]);
 
     // ── Site selection & hydration ──────────────────────────────────────────
 
@@ -288,7 +317,8 @@ export const WebsiteBuilder: React.FC = () => {
         if (!selectedSite) return;
         dispatch({ type: 'SET_SAVING', payload: true });
         try {
-            await saveSiteConfig(selectedSite, config);
+            const savedSite = await saveSiteConfig(selectedSite, config);
+            upsertWebsite(savedSite);
             if (!silent) toast.success('Cambios guardados');
             setIsDirty(false);
             setLastSavedAt(new Date());
@@ -298,7 +328,7 @@ export const WebsiteBuilder: React.FC = () => {
         } finally {
             dispatch({ type: 'SET_SAVING', payload: false });
         }
-    }, [selectedSite, config]);
+    }, [selectedSite, config, upsertWebsite]);
 
     // ── Autosave ────────────────────────────────────────────────────────────
 
@@ -327,6 +357,9 @@ export const WebsiteBuilder: React.FC = () => {
             await handleSave(true);
 
             const propertyId = (selectedSite as any).property_id || projectManager.getActivePropertyId();
+            if (!propertyId) {
+                throw new Error('Selecciona o genera el sitio desde una propiedad antes de publicarlo');
+            }
             const websiteName = selectedSite.name || 'sitio';
 
             // Ensure themeId is set on config
@@ -339,12 +372,25 @@ export const WebsiteBuilder: React.FC = () => {
             const publishedSlug = await publishAdapter.fullPublish(propertyId, websiteName, configToPublish);
 
             if (publishedSlug) {
+                const publishedSite: WebSite = {
+                    ...selectedSite,
+                    sections_json: JSON.stringify(configToPublish),
+                    slug: publishedSlug,
+                    subdomain: publishedSlug,
+                    template_slug: configToPublish.themeId || selectedSite.template_slug,
+                    is_published: true,
+                    status: 'published',
+                    updated_at: Date.now(),
+                };
+                await projectManager.getStore().saveWebsite(publishedSite);
+                setSelectedSite(publishedSite);
+                upsertWebsite(publishedSite);
+
                 const url = `${PUBLIC_WEB_BASE}/${publishedSlug}`;
                 toast.success(
                     `¡Publicado! → ${url}`,
                     { action: { label: 'Ver', onClick: () => window.open(url, '_blank') } }
                 );
-                await loadData();
             }
         } catch (e: any) {
             toast.error('Error al publicar: ' + (e.message || 'Error desconocido'));
@@ -365,6 +411,24 @@ export const WebsiteBuilder: React.FC = () => {
         dispatch({ type: 'SET_CONFIG', payload: updatedConfig });
         setShowThemeSelector(false);
         toast.success(`Tema ${template.name} aplicado`);
+    };
+
+    const handleTemplateChoice = (themeId: string) => {
+        if (properties.length === 0) {
+            setShowThemeSelector(false);
+            toast.error('Crea una propiedad antes de crear una web');
+            return;
+        }
+
+        setPendingThemeId(themeId);
+        setShowThemeSelector(false);
+
+        if (properties.length === 1) {
+            handleAutoGenerate(properties[0], themeId);
+            return;
+        }
+
+        setShowAutoGenerateModal(true);
     };
 
     // ── Auto Generate ────────────────────────────────────────────────────────
@@ -423,19 +487,43 @@ export const WebsiteBuilder: React.FC = () => {
     const getPublicUrl = useCallback(() => {
         if (!selectedSite) return '';
         const slug = config.slug || selectedSite.slug || selectedSite.subdomain || '';
+        const isPublished = selectedSite.is_published || selectedSite.status === 'published';
 
-        console.log(`[WEBBUILDER] view_web_click {resolvedUrl: ${PUBLIC_WEB_BASE}/${slug}, is_published: ${selectedSite.is_published}}`);
+        console.log(`[WEBBUILDER] view_web_click {resolvedUrl: ${PUBLIC_WEB_BASE}/${slug}, is_published: ${isPublished}}`);
 
-        // En demo o si no está publicado, abrir preview local
+        return isPublished && slug ? `${PUBLIC_WEB_BASE}/${slug}` : '';
+    }, [selectedSite, config.slug]);
+
+    const handleOpenWebsite = () => {
+        if (!selectedSite) return;
+
         const projectId = localStorage.getItem('active_project_id');
         const isDemo = projectId === 'demo_project';
+        const isPublished = selectedSite.is_published || selectedSite.status === 'published';
 
-        if (isDemo || !selectedSite.is_published) {
-            return `/#/preview/${selectedSite.id}`;
+        if (isDemo || !isPublished) {
+            if (previewHandleRef.current?.isAlive()) {
+                previewHandleRef.current.focus();
+                previewHandleRef.current.update(config);
+                return;
+            }
+
+            const handle = openPreviewWindow(config);
+            if (!handle.isAlive()) {
+                toast.error('Permite popups para abrir la previsualizacion');
+                return;
+            }
+            previewHandleRef.current = handle;
+            return;
         }
 
-        return slug ? `${PUBLIC_WEB_BASE}/${slug}` : '';
-    }, [selectedSite, config.slug]);
+        const url = getPublicUrl();
+        if (url) {
+            window.open(url, '_blank');
+        } else {
+            toast.info('Publica primero el sitio');
+        }
+    };
 
     // ── Site list screen ─────────────────────────────────────────────────────
 
@@ -450,7 +538,10 @@ export const WebsiteBuilder: React.FC = () => {
                         </div>
                         <div className="flex gap-4">
                             <button
-                                onClick={() => setShowAutoGenerateModal(true)}
+                                onClick={() => {
+                                    setPendingThemeId('builder-standard');
+                                    setShowAutoGenerateModal(true);
+                                }}
                                 className="bg-amber-100 text-amber-900 px-6 py-3 rounded-2xl font-black shadow-xl shadow-amber-100/50 flex items-center gap-2 hover:-translate-y-0.5 transition-all active:scale-95"
                             >
                                 <Zap size={20} /> Generar desde Propiedad
@@ -522,7 +613,7 @@ export const WebsiteBuilder: React.FC = () => {
                                     {properties.map(prop => {
                                         const hasSite = websites.some(w => (w as any).property_id === prop.id);
                                         return (
-                                            <div key={prop.id} onClick={() => handleAutoGenerate(prop, 'builder-standard')}
+                                            <div key={prop.id} onClick={() => handleAutoGenerate(prop, pendingThemeId)}
                                                 className="group flex items-center justify-between p-6 bg-slate-50 hover:bg-white hover:shadow-xl rounded-[1.5rem] border border-slate-100 transition-all cursor-pointer">
                                                 <div className="flex items-center gap-4">
                                                     <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-xl shadow-sm group-hover:bg-indigo-600 group-hover:text-white transition-colors">🏠</div>
@@ -566,10 +657,7 @@ export const WebsiteBuilder: React.FC = () => {
                                     {BUILDER_TEMPLATES.map(template => (
                                         <div key={template.id}
                                             className="group relative flex flex-col bg-slate-50 border border-slate-100 rounded-[2rem] p-6 hover:bg-white hover:shadow-2xl hover:-translate-y-2 transition-all cursor-pointer overflow-hidden"
-                                            onClick={() => {
-                                                if (properties.length > 0) handleAutoGenerate(properties[0], template.themeId);
-                                                else setShowThemeSelector(false);
-                                            }}>
+                                            onClick={() => handleTemplateChoice(template.themeId)}>
                                             <div className="w-full h-20 rounded-2xl mb-4 flex items-center justify-center text-2xl font-black" style={{ backgroundColor: template.theme.colors.background, color: template.theme.colors.primary, border: `2px solid ${template.theme.colors.border}` }}>
                                                 {template.name[0]}
                                             </div>
@@ -645,7 +733,7 @@ export const WebsiteBuilder: React.FC = () => {
                         <Palette size={16} /> Temas
                     </button>
                     <button
-                        onClick={() => { const url = getPublicUrl(); if (url) window.open(url, '_blank'); else toast.info('Publica primero el sitio'); }}
+                        onClick={handleOpenWebsite}
                         className="flex items-center gap-2 px-4 py-2.5 bg-white text-slate-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 transition-all border border-slate-200">
                         <Globe size={16} /> Ver web
                     </button>

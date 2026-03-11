@@ -2,7 +2,7 @@
  * publishAdapter.ts — Orquestador de publicación del editor.
  *
  * Responsabilidades:
- *  1. Publica snapshot (propiedad + apartamentos) y disponibilidad via publicPublisher.
+ *  1. Publica disponibilidad pública en el worker correcto.
  *  2. Publica SiteConfigV1 (con themeId) via publishSiteConfig (api.ts).
  *  3. Garantiza que RPWeb recibe themeId en dos rutas seguras:
  *     - SiteConfigV1.themeId (root)
@@ -11,8 +11,8 @@
  * Uso en WebsiteBuilder.tsx:
  *   const ok = await publishAdapter.fullPublish(propertyId, websiteId, config);
  */
-
-import { publicPublisher } from './publicPublisher';
+import { projectManager } from './projectManager';
+import { publishAvailability } from './publicWebSync';
 import { publishSiteConfig, checkSlugCollision } from '../src/modules/webBuilder/api';
 import { generateSlug } from '../src/modules/webBuilder/slug';
 import type { SiteConfigV1 } from '../src/modules/webBuilder/types';
@@ -33,10 +33,14 @@ export class PublishAdapter {
         websiteName: string,
         config: SiteConfigV1
     ): Promise<string | null> {
-
-        const adminKey = import.meta.env.VITE_PUBLIC_WORKER_ADMIN_KEY || '';
+        const workerUrl = (import.meta.env.VITE_PUBLIC_WORKER_URL || '').replace(/\/$/, '');
+        const adminKey = import.meta.env.VITE_PUBLIC_WORKER_ADMIN_KEY || import.meta.env.VITE_ADMIN_TOKEN || '';
+        if (!workerUrl) {
+            toast.error('Worker público no configurado. Revisa VITE_PUBLIC_WORKER_URL.');
+            return null;
+        }
         if (!adminKey) {
-            toast.error('Admin key no configurada. Ve a Configuración → Editor Web para añadirla.');
+            toast.error('Admin key no configurada. Ve a Configuración -> Editor Web para añadirla.');
             return null;
         }
 
@@ -47,11 +51,17 @@ export class PublishAdapter {
             return null;
         }
 
-        // ── 2. Publicar snapshot + availability ──────────────────────────────
-        toast.loading('Publicando datos de propiedad…');
-        const snapshotOk = await publicPublisher.publish(propertyId);
-        if (!snapshotOk) {
-            // publicPublisher ya muestra toast.error
+        // ── 2. Cargar propiedad y publicar disponibilidad ───────────────────
+        const property = (await projectManager.getStore().getProperties()).find(p => p.id === propertyId);
+        if (!property) {
+            toast.error('No se encuentra la propiedad del sitio para publicarla');
+            return null;
+        }
+
+        toast.loading('Publicando disponibilidad...');
+        const availabilityResult = await publishAvailability(property, workerUrl, adminKey);
+        if (!availabilityResult.ok) {
+            toast.error('Error publicando disponibilidad: ' + (availabilityResult.error || 'Error desconocido'));
             return null;
         }
 
@@ -68,8 +78,13 @@ export class PublishAdapter {
             },
         };
 
+        const collision = await checkSlugCollision(slug);
+        if (collision) {
+            console.info(`[WEBBUILDER] Overwriting existing public config for slug: ${slug}`);
+        }
+
         // ── 4. Publicar SiteConfigV1 → Worker KV ─────────────────────────────
-        toast.loading('Publicando configuración del sitio…');
+        toast.loading('Publicando configuración del sitio...');
         try {
             await publishSiteConfig(slug, finalConfig, adminKey);
         } catch (e: any) {
