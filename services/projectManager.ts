@@ -79,6 +79,7 @@ export class ProjectManager {
       logger.warn(warnLabel, e);
     }
 
+    await this.ensureValidActivePropertyContext();
     await this.refreshCurrentCounts(true);
     this.markProjectClean();
   }
@@ -480,8 +481,42 @@ export class ProjectManager {
     }
 
     const ranked = Array.from(candidateScores.entries()).sort((a, b) => b[1] - a[1]);
-    if (preferredId && candidateScores.has(preferredId)) return preferredId;
-    return ranked[0]?.[0] || preferredId || 'workspace';
+    const dominant = ranked[0];
+    if (!dominant) return preferredId || 'workspace';
+
+    if (!preferredId || !candidateScores.has(preferredId)) {
+      return dominant[0];
+    }
+
+    const preferredScore = candidateScores.get(preferredId) || 0;
+    const dominantScore = dominant[1] || 0;
+    if (dominant[0] === preferredId) return preferredId;
+
+    const practicallyTied = dominantScore > 0 && preferredScore >= (dominantScore * 0.9);
+    return practicallyTied ? preferredId : dominant[0];
+  }
+
+  private async ensureValidActivePropertyContext(): Promise<void> {
+    try {
+      const properties = await this.store.getProperties();
+      if (properties.length === 0) return;
+
+      const currentId = localStorage.getItem('activePropertyId');
+      if (currentId && properties.some((property) => property.id === currentId)) {
+        return;
+      }
+
+      const preferred = properties.find((property) => property.is_active && property.id !== 'prop_default')
+        || properties.find((property) => property.id !== 'prop_default')
+        || properties.find((property) => property.is_active)
+        || properties[0];
+
+      if (preferred?.id) {
+        localStorage.setItem('activePropertyId', preferred.id);
+      }
+    } catch (e) {
+      logger.warn('[ProjectManager] Could not restore active property context', e);
+    }
   }
 
   private ensureActiveProjectContext() {

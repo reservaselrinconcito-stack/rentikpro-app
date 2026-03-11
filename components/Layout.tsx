@@ -396,7 +396,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
               <div className="overflow-hidden flex-1">
                 <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest leading-none mb-1 opacity-70 flex justify-between">
                   <span>{hasWorkspace ? 'WORKSPACE' : 'PROYECTO'}</span>
-                  <span className="font-mono opacity-50 uppercase">{projectManager.getCurrentProjectId()?.substring(0, 8)}...</span>
                 </p>
                 <p className="text-sm font-black text-slate-700 truncate">{projectName}</p>
 
@@ -475,7 +474,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
                   <div className="overflow-hidden flex-1">
                     <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest leading-none mb-1 flex justify-between">
                       <span>{hasWorkspace ? 'WORKSPACE' : 'PROYECTO'}</span>
-                      <span className="font-mono text-[8px] opacity-40 uppercase">{projectManager.getCurrentProjectId()?.substring(0, 8)}...</span>
                     </p>
                     <p className="text-xs font-bold text-slate-700 truncate">{projectName}</p>
                     {projectManager.isProjectEmpty() ? (

@@ -59,6 +59,13 @@ export const Bookings: React.FC = () => {
   const [debugData, setDebugData] = useState<any>(null);
   const [isPulseModalOpen, setIsPulseModalOpen] = useState(false);
   const [channelCommissions, setChannelCommissions] = useState<Record<string, { type: string; value: number }>>({});
+  const diagnosticsEnabled = React.useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return !!import.meta.env.DEV
+      || import.meta.env.VITE_ENABLE_DIAGNOSTICS === '1'
+      || params.get('diag') === '1'
+      || localStorage.getItem('rp_enable_diagnostics') === '1';
+  }, []);
 
   // Load channel commissions once
   useEffect(() => {
@@ -93,8 +100,15 @@ export const Bookings: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!diagnosticsEnabled) return;
     if (showDebug) runDebug();
-  }, [showDebug, bookings.length]);
+  }, [diagnosticsEnabled, showDebug, bookings.length]);
+
+  useEffect(() => {
+    if (!diagnosticsEnabled && showDebug) {
+      setShowDebug(false);
+    }
+  }, [diagnosticsEnabled, showDebug]);
 
   const [form, setForm] = useState<Partial<Booking>>({
     property_id: '',
@@ -624,12 +638,14 @@ export const Bookings: React.FC = () => {
           >
             <Upload size={16} /> Importar Solicitud
           </button>
-          <button
-            onClick={() => setShowDebug(!showDebug)}
-            className={`px-6 py-4 rounded-3xl font-bold text-xs shadow-sm transition-all flex items-center gap-2 border ${showDebug ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600'}`}
-          >
-            <AlertCircle size={16} /> DEBUG
-          </button>
+          {diagnosticsEnabled && (
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className={`px-6 py-4 rounded-3xl font-bold text-xs shadow-sm transition-all flex items-center gap-2 border ${showDebug ? 'bg-rose-50 border-rose-200 text-rose-600' : 'bg-white text-slate-400 border-slate-200 hover:text-slate-600'}`}
+            >
+              <AlertCircle size={16} /> DEBUG
+            </button>
+          )}
           <button onClick={openNewModal} className="bg-indigo-600 text-white px-8 py-4 rounded-3xl font-black text-xs shadow-xl shadow-indigo-100 hover:scale-105 transition-all flex items-center gap-2">
             <Plus size={16} /> Añadir Reserva
           </button>
@@ -649,7 +665,7 @@ export const Bookings: React.FC = () => {
         </div>
       )}
 
-      {showDebug && debugData && (
+      {diagnosticsEnabled && showDebug && debugData && (
         <div className="bg-slate-900 rounded-[2rem] p-8 text-white animate-in zoom-in duration-300 shadow-2xl mb-8">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-lg font-black uppercase tracking-tighter text-indigo-400">Panel de Diagnóstico de Origen de Datos</h3>
