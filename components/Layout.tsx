@@ -5,6 +5,7 @@ import {
   LayoutDashboard, Calendar, Users, Building2, CalendarRange, Wallet, Globe, RefreshCw, Landmark, ScanFace, MessageSquare, Database, Save, XCircle, Activity, Sparkles, ExternalLink, ShieldAlert, ShieldCheck, Megaphone, Settings, Menu, X, ClipboardList, AlertTriangle, ZoomIn, ZoomOut, RotateCcw, Bug, Loader2, HardDrive, Mail
 } from 'lucide-react';
 import { projectManager } from '../services/projectManager';
+import { workspaceManager } from '../services/workspaceManager';
 import { DebugOverlay } from './DebugOverlay';
 
 import { APP_VERSION } from '../src/version';
@@ -66,9 +67,13 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   const projectName = (() => {
     if (hasWorkspace) {
       try {
-        return localStorage.getItem('rp_workspace_name') || 'Workspace';
+        const stored = localStorage.getItem('rp_workspace_name') || '';
+        if (stored && stored.toLowerCase() !== 'backups') {
+          return stored;
+        }
+        return workspaceManager.getWorkspaceDisplayName();
       } catch {
-        return 'Workspace';
+        return workspaceManager.getWorkspaceDisplayName();
       }
     }
     return projectManager.getProjectName();

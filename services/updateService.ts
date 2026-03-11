@@ -39,7 +39,8 @@ class UpdateService {
     this.listeners.forEach(fn => fn(this.status));
   }
 
-  async checkForUpdates(): Promise<void> {
+  async checkForUpdates(options?: { background?: boolean }): Promise<void> {
+    const background = options?.background === true;
     if (this.status.state === 'checking' || this.status.state === 'downloading') return;
     this.emit({ state: 'checking', error: undefined, availableVersion: undefined });
     try {
@@ -53,6 +54,10 @@ class UpdateService {
       }
     } catch (err: any) {
       this._update = null;
+      if (background) {
+        this.emit({ state: 'idle', error: undefined });
+        return;
+      }
       this.emit({ state: 'error', error: this.humanizeError(err) });
     }
   }
@@ -89,19 +94,23 @@ class UpdateService {
 
   private humanizeError(err: any): string {
     const msg = String(err?.message || err || '');
+    const online = typeof navigator === 'undefined' ? true : navigator.onLine;
     if (msg.includes('up to date') || msg.includes('no update')) {
       return 'Ya tienes la última versión instalada.';
     }
+    if (!online) {
+      return 'Sin conexión real a internet. Comprueba tu red e inténtalo de nuevo.';
+    }
     if (msg.includes('network') || msg.includes('fetch') || msg.includes('connect') || msg.includes('NETWORK')) {
-      return 'Sin conexión a internet. Comprueba tu red e inténtalo de nuevo.';
+      return 'El servicio de actualizaciones no está accesible ahora mismo, aunque tu red parece activa.';
     }
     if (msg.includes('signature') || msg.includes('sig')) {
       return 'Error de firma: la actualización no pudo verificarse.';
     }
-    if (msg.includes('release JSON') || msg.includes('valid release') || msg.includes('404')) {
-      return 'No se encuentra el servidor de actualizaciones.';
+    if (msg.includes('release JSON') || msg.includes('valid release') || msg.includes('404') || msg.includes('500') || msg.includes('502') || msg.includes('503') || msg.includes('504') || msg.includes('timeout')) {
+      return 'El canal de actualizaciones respondió con error o no está disponible temporalmente.';
     }
-    return msg || 'Error desconocido al buscar actualizaciones.';
+    return msg || 'Error interno al comprobar actualizaciones.';
   }
 
   getStatus(): UpdateStatus {
