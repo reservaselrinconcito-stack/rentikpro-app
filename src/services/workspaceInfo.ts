@@ -1,6 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { open as shellOpen } from "@tauri-apps/plugin-shell";
 import { join, homeDir } from "@tauri-apps/api/path";
+import { prepareWorkspaceSwitch } from "../../services/workspaceStartup";
 
 // Ajusta estos imports a tu workspace manager real:
 import { getActiveWorkspacePath, setActiveWorkspace } from "./workspaceManager";
@@ -37,6 +38,7 @@ export async function chooseNewWorkspace(): Promise<string | null> {
 }
 
 export async function switchWorkspace(path: string) {
+  prepareWorkspaceSwitch(path);
   await setActiveWorkspace(path);
   window.location.reload();
 }

@@ -7,9 +7,18 @@ import { notifyDataChanged } from '../services/dataRefresher';
 import { createProject, openProject, pickProjectFolder, getLastOpenedProjectPath, validateProject } from '../services/projectFolderManager';
 import { isTauri as isTauriRuntime } from '../utils/isTauri';
 import { workspaceManager } from '../services/workspaceManager';
+import { syncCoordinator } from '../services/syncCoordinator';
+import { releaseChannel, type ReleaseInfo } from '../services/releaseChannel';
 import { toast } from 'sonner';
 import { getWorkspaceBootState, setWorkspaceBootState } from "../services/workspaceBootState";
 import { chooseFolder, switchWorkspace, openWorkspaceFolder, isICloudWorkspace, openICloudDriveFolder } from "../services/workspaceInfo";
+import {
+    applyWorkspaceStartupPreference,
+    getWorkspaceStartupDecision,
+    markWorkspaceUnavailable,
+    recordOpenedWorkspace,
+    type KnownWorkspace,
+} from '../services/workspaceStartup';
 // Native imports moved to dynamic imports for web-safe operation
 // import { exists } from "@tauri-apps/plugin-fs";
 import { waitForPathToExist } from '../src/services/workspaceManager';
@@ -44,12 +53,49 @@ const joinPath = async (a: string, b: string): Promise<string> => {
     }
 };
 
+const summarizeWorkspacePath = (path: string): string => {
+    const normalized = String(path || '').replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(Boolean);
+    if (parts.length <= 4) return path;
+    return `.../${parts.slice(-4).join('/')}`;
+};
+
+const formatLastOpenedAt = (value?: number): string => {
+    if (!value) return 'Sin apertura registrada';
+    try {
+        return new Intl.DateTimeFormat('es-ES', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+        }).format(new Date(value));
+    } catch {
+        return new Date(value).toLocaleString();
+    }
+};
+
+const getInitialStartupMode = (): 'ask' | 'remember' => {
+    const decision = getWorkspaceStartupDecision();
+    if (decision.defaultWorkspacePath) return 'remember';
+    if (decision.mode === 'ask') return 'ask';
+    return decision.knownWorkspaces.filter((workspace) => !workspace.missing).length > 1 ? 'ask' : 'remember';
+};
+
 const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
     const [loading, setLoading] = useState(false);
     const [loadingLog, setLoadingLog] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
+    const [forceWorkspaceSelector] = useState(() => {
+        try {
+            return sessionStorage.getItem('forceShowStart') === '1';
+        } catch {
+            return false;
+        }
+    });
+    const [startupDecision, setStartupDecision] = useState(() => getWorkspaceStartupDecision());
+    const [startupMode, setStartupMode] = useState<'ask' | 'remember'>(() => getInitialStartupMode());
+    const [workspaceAvailability, setWorkspaceAvailability] = useState<Record<string, boolean>>({});
     const [workspacePath, setWorkspacePath] = useState<string | null>(() => workspaceManager.getWorkspacePath());
     const mountedRef = useRef(true);
+    const shouldShowWorkspaceSelector = (forceWorkspaceSelector || startupDecision.shouldPrompt) && startupDecision.knownWorkspaces.length > 0;
 
     // MISSING state is handled by the parent StartupScreen component.
     // If we reach here, boot state is NOT "MISSING".
@@ -81,6 +127,42 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
         };
     }, []);
 
+    useEffect(() => {
+        if (!forceWorkspaceSelector) return;
+        try {
+            sessionStorage.removeItem('forceShowStart');
+        } catch {
+            // ignore
+        }
+    }, [forceWorkspaceSelector]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const checkAvailability = async () => {
+            const entries = startupDecision.knownWorkspaces;
+            if (entries.length === 0) {
+                if (!cancelled) setWorkspaceAvailability({});
+                return;
+            }
+
+            const pairs = await Promise.all(entries.map(async (workspace) => {
+                if (workspace.missing) return [workspace.path, false] as const;
+                const available = await tauriExists(workspace.path);
+                return [workspace.path, available] as const;
+            }));
+
+            if (!cancelled) {
+                setWorkspaceAvailability(Object.fromEntries(pairs));
+            }
+        };
+
+        checkAvailability().catch(() => null);
+        return () => {
+            cancelled = true;
+        };
+    }, [startupDecision]);
+
     const formatWorkspaceError = (e: any): string => {
         const msg = e?.message || String(e);
         if (msg.includes('Workspace folder does not exist')) {
@@ -92,6 +174,12 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
         return msg;
     };
 
+    const refreshStartupDecision = () => {
+        if (!mountedRef.current) return;
+        setStartupDecision(getWorkspaceStartupDecision());
+        setWorkspacePath(workspaceManager.getWorkspacePath());
+    };
+
     const doOpenAndLoad = async (path: string) => {
         const res = await workspaceManager.openWorkspace(path);
         let meta: any = {};
@@ -101,6 +189,8 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
 
         localStorage.setItem('rp_workspace_project_id', projectId);
         localStorage.setItem('rp_workspace_name', name);
+        recordOpenedWorkspace({ path: res.path, name, projectId });
+        if (mountedRef.current) setWorkspacePath(res.path);
 
         await projectManager.loadProjectFromSqliteBytes(res.dbBytes, {
             projectId,
@@ -110,20 +200,31 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
             startAutoSave: true,
             persistToIdb: false,
         });
+
+        syncCoordinator.syncDown().catch((e) => console.warn('[StartupScreen] Workspace SyncDown failed', e));
+        syncCoordinator.refreshStatus().catch(() => null);
+        return { path: res.path, name, projectId };
     };
 
-    const openAndLoad = async (path: string, opts?: { toastOnError?: boolean }) => {
+    const openAndLoad = async (path: string, opts?: { toastOnError?: boolean; startupMode?: 'ask' | 'remember' }) => {
         if (mountedRef.current) {
             setLoading(true);
             setError(null);
             setLoadingLog('Abriendo workspace...');
         }
         try {
-            await doOpenAndLoad(path);
+            const opened = await doOpenAndLoad(path);
+            if (opts?.startupMode) {
+                applyWorkspaceStartupPreference(opened.path, opts.startupMode);
+            }
             notifyDataChanged('all');
             onOpen();
         } catch (e: any) {
             const msg = formatWorkspaceError(e);
+            if (e?.code === 'WORKSPACE_MISSING' || msg.includes('Workspace no disponible')) {
+                markWorkspaceUnavailable(path);
+                refreshStartupDecision();
+            }
             if (mountedRef.current) setError(msg);
             if (opts?.toastOnError !== false) toast.error(msg);
         } finally {
@@ -159,16 +260,20 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
         }
 
         const msg = formatWorkspaceError(lastErr);
+        if (lastErr?.code === 'WORKSPACE_MISSING' || msg.includes('Workspace no disponible')) {
+            markWorkspaceUnavailable(p);
+            refreshStartupDecision();
+        }
         if (mountedRef.current) setError(msg);
         toast.error(msg);
         if (mountedRef.current) setLoading(false);
     };
 
     useEffect(() => {
-        if (!workspacePath) return;
-        openAndLoad(workspacePath);
+        if (!startupDecision.autoOpenPath || startupDecision.shouldPrompt || forceWorkspaceSelector) return;
+        openAndLoad(startupDecision.autoOpenPath);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [forceWorkspaceSelector, startupDecision.autoOpenPath, startupDecision.shouldPrompt]);
 
     const pickWorkspaceFolder = async () => {
         try {
@@ -186,20 +291,23 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
         }
     };
 
-    const chooseWorkspace = async (opts: { openAfterSetup: boolean }): Promise<string | null> => {
+    const chooseWorkspace = async (opts: { openAfterSetup: boolean; startupMode?: 'ask' | 'remember' }): Promise<string | null> => {
         try {
             if (mountedRef.current) setError(null);
             const picked = await pickWorkspaceFolder();
-            if (!picked) return;
+            if (!picked) return null;
             if (mountedRef.current) {
-                setWorkspacePath(picked);
                 setLoading(true);
                 setLoadingLog('Preparando workspace...');
             }
             await workspaceManager.setupWorkspace(picked);
+            if (mountedRef.current) {
+                setWorkspacePath(workspaceManager.getWorkspacePath() || picked);
+                setStartupDecision(getWorkspaceStartupDecision());
+            }
             toast.success('Workspace listo');
             if (opts.openAfterSetup) {
-                await openAndLoad(picked);
+                await openAndLoad(picked, { startupMode: opts.startupMode });
             }
             return picked;
         } catch (e: any) {
@@ -213,7 +321,11 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
     };
 
     const handleChooseWorkspace = async () => {
-        await chooseWorkspace({ openAfterSetup: true });
+        await chooseWorkspace({ openAfterSetup: true, startupMode });
+    };
+
+    const handleOpenKnownWorkspace = async (workspace: KnownWorkspace) => {
+        await openAndLoad(workspace.path, { startupMode });
     };
 
     const handleRestoreExternal = async (file: File) => {
@@ -259,6 +371,8 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
                 startAutoSave: true,
                 persistToIdb: false,
             });
+            recordOpenedWorkspace({ path: wsPath, name, projectId });
+            applyWorkspaceStartupPreference(wsPath, startupMode);
 
             toast.success('Backup restaurado en el workspace');
             notifyDataChanged('all');
@@ -291,7 +405,7 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
         );
     }
 
-    if (error) {
+    if (error && !shouldShowWorkspaceSelector) {
         return (
             <div className="flex items-center justify-center p-6 w-full">
                 <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl max-w-lg w-full text-center space-y-6 border border-slate-100 animate-in zoom-in-95 duration-300">
@@ -356,6 +470,123 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
         );
     }
 
+    if (shouldShowWorkspaceSelector) {
+        return (
+            <div className="flex items-center justify-center p-6 w-full">
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl max-w-4xl w-full border border-slate-100 animate-in zoom-in-95 duration-300 space-y-6">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                        <div className="min-w-0">
+                            <div className="w-16 h-16 rounded-3xl flex items-center justify-center bg-indigo-600 shadow-xl shadow-indigo-200 overflow-hidden mb-4">
+                                <img src="/favicon.svg" alt="Workspace" className="w-12 h-12 object-contain" />
+                            </div>
+                            <h2 className="text-2xl font-black text-slate-800 tracking-tight">Elige workspace al arrancar</h2>
+                            <p className="text-slate-500 text-sm mt-2 leading-relaxed max-w-2xl">
+                                Selecciona el workspace antes de cargar RentikPro. Asi evitas abrir el equivocado cuando ya hay varias ubicaciones guardadas.
+                            </p>
+                        </div>
+
+                        <button
+                            onClick={handleChooseWorkspace}
+                            className="shrink-0 px-5 py-3 bg-slate-900 text-white hover:bg-slate-800 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2"
+                        >
+                            <FolderOpen size={16} /> Explorar / elegir otro
+                        </button>
+                    </div>
+
+                    {error && (
+                        <div className="flex items-start gap-3 bg-rose-50 border border-rose-100 text-rose-700 rounded-2xl p-4">
+                            <AlertCircle size={18} className="shrink-0 mt-0.5" />
+                            <div>
+                                <p className="font-black text-sm">No se pudo abrir el workspace seleccionado</p>
+                                <p className="text-xs mt-1 leading-relaxed">{error}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="bg-slate-50 border border-slate-200 rounded-3xl p-5 space-y-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Preferencia de arranque</p>
+                        <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 cursor-pointer">
+                            <input
+                                type="radio"
+                                name="workspace-startup-mode"
+                                checked={startupMode === 'ask'}
+                                onChange={() => setStartupMode('ask')}
+                                className="mt-1"
+                            />
+                            <div>
+                                <p className="text-sm font-black text-slate-800">Preguntar siempre al arrancar</p>
+                                <p className="text-xs text-slate-500 mt-1">Muestra este selector cada vez que abras RentikPro.</p>
+                            </div>
+                        </label>
+                        <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 cursor-pointer">
+                            <input
+                                type="radio"
+                                name="workspace-startup-mode"
+                                checked={startupMode === 'remember'}
+                                onChange={() => setStartupMode('remember')}
+                                className="mt-1"
+                            />
+                            <div>
+                                <p className="text-sm font-black text-slate-800">Usar siempre este al iniciar</p>
+                                <p className="text-xs text-slate-500 mt-1">El workspace que abras ahora quedara como predeterminado.</p>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-4">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Workspaces conocidos</p>
+                            <p className="text-[10px] text-slate-400 font-bold">{startupDecision.knownWorkspaces.length} guardado(s)</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3">
+                            {startupDecision.knownWorkspaces.map((workspace) => {
+                                const isDefault = startupDecision.defaultWorkspacePath === workspace.path;
+                                const isCurrent = workspacePath === workspace.path;
+                                const isAvailable = workspaceAvailability[workspace.path];
+                                const isUnavailable = workspace.missing || isAvailable === false;
+
+                                return (
+                                    <div
+                                        key={workspace.path}
+                                        className="rounded-3xl border border-slate-200 bg-slate-50/80 p-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between"
+                                    >
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                                                <h3 className="text-lg font-black text-slate-800 truncate">{workspace.name}</h3>
+                                                {isDefault && (
+                                                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-indigo-200 bg-indigo-50 text-indigo-700">Predeterminado</span>
+                                                )}
+                                                {isCurrent && (
+                                                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">Actual</span>
+                                                )}
+                                                {isUnavailable && (
+                                                    <span className="text-[10px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border border-rose-200 bg-rose-50 text-rose-700">No disponible</span>
+                                                )}
+                                            </div>
+
+                                            <p className="text-sm text-slate-600 font-medium">{summarizeWorkspacePath(workspace.path)}</p>
+                                            <p className="text-xs text-slate-400 mt-2">Ultima apertura: {formatLastOpenedAt(workspace.lastOpenedAt)}</p>
+                                        </div>
+
+                                        <div className="flex flex-wrap gap-2 md:justify-end">
+                                            <button
+                                                onClick={() => handleOpenKnownWorkspace(workspace)}
+                                                className="px-4 py-2.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-2xl font-black text-[11px] uppercase tracking-widest transition-all shadow-lg shadow-indigo-100 flex items-center gap-2"
+                                            >
+                                                <ArrowRight size={14} /> Abrir
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     // Welcome state
     return (
         <div className="flex items-center justify-center p-6 w-full">
@@ -384,6 +615,7 @@ const StartupScreenTauri = ({ onOpen }: { onOpen: () => void }) => {
 const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
     const [loading, setLoading] = useState(false);
     const [recentProjects, setRecentProjects] = useState<ProjectMetadata[]>([]);
+    const [releaseInfo, setReleaseInfo] = useState<ReleaseInfo | null>(null);
     const [supportsFile] = useState(() =>
         typeof window !== 'undefined' &&
         typeof (window as any).showOpenFilePicker === 'function' &&
@@ -401,6 +633,11 @@ const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
     useEffect(() => {
         loadRecent();
     }, []);
+
+    useEffect(() => {
+        if (isTauri) return;
+        releaseChannel.getLatestRelease().then(setReleaseInfo).catch(() => null);
+    }, [isTauri]);
 
     const loadRecent = async () => {
         try {
@@ -711,13 +948,17 @@ const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
                             {/* macOS Section */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 <a
-                                    href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest/download/RentikPro-mac-arm64.dmg"
+                                    href={releaseInfo?.downloads.macos_arm64?.url || releaseInfo?.release_url || releaseChannel.getReleasePageUrl()}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
                                     className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-800 transition-all shadow-lg shadow-slate-200"
                                 >
                                     <Download size={14} /> Mac Apple Silicon (M1/M2/M3)
                                 </a>
                                 <a
-                                    href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest/download/RentikPro-mac-x64.dmg"
+                                    href={releaseInfo?.downloads.macos_x64?.url || releaseInfo?.release_url || releaseChannel.getReleasePageUrl()}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
                                     className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-white border border-slate-200 text-slate-700 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-50 transition-all shadow-sm"
                                 >
                                     <Download size={14} /> Mac Intel
@@ -726,14 +967,18 @@ const StartupScreenLegacy = ({ onOpen }: { onOpen: () => void }) => {
 
                             {/* Windows Section */}
                             <a
-                                href="https://github.com/reservaselrinconcito-stack/rentikpro-app/releases/latest/download/RentikPro-win.exe"
+                                href={releaseInfo?.downloads.windows_x64?.url || releaseInfo?.release_url || releaseChannel.getReleasePageUrl()}
+                                target="_blank"
+                                rel="noopener noreferrer"
                                 className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-slate-100 text-slate-600 border border-slate-200 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition-all"
                             >
                                 <Download size={14} /> Descargar para Windows (.exe)
                             </a>
 
                             <div className="text-[9px] text-slate-400 font-bold mt-2 px-1">
-                                Para la mejor experiencia (offline y gestión de archivos), recomendamos la versión instalable.
+                                {releaseInfo?.version
+                                    ? `Instaladores reales de la release estable v${releaseInfo.version}.`
+                                    : 'Si no detectamos la release estable, abrimos GitHub Releases para evitar descargas rotas.'}
                             </div>
                         </div>
                     )}

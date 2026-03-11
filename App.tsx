@@ -249,6 +249,12 @@ const App: React.FC = () => {
   const handleClose = async () => {
     const isDemo = projectManager.getCurrentMode() === 'demo';
     if (isDemo || window.confirm("¿Deseas cerrar el proyecto actual? Asegúrate de haber guardado tus cambios.")) {
+      try {
+        sessionStorage.setItem('forceShowStart', '1');
+        sessionStorage.removeItem('pendingNavigation');
+      } catch {
+        // ignore
+      }
       setIsProjectOpen(false);
       try {
         await projectManager.closeProject();

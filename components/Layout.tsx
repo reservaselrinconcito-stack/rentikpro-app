@@ -5,6 +5,8 @@ import {
   LayoutDashboard, Calendar, Users, Building2, CalendarRange, Wallet, Globe, RefreshCw, Landmark, ScanFace, MessageSquare, Database, Save, XCircle, Activity, Sparkles, ExternalLink, ShieldAlert, ShieldCheck, Megaphone, Settings, Menu, X, ClipboardList, AlertTriangle, ZoomIn, ZoomOut, RotateCcw, Bug, Loader2, HardDrive, Mail
 } from 'lucide-react';
 import { projectManager } from '../services/projectManager';
+import { workspaceManager } from '../services/workspaceManager';
+import { chooseFolder, openWorkspaceFolder, switchWorkspace } from '../services/workspaceInfo';
 import { DebugOverlay } from './DebugOverlay';
 
 import { APP_VERSION } from '../src/version';
@@ -12,7 +14,7 @@ import { AppVersion } from '../src/components/AppVersion';
 import { ICalDebugPanel } from './ICalDebugPanel';
 import { ProjectSwitcherModal } from './ProjectSwitcherModal';
 import { CheckCircle, AlertCircle, Cloud, CloudOff } from 'lucide-react';
-import { syncCoordinator } from '../services/syncCoordinator';
+import { syncCoordinator, type SyncStatusSnapshot } from '../services/syncCoordinator';
 import { isTauri } from '../utils/isTauri';
 import { isDbReady, getDbReady } from '../services/sqliteStore';
 import { useMaintenance } from '../src/hooks/useMaintenance';
@@ -20,6 +22,7 @@ import { MaintenanceOverlay } from '../src/components/MaintenanceOverlay';
 import { DemoBanner } from './DemoBanner';
 import { UpdateButton } from './UpdateButton';
 import { useDataRefresh } from '../services/dataRefresher';
+import { toast } from 'sonner';
 
 
 interface LayoutProps {
@@ -63,12 +66,23 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
     if (!isTauriRuntime) return false;
     try { return !!localStorage.getItem('rp_workspace_path'); } catch { return false; }
   })();
+  const workspacePath = hasWorkspace ? workspaceManager.getWorkspacePath() : null;
+  const workspacePathSummary = workspacePath ? (() => {
+    const normalized = workspacePath.replace(/\\/g, '/');
+    const parts = normalized.split('/').filter(Boolean);
+    if (parts.length <= 4) return workspacePath;
+    return `.../${parts.slice(-4).join('/')}`;
+  })() : null;
   const projectName = (() => {
     if (hasWorkspace) {
       try {
-        return localStorage.getItem('rp_workspace_name') || 'Workspace';
+        const stored = localStorage.getItem('rp_workspace_name') || '';
+        if (stored && stored.toLowerCase() !== 'backups') {
+          return stored;
+        }
+        return workspaceManager.getWorkspaceDisplayName();
       } catch {
-        return 'Workspace';
+        return workspaceManager.getWorkspaceDisplayName();
       }
     }
     return projectManager.getProjectName();
@@ -88,6 +102,30 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   const { enabled: maintenanceEnabled, reason: maintenanceReason } = useMaintenance();
   const navigate = useNavigate();
   const location = useLocation();
+
+  const handleOpenWorkspaceLocation = async () => {
+    if (!workspacePath) return;
+    try {
+      await openWorkspaceFolder(workspacePath);
+    } catch (e: any) {
+      console.error('[Layout][Workspace] reveal failed', e);
+      toast.error('No se pudo abrir la carpeta del workspace');
+    }
+  };
+
+  const handleChangeWorkspace = async () => {
+    try {
+      const newPath = await chooseFolder();
+      if (!newPath) return;
+      if (!window.confirm('Cambiar el workspace cerrara el actual y recargara la aplicacion. Si eliges una carpeta vacia, se creara un workspace nuevo alli. Continuar?')) {
+        return;
+      }
+      await switchWorkspace(newPath);
+    } catch (e: any) {
+      console.error('[Layout][Workspace] switch failed', e);
+      toast.error(e?.message || 'Error al cambiar workspace');
+    }
+  };
 
   useEffect(() => {
     const pending = sessionStorage.getItem('pendingNavigation');
@@ -132,9 +170,17 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   };
 
   // Sync Status
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatusSnapshot>(syncCoordinator.getStatus());
   useEffect(() => {
-    return syncCoordinator.subscribe(setIsSyncing);
+    const unsubSyncing = syncCoordinator.subscribe(() => {
+      setSyncStatus(syncCoordinator.getStatus());
+    });
+    const unsubStatus = syncCoordinator.subscribeStatus(setSyncStatus);
+    syncCoordinator.refreshStatus().catch(() => null);
+    return () => {
+      unsubSyncing();
+      unsubStatus();
+    };
   }, []);
 
   // DB readiness gate: avoid crashes from querying before init.
@@ -156,11 +202,28 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   }, []);
 
   const SyncStatusBadge = () => {
-    if (!isSyncing) return null;
+    if (!syncStatus.isEnabled || syncStatus.state === 'disabled') return null;
+
+    const states: Record<SyncStatusSnapshot['state'], { label: string; className: string; icon: React.ComponentType<any>; spin?: boolean }> = {
+      disabled: { label: 'Sync off', className: 'text-slate-500 bg-slate-50 border-slate-200', icon: CloudOff },
+      syncing: { label: 'Sincronizando', className: 'text-indigo-600 bg-indigo-50 border-indigo-100 animate-pulse', icon: RefreshCw, spin: true },
+      synchronized: { label: 'Sincronizado', className: 'text-emerald-600 bg-emerald-50 border-emerald-100', icon: Cloud },
+      local_changes: { label: 'Cambios locales', className: 'text-amber-700 bg-amber-50 border-amber-200', icon: Save },
+      remote_changes: { label: 'Cambios remotos', className: 'text-sky-700 bg-sky-50 border-sky-200', icon: Cloud },
+      conflict: { label: 'Conflicto', className: 'text-rose-700 bg-rose-50 border-rose-200', icon: AlertTriangle },
+      read_only: { label: 'Solo lectura', className: 'text-slate-700 bg-slate-100 border-slate-200', icon: CloudOff },
+      error: { label: 'Error sync', className: 'text-rose-700 bg-rose-50 border-rose-200', icon: AlertTriangle },
+    };
+
+    const meta = states[syncStatus.state];
+    const Icon = meta.icon;
     return (
-      <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest px-2 py-1.5 rounded-lg border text-indigo-600 bg-indigo-50 border-indigo-100 animate-pulse">
-        <RefreshCw size={11} className="animate-spin" />
-        <span>Nube Sync...</span>
+      <div
+        title={syncStatus.detail}
+        className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest px-2 py-1.5 rounded-lg border ${meta.className}`}
+      >
+        <Icon size={11} className={meta.spin ? 'animate-spin' : ''} />
+        <span>{meta.label}</span>
       </div>
     );
   };
@@ -391,7 +454,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
               <div className="overflow-hidden flex-1">
                 <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest leading-none mb-1 opacity-70 flex justify-between">
                   <span>{hasWorkspace ? 'WORKSPACE' : 'PROYECTO'}</span>
-                  <span className="font-mono opacity-50 uppercase">{projectManager.getCurrentProjectId()?.substring(0, 8)}...</span>
                 </p>
                 <p className="text-sm font-black text-slate-700 truncate">{projectName}</p>
 
@@ -406,6 +468,29 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
                 )}
               </div>
             </button>
+
+            {hasWorkspace && workspacePath && (
+              <div className="mt-3 px-1 space-y-2">
+                <div className="px-3 py-2 rounded-2xl bg-white/50 border border-white/70 shadow-sm">
+                  <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">Ruta activa</p>
+                  <p className="mt-1 text-[11px] font-semibold text-slate-600 break-all">{workspacePathSummary}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={handleOpenWorkspaceLocation}
+                    className="px-3 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-all text-[10px] font-black uppercase tracking-widest"
+                  >
+                    Abrir carpeta
+                  </button>
+                  <button
+                    onClick={handleChangeWorkspace}
+                    className="px-3 py-2.5 rounded-2xl bg-slate-900 text-white hover:bg-slate-800 transition-all text-[10px] font-black uppercase tracking-widest shadow-lg shadow-slate-200"
+                  >
+                    Cambiar...
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* UI SCALE CONTROLS - Desktop (though logic is mobile-only) */}
             <div className="mt-4 px-2">
@@ -470,7 +555,6 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
                   <div className="overflow-hidden flex-1">
                     <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest leading-none mb-1 flex justify-between">
                       <span>{hasWorkspace ? 'WORKSPACE' : 'PROYECTO'}</span>
-                      <span className="font-mono text-[8px] opacity-40 uppercase">{projectManager.getCurrentProjectId()?.substring(0, 8)}...</span>
                     </p>
                     <p className="text-xs font-bold text-slate-700 truncate">{projectName}</p>
                     {projectManager.isProjectEmpty() ? (
@@ -484,6 +568,34 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
                     )}
                   </div>
                 </button>
+                {hasWorkspace && workspacePath && (
+                  <div className="mt-3 space-y-2">
+                    <div className="px-3 py-2 rounded-2xl bg-white border border-slate-200 shadow-sm">
+                      <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest">Ruta activa</p>
+                      <p className="mt-1 text-[11px] font-semibold text-slate-600 break-all">{workspacePathSummary}</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={async () => {
+                          setMobileMenuOpen(false);
+                          await handleOpenWorkspaceLocation();
+                        }}
+                        className="px-3 py-2.5 rounded-2xl bg-white border border-slate-200 text-slate-700 transition-all text-[10px] font-black uppercase tracking-widest"
+                      >
+                        Abrir carpeta
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setMobileMenuOpen(false);
+                          await handleChangeWorkspace();
+                        }}
+                        className="px-3 py-2.5 rounded-2xl bg-slate-900 text-white transition-all text-[10px] font-black uppercase tracking-widest"
+                      >
+                        Cambiar...
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {/* UI SCALE CONTROLS - Mobile Drawer */}
                 <UpdateButton />
                 <div className="mt-4">

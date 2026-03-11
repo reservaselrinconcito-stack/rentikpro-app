@@ -11,6 +11,7 @@ import { syncCoordinator } from './syncCoordinator';
 import { isTauri as isTauriRuntime } from '../utils/isTauri';
 import { getStorageAdapter } from './storageAdapter';
 import { isDemoMode } from '../utils/demoMode';
+import { getWorkspaceStartupDecision, markWorkspaceUnavailable, recordOpenedWorkspace } from './workspaceStartup';
 
 // Native imports moved to dynamic imports for web-safe operation
 
@@ -47,6 +48,7 @@ export class ProjectManager {
     this.store.setWriteHook(() => {
       this.projectDirty = true;
       this.scheduleAutoSaveFile();
+      syncCoordinator.markLocalChange();
       void this.refreshCurrentCounts();
     });
   }
@@ -79,6 +81,7 @@ export class ProjectManager {
       logger.warn(warnLabel, e);
     }
 
+    await this.ensureValidActivePropertyContext();
     await this.refreshCurrentCounts(true);
     this.markProjectClean();
   }
@@ -98,7 +101,7 @@ export class ProjectManager {
     }
 
 
-    // Priority 1 (Tauri): Single Workspace — auto-open last workspace if available.
+    // Priority 1 (Tauri): workspace startup decision.
     // Skip if in demo mode to force memory/IDB-based demo data.
     if (isTauri && !isDemo) {
       // Emit boot state so UI shows "Leyendo configuración…"
@@ -107,20 +110,36 @@ export class ProjectManager {
         setWorkspaceBootState({ state: "CHECK_CONFIG" });
       } catch { /* best effort */ }
 
-      const lastWorkspace = (() => {
-        try { return localStorage.getItem('rp_workspace_path'); } catch { return null; }
-      })();
+      const startupDecision = getWorkspaceStartupDecision();
+      const startupWorkspace = startupDecision.autoOpenPath;
 
-      if (lastWorkspace) {
+      if (startupWorkspace) {
+        const isICloudWorkspace = startupWorkspace.includes('Mobile Documents/com~apple~CloudDocs');
+
+        if (!isICloudWorkspace) {
+          try {
+            const { exists } = await import('@tauri-apps/plugin-fs');
+            const pathExists = await exists(startupWorkspace).catch(() => false);
+            if (!pathExists) {
+              markWorkspaceUnavailable(startupWorkspace);
+              logger.warn('[ProjectManager] Startup workspace is missing. Showing selector.', startupWorkspace);
+              return;
+            }
+          } catch (e) {
+            logger.warn('[ProjectManager] Startup workspace precheck failed; falling back to open attempt.', e);
+          }
+        }
+
         try {
           const { workspaceManager } = await import('./workspaceManager');
-          const opened = await workspaceManager.openWorkspace(lastWorkspace);
+          const opened = await workspaceManager.openWorkspace(startupWorkspace);
           let meta: any = {};
           try { meta = JSON.parse(opened.workspaceJson || '{}'); } catch { meta = {}; }
           const projectId = (meta?.id || 'workspace').toString();
           const name = (meta?.name || workspaceManager.getWorkspaceDisplayName()).toString();
           localStorage.setItem('rp_workspace_project_id', projectId);
           localStorage.setItem('rp_workspace_name', name);
+          recordOpenedWorkspace({ path: opened.path, name, projectId });
 
           await this.loadProjectFromSqliteBytes(opened.dbBytes, {
 
@@ -131,13 +150,28 @@ export class ProjectManager {
             startAutoSave: true,
             persistToIdb: false,
           });
-          logger.log(`[ProjectManager] Auto-opened workspace: ${lastWorkspace}`);
+          syncCoordinator.syncDown().catch(e => logger.warn('[ProjectManager] Workspace SyncDown failed (non-blocking)', e));
+          logger.log(`[ProjectManager] Auto-opened workspace: ${startupWorkspace}`);
           return;
         } catch (e: any) {
-          // P0 hardening: do NOT fall back to IDB/file projects automatically.
-          // If the workspace path is missing (moved/iCloud lazy download), we must show recovery UI.
-          console.warn("[ProjectManager] Auto-open failed:", e?.code, e?.workspacePath || lastWorkspace);
+          const failedWorkspace = e?.workspacePath || startupWorkspace;
+          const isMissingWorkspace = e?.code === 'WORKSPACE_MISSING';
+          const isICloudWorkspaceError = String(failedWorkspace || '').includes('Mobile Documents/com~apple~CloudDocs');
+
+          console.warn("[ProjectManager] Auto-open failed:", e?.code, failedWorkspace);
           logger.warn('[ProjectManager] Failed to auto-open workspace. Showing StartupScreen (no fallback).', e);
+
+          if (isMissingWorkspace && !isICloudWorkspaceError) {
+            markWorkspaceUnavailable(failedWorkspace);
+            try {
+              const { setWorkspaceBootState } = await import('../src/services/workspaceBootState');
+              setWorkspaceBootState({ state: 'CHECK_CONFIG' });
+            } catch {
+              // ignore
+            }
+            return;
+          }
+
           try {
             const msg = e?.message ? String(e.message) : String(e);
             localStorage.setItem('rp_workspace_boot_error', msg);
@@ -148,7 +182,7 @@ export class ProjectManager {
         }
       }
 
-      // No workspace configured: show StartupScreen. Do not auto-load IndexedDB in Tauri.
+      // No auto-open candidate: show StartupScreen. Do not auto-load IndexedDB in Tauri.
       return;
     }
 
@@ -444,6 +478,7 @@ export class ProjectManager {
       // Reset store to a fresh DB instance
       this.store = new SQLiteStore();
       this.attachWriteHook();
+      syncCoordinator.resetStatus();
 
       notifyDataChanged('all');
     } catch (e) {
@@ -480,8 +515,42 @@ export class ProjectManager {
     }
 
     const ranked = Array.from(candidateScores.entries()).sort((a, b) => b[1] - a[1]);
-    if (preferredId && candidateScores.has(preferredId)) return preferredId;
-    return ranked[0]?.[0] || preferredId || 'workspace';
+    const dominant = ranked[0];
+    if (!dominant) return preferredId || 'workspace';
+
+    if (!preferredId || !candidateScores.has(preferredId)) {
+      return dominant[0];
+    }
+
+    const preferredScore = candidateScores.get(preferredId) || 0;
+    const dominantScore = dominant[1] || 0;
+    if (dominant[0] === preferredId) return preferredId;
+
+    const practicallyTied = dominantScore > 0 && preferredScore >= (dominantScore * 0.9);
+    return practicallyTied ? preferredId : dominant[0];
+  }
+
+  private async ensureValidActivePropertyContext(): Promise<void> {
+    try {
+      const properties = await this.store.getProperties();
+      if (properties.length === 0) return;
+
+      const currentId = localStorage.getItem('activePropertyId');
+      if (currentId && properties.some((property) => property.id === currentId)) {
+        return;
+      }
+
+      const preferred = properties.find((property) => property.is_active && property.id !== 'prop_default')
+        || properties.find((property) => property.id !== 'prop_default')
+        || properties.find((property) => property.is_active)
+        || properties[0];
+
+      if (preferred?.id) {
+        localStorage.setItem('activePropertyId', preferred.id);
+      }
+    } catch (e) {
+      logger.warn('[ProjectManager] Could not restore active property context', e);
+    }
   }
 
   private ensureActiveProjectContext() {
@@ -512,7 +581,7 @@ export class ProjectManager {
 
     this.isPersistingProject = true;
     try {
-      const isTauri = isTauriRuntime();
+    const isTauri = isTauriRuntime();
     const isDemo = this.currentProjectMode === 'demo';
     const workspacePath = (isTauri && !isDemo) ? (localStorage.getItem('rp_workspace_path') || '') : '';
     const folderPath = (isTauri && !isDemo) ? (localStorage.getItem('rp_last_project_path') || '') : '';
@@ -534,6 +603,9 @@ export class ProjectManager {
       }
 
       this.lastSyncedAt = Date.now();
+      if (this.currentProjectMode === 'real') {
+        syncCoordinator.syncUp().catch(e => logger.warn('[ProjectManager] Workspace Async SyncUp failed', e));
+      }
       this.markProjectClean();
       return;
     }
@@ -1303,6 +1375,46 @@ export class ProjectManager {
 
   getCurrentProjectId() {
     return this.currentProjectId;
+  }
+
+  getActiveSyncRootPath(): string | null {
+    try {
+      const workspacePath = localStorage.getItem('rp_workspace_path');
+      const workspaceProjectId = localStorage.getItem('rp_workspace_project_id');
+      if (workspacePath && workspaceProjectId && workspaceProjectId === this.currentProjectId) {
+        return workspacePath;
+      }
+
+      const folderPath = localStorage.getItem('rp_last_project_path');
+      const folderProjectId = localStorage.getItem('rp_last_project_id');
+      if (folderPath && folderProjectId && folderProjectId === this.currentProjectId) {
+        return folderPath;
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  getActiveSyncSourceKind(): 'workspace' | 'folder-project' | null {
+    try {
+      const workspacePath = localStorage.getItem('rp_workspace_path');
+      const workspaceProjectId = localStorage.getItem('rp_workspace_project_id');
+      if (workspacePath && workspaceProjectId && workspaceProjectId === this.currentProjectId) {
+        return 'workspace';
+      }
+
+      const folderPath = localStorage.getItem('rp_last_project_path');
+      const folderProjectId = localStorage.getItem('rp_last_project_id');
+      if (folderPath && folderProjectId && folderProjectId === this.currentProjectId) {
+        return 'folder-project';
+      }
+
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   // ...
