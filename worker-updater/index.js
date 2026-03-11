@@ -22,62 +22,143 @@
  * }
  */
 
-const CACHE_TTL = 60; // 60s — short enough to pick up new releases quickly
+const ENDPOINT_CACHE_TTL = 60;
+const GITHUB_CACHE_TTL = 300;
+const CACHE_BASE_URL = 'https://rentikpro-updates.cache.internal';
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === '/latest.json') {
+      return handleUpdateCheck(request, env, ctx);
+    }
+    if (url.pathname === '/release.json') {
+      return handleReleaseInfo(request, env, ctx);
+    }
     if (url.pathname !== '/latest.json') {
       return new Response(
-        'RentikPro Update Server\nUsage: GET /latest.json',
+        'RentikPro Update Server\nUsage: GET /latest.json or /release.json',
         { status: 200, headers: { 'Content-Type': 'text/plain' } }
       );
     }
-    return handleUpdateCheck(request, env, ctx);
   },
 };
 
-async function handleUpdateCheck(request, env, ctx) {
+async function getLatestRelease(env, ctx) {
   const REPO = env.GITHUB_REPO || 'reservaselrinconcito-stack/rentikpro-app';
   const API = `https://api.github.com/repos/${REPO}/releases/latest`;
 
+  const ghHeaders = {
+    'User-Agent': 'RentikPro-Updater-Worker/2',
+    'Accept': 'application/vnd.github.v3+json',
+  };
+  const githubToken = resolveGitHubToken(env);
+  if (githubToken) {
+    ghHeaders['Authorization'] = `Bearer ${githubToken}`;
+  }
+
+  const cacheKey = new Request(`${CACHE_BASE_URL}/github/latest-release?repo=${encodeURIComponent(REPO)}`);
+  const cache = caches.default;
+  const cached = await cache.match(cacheKey);
+  if (cached) {
+    return { release: await cached.json(), ghHeaders, repo: REPO };
+  }
+
+  const ghRes = await fetch(API, { headers: ghHeaders });
+  if (!ghRes.ok) {
+    throw await createGitHubError(ghRes, { repo: REPO, hasToken: Boolean(githubToken) });
+  }
+
+  const releaseBody = await ghRes.text();
+  const release = JSON.parse(releaseBody);
+  ctx.waitUntil(cache.put(cacheKey, new Response(releaseBody, {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': `public, max-age=${GITHUB_CACHE_TTL}, s-maxage=${GITHUB_CACHE_TTL}`,
+    },
+  })));
+
+  return { release, ghHeaders, repo: REPO };
+}
+
+async function handleCachedJson(request, ctx, builder) {
   const cache = caches.default;
   const cacheKey = new Request(request.url, request);
   const cached = await cache.match(cacheKey);
   if (cached) return cached;
 
-  try {
-    const ghHeaders = {
-      'User-Agent': 'RentikPro-Updater-Worker/2',
-      'Accept': 'application/vnd.github.v3+json',
-    };
-    if (env.GITHUB_TOKEN) {
-      ghHeaders['Authorization'] = `Bearer ${env.GITHUB_TOKEN.trim()}`;
-    }
-
-    const ghRes = await fetch(API, { headers: ghHeaders });
-    if (!ghRes.ok) {
-      return errorResponse(ghRes.status, `GitHub API ${ghRes.status}: ${await ghRes.text()}`);
-    }
-
-    const release = await ghRes.json();
-    const manifest = await buildManifest(release, ghHeaders);
-
-    const body = JSON.stringify(manifest);
-    const response = new Response(body, {
-      headers: {
+  const body = JSON.stringify(await builder());
+  const response = new Response(body, {
+    headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*',
-        'Cache-Control': `public, max-age=${CACHE_TTL}, s-maxage=${CACHE_TTL}`,
+        'Cache-Control': `public, max-age=${ENDPOINT_CACHE_TTL}, s-maxage=${ENDPOINT_CACHE_TTL}`,
       },
     });
 
-    ctx.waitUntil(cache.put(cacheKey, response.clone()));
-    return response;
+  ctx.waitUntil(cache.put(cacheKey, response.clone()));
+  return response;
+}
 
+async function handleUpdateCheck(request, env, ctx) {
+  try {
+    return await handleCachedJson(request, ctx, async () => {
+      const { release, ghHeaders } = await getLatestRelease(env, ctx);
+      return buildManifest(release, ghHeaders);
+    });
   } catch (err) {
-    return errorResponse(500, `Worker error: ${err.message}`);
+    return errorResponse(err);
   }
+}
+
+async function handleReleaseInfo(request, env, ctx) {
+  try {
+    return await handleCachedJson(request, ctx, async () => {
+      const { release, repo } = await getLatestRelease(env, ctx);
+      return buildReleaseInfo(release, repo);
+    });
+  } catch (err) {
+    return errorResponse(err);
+  }
+}
+
+function findReleaseAsset(assets, { suffix, tokens, exclude = [] }) {
+  const wanted = tokens.map((token) => token.toLowerCase());
+  const forbidden = exclude.map((token) => token.toLowerCase());
+  return assets.find((asset) => {
+    const name = asset.name.toLowerCase();
+    return name.endsWith(suffix)
+      && wanted.every((token) => name.includes(token))
+      && forbidden.every((token) => !name.includes(token));
+  }) || null;
+}
+
+function buildReleaseInfo(release, repo) {
+  const version = release.tag_name.replace(/^v/, '');
+  const assets = release.assets || [];
+
+  const macArm = findReleaseAsset(assets, { suffix: '.dmg', tokens: ['aarch64'], exclude: [] });
+  const macX64 = findReleaseAsset(assets, { suffix: '.dmg', tokens: ['x64'], exclude: ['setup'] });
+  const winX64 = findReleaseAsset(assets, { suffix: '.exe', tokens: ['x64', 'setup'], exclude: ['sig'] });
+
+  const toDownload = (asset) => asset ? {
+    name: asset.name,
+    url: asset.browser_download_url,
+    size: asset.size,
+    contentType: asset.content_type,
+  } : null;
+
+  return {
+    version,
+    notes: (release.body || '').split('\n')[0].trim() || 'Correcciones y mejoras generales.',
+    pub_date: release.published_at,
+    release_url: release.html_url || `https://github.com/${repo}/releases/latest`,
+    downloads: {
+      macos_arm64: toDownload(macArm),
+      macos_x64: toDownload(macX64),
+      windows_x64: toDownload(winX64),
+    },
+  };
 }
 
 async function buildManifest(release, ghHeaders) {
@@ -165,9 +246,84 @@ async function buildManifest(release, ghHeaders) {
   return { version, notes, pub_date, platforms };
 }
 
-function errorResponse(status, message) {
-  return new Response(JSON.stringify({ error: message }), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+function resolveGitHubToken(env) {
+  for (const key of ['GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_PAT']) {
+    const value = env[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return '';
+}
+
+async function createGitHubError(response, { repo, hasToken }) {
+  const details = trimErrorDetails(await response.text());
+  const remaining = response.headers.get('x-ratelimit-remaining');
+  const rateLimited = response.status === 403 && (
+    remaining === '0'
+    || /rate limit exceeded|secondary rate limit/i.test(details || '')
+  );
+
+  if (rateLimited) {
+    return withErrorMeta(
+      new Error(
+        hasToken
+          ? `GitHub API rate limit exceeded for ${repo}. Retry later or raise the token quota.`
+          : `GitHub API rate limit exceeded for ${repo}. Configure the GITHUB_TOKEN worker secret.`
+      ),
+      {
+        status: 503,
+        code: 'github_rate_limited',
+        upstreamStatus: response.status,
+        details,
+      }
+    );
+  }
+
+  if (response.status === 401) {
+    return withErrorMeta(new Error(`GitHub authentication failed for ${repo}. Check the configured token.`), {
+      status: 502,
+      code: 'github_auth_failed',
+      upstreamStatus: response.status,
+      details,
+    });
+  }
+
+  return withErrorMeta(new Error(`GitHub release lookup failed for ${repo}.`), {
+    status: 502,
+    code: 'github_upstream_error',
+    upstreamStatus: response.status,
+    details,
+  });
+}
+
+function withErrorMeta(error, meta) {
+  return Object.assign(error, meta);
+}
+
+function trimErrorDetails(text) {
+  return String(text || '').trim().slice(0, 400) || null;
+}
+
+function errorResponse(error) {
+  const payload = {
+    error: error?.message || 'Worker error',
+    code: error?.code || 'worker_error',
+  };
+
+  if (error?.upstreamStatus) {
+    payload.upstream_status = error.upstreamStatus;
+  }
+  if (error?.details) {
+    payload.details = error.details;
+  }
+
+  return new Response(JSON.stringify(payload), {
+    status: error?.status || 500,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'no-store',
+    },
   });
 }

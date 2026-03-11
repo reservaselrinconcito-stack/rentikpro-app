@@ -5,4 +5,5 @@ compatibility_flags = ["global_fetch_strictly_public"]
 
 [vars]
 GITHUB_REPO = "reservaselrinconcito-stack/rentikpro-app"
-# GITHUB_TOKEN = (Set this via `wrangler secret put GITHUB_TOKEN` if you hit rate limits)
+# Preferred secret: `wrangler secret put GITHUB_TOKEN`
+# Supported aliases for backwards compatibility: GH_TOKEN, GITHUB_PAT
