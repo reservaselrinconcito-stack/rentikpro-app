@@ -14,7 +14,7 @@ import { AppVersion } from '../src/components/AppVersion';
 import { ICalDebugPanel } from './ICalDebugPanel';
 import { ProjectSwitcherModal } from './ProjectSwitcherModal';
 import { CheckCircle, AlertCircle, Cloud, CloudOff } from 'lucide-react';
-import { syncCoordinator, type SyncStatusSnapshot } from '../services/syncCoordinator';
+import { syncCoordinator } from '../services/syncCoordinator';
 import { isTauri } from '../utils/isTauri';
 import { isDbReady, getDbReady } from '../services/sqliteStore';
 import { useMaintenance } from '../src/hooks/useMaintenance';
@@ -170,17 +170,9 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   };
 
   // Sync Status
-  const [syncStatus, setSyncStatus] = useState<SyncStatusSnapshot>(syncCoordinator.getStatus());
+  const [isSyncing, setIsSyncing] = useState(false);
   useEffect(() => {
-    const unsubSyncing = syncCoordinator.subscribe(() => {
-      setSyncStatus(syncCoordinator.getStatus());
-    });
-    const unsubStatus = syncCoordinator.subscribeStatus(setSyncStatus);
-    syncCoordinator.refreshStatus().catch(() => null);
-    return () => {
-      unsubSyncing();
-      unsubStatus();
-    };
+    return syncCoordinator.subscribe(setIsSyncing);
   }, []);
 
   // DB readiness gate: avoid crashes from querying before init.
@@ -202,28 +194,11 @@ export const Layout: React.FC<LayoutProps> = ({ children, onSave, onClose }) => 
   }, []);
 
   const SyncStatusBadge = () => {
-    if (!syncStatus.isEnabled || syncStatus.state === 'disabled') return null;
-
-    const states: Record<SyncStatusSnapshot['state'], { label: string; className: string; icon: React.ComponentType<any>; spin?: boolean }> = {
-      disabled: { label: 'Sync off', className: 'text-slate-500 bg-slate-50 border-slate-200', icon: CloudOff },
-      syncing: { label: 'Sincronizando', className: 'text-indigo-600 bg-indigo-50 border-indigo-100 animate-pulse', icon: RefreshCw, spin: true },
-      synchronized: { label: 'Sincronizado', className: 'text-emerald-600 bg-emerald-50 border-emerald-100', icon: Cloud },
-      local_changes: { label: 'Cambios locales', className: 'text-amber-700 bg-amber-50 border-amber-200', icon: Save },
-      remote_changes: { label: 'Cambios remotos', className: 'text-sky-700 bg-sky-50 border-sky-200', icon: Cloud },
-      conflict: { label: 'Conflicto', className: 'text-rose-700 bg-rose-50 border-rose-200', icon: AlertTriangle },
-      read_only: { label: 'Solo lectura', className: 'text-slate-700 bg-slate-100 border-slate-200', icon: CloudOff },
-      error: { label: 'Error sync', className: 'text-rose-700 bg-rose-50 border-rose-200', icon: AlertTriangle },
-    };
-
-    const meta = states[syncStatus.state];
-    const Icon = meta.icon;
+    if (!isSyncing) return null;
     return (
-      <div
-        title={syncStatus.detail}
-        className={`flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest px-2 py-1.5 rounded-lg border ${meta.className}`}
-      >
-        <Icon size={11} className={meta.spin ? 'animate-spin' : ''} />
-        <span>{meta.label}</span>
+      <div className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest px-2 py-1.5 rounded-lg border text-indigo-600 bg-indigo-50 border-indigo-100 animate-pulse">
+        <RefreshCw size={11} className="animate-spin" />
+        <span>Nube Sync...</span>
       </div>
     );
   };
